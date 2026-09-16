@@ -9,11 +9,12 @@
 
 ## 1. Executive State Snapshot
 
-* **Current Stage:** Phase 1 (Credentials & Environment) & Phase 2 (Full-Stack Skeleton Architecture) — **SCAFFOLDING COMPLETED**.
+* **Current Stage:** Phase 1 (Credentials & Environment) & Phase 2 (Full-Stack Skeleton Architecture) — **SCAFFOLDED & PUSHED TO GITHUB**.
+* **GitHub Repository:** [`https://github.com/anesu-metabox/AI-Voice-Assistants.git`](https://github.com/anesu-metabox/AI-Voice-Assistants.git) (Tracking: `origin/main`).
+* **Active Working Branch:** `main` (clean working tree; `.gitignore` actively protecting `.env` secrets).
 * **System Status:** Complete directory tree and typed skeletons established across `db/`, `backend/`, `agent/`, and `frontend/`.
-* **Active Working Branch:** `main` (trunk).
 * **Baseline Engine:** Google Gemini Live via LiveKit Agents (`livekit-plugins-google`) (ADR-008). Deepgram + Cartesia retained as production fallback (ADR-007).
-* **Local Tooling State:** Node.js v22.23.2 and npm 10.9.8 detected; Python 3.12 installation / PATH configuration pending.
+* **Local Tooling State:** Node.js v22.23.2 and npm 10.9.8 active; Python 3.12 installation / PATH configuration pending.
 
 ---
 
@@ -21,6 +22,7 @@
 
 | File Path | Component | Architectural Purpose & Exported Entities |
 | :--- | :--- | :--- |
+| [`.gitignore`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/.gitignore) | Repository Hygiene | Excludes `.env`, node_modules, `.next`, Python cache, and virtual environments from GitHub. |
 | [`.env`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/.env) | Root Config | Pre-formatted environment config with keys for LiveKit, Gemini, Neon Postgres, and Google OAuth. |
 | [`AGENT_GOAL.md`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/AGENT_GOAL.md) | Orchestrator | Antigravity operational directives, laws of grounded confirmation, and milestone rubric. |
 | [`CODEX_COLLABORATOR_STATE.md`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/CODEX_COLLABORATOR_STATE.md) | Collaboration | This live ledger tracking state, completed tasks, and next steps for Codex. |
