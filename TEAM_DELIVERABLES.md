@@ -48,4 +48,6 @@
 2. **Verified Execution Rule:** No tool PR is merged without automated unit tests asserting both success (`200 OK`) and graceful error handling.
 3. **Latency Accountability:** Any feature adding more than 100ms to conversational turnaround time must be flagged in the weekly sync.
 4. **Zero Duplication Guarantee:** Any tool that modifies external state (creating bookings, sending emails) must accept and enforce an idempotency key.
+5. **Sacred Main & Gatekeeper Protocol (ADR-009):** Direct push to `main` is strictly forbidden. Only **Anesu (`anesu-metabox`)** is authorized to push or merge into `main`. All feature PRs merge into `develop` first.
+6. **Automated CI Quality Gate:** All PRs must pass automated CI (`.github/workflows/ci.yml`) with green status checks before merging.
 

@@ -9,10 +9,11 @@
 
 ## 1. Executive State Snapshot
 
-* **Current Stage:** Phase 1 (Credentials & Environment) & Phase 2 (Full-Stack Skeleton Architecture) — **SCAFFOLDED & PUSHED TO GITHUB**.
-* **GitHub Repository:** [`https://github.com/anesu-metabox/AI-Voice-Assistants.git`](https://github.com/anesu-metabox/AI-Voice-Assistants.git) (Tracking: `origin/main`).
-* **Active Working Branch:** `main` (clean working tree; `.gitignore` actively protecting `.env` secrets).
-* **System Status:** Complete directory tree and typed skeletons established across `db/`, `backend/`, `agent/`, and `frontend/`.
+* **Current Stage:** Phase 1 (Credentials & Environment) & Phase 2 (Full-Stack Skeleton Architecture) — **SCAFFOLDED, AUTOMATED CI ACTIVE & GITHUB SYNCED**.
+* **GitHub Repository:** [`https://github.com/anesu-metabox/AI-Voice-Assistants.git`](https://github.com/anesu-metabox/AI-Voice-Assistants.git)
+* **Active Working Branch:** `develop` (Tracking: `origin/develop`).
+* **Sacred Main Trunk Protocol (ADR-009):** `main` is protected. Direct push to `main` is prohibited. Only **Anesu (`anesu-metabox`)** is authorized to push or merge into `main`. All feature branches and PRs must target `develop`.
+* **Notion Strategic Journal:** [Anesu's Personal Decision Log & Non-Obvious Architecture Choices](https://app.notion.com/p/Anesu-s-Personal-Decision-Log-Non-Obvious-Architecture-Choices-3ddcf5b722df813e8c27fdea150da7fc).
 * **Baseline Engine:** Google Gemini Live via LiveKit Agents (`livekit-plugins-google`) (ADR-008). Deepgram + Cartesia retained as production fallback (ADR-007).
 * **Local Tooling State:** Node.js v22.23.2 and npm 10.9.8 active; Python 3.12 installation / PATH configuration pending.
 
@@ -22,9 +23,10 @@
 
 | File Path | Component | Architectural Purpose & Exported Entities |
 | :--- | :--- | :--- |
+| [`.github/workflows/ci.yml`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/.github/workflows/ci.yml) | CI/CD Quality Gate | Automated GitHub Actions checking Python syntax, TypeScript typecheck, and DDL integrity on PRs. |
 | [`.gitignore`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/.gitignore) | Repository Hygiene | Excludes `.env`, node_modules, `.next`, Python cache, and virtual environments from GitHub. |
 | [`.env`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/.env) | Root Config | Pre-formatted environment config with keys for LiveKit, Gemini, Neon Postgres, and Google OAuth. |
-| [`AGENT_GOAL.md`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/AGENT_GOAL.md) | Orchestrator | Antigravity operational directives, laws of grounded confirmation, and milestone rubric. |
+| [`AGENT_GOAL.md`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/AGENT_GOAL.md) | Orchestrator | Antigravity operational directives, laws of grounded confirmation, Sacred Main law, and milestone rubric. |
 | [`CODEX_COLLABORATOR_STATE.md`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/CODEX_COLLABORATOR_STATE.md) | Collaboration | This live ledger tracking state, completed tasks, and next steps for Codex. |
 | [`db/migrations/001_initial_schema.sql`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/db/migrations/001_initial_schema.sql) | Database | DDL for `tasks`, `idempotency_records`, and `user_preferences` with auto-update trigger. |
 | [`db/connection.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/db/connection.py) | Database | `get_db_pool()`, `close_db_pool()` managing asyncpg pool with statement cache disabled for Neon. |
@@ -55,11 +57,14 @@
 
 ## 3. Active Architectural Decisions (Quick Reference for Codex)
 
-1. **Python Environments:** Separate virtual environments and dedicated `requirements.txt` for `agent/` and `backend/` to prevent WebRTC/gRPC version collisions.
-2. **Database Migration Tooling:** Pure SQL migrations in `db/migrations/` executed via `asyncpg` for sub-5ms raw query speed (no heavy ORM overhead in the critical voice loop).
-3. **Voice to Backend Dispatch:** LiveKit Agent dispatches tool execution requests to FastAPI via async HTTP (`POST /tools/execute`), strictly decoupling voice audio transport from business logic.
-4. **Interruption Protocol (ADR-005):** Next.js client uses an `AudioWorklet` (`vad-processor.js`) to locally mute speaker audio in under 20ms upon user voice energy detection, simultaneously emitting `response.cancel` to the server.
-5. **Tool Mock Fallbacks:** Backend tool implementations (`calendar.py`, `contacts.py`) include realistic mock data fallbacks with simulated latency (~150ms) so end-to-end voice testing works before external OAuth keys are connected.
+1. **Sacred Main & Sole Gatekeeper Protocol (ADR-009):** `main` is sacred and protected. Direct pushes to `main` are blocked. Only Anesu (`anesu-metabox`) merges or pushes to `main`. All feature work occurs on branches off `develop`.
+2. **Automated CI Quality Gate:** GitHub Actions (`.github/workflows/ci.yml`) runs on all PRs to `develop` and `main`. Status checks must be green before merging ("No Green, No Merge").
+3. **Python Environments:** Separate virtual environments and dedicated `requirements.txt` for `agent/` and `backend/` to prevent WebRTC/gRPC version collisions.
+4. **Database Migration Tooling:** Pure SQL migrations in `db/migrations/` executed via `asyncpg` for sub-5ms raw query speed (no heavy ORM overhead in the critical voice loop).
+5. **Voice to Backend Dispatch:** LiveKit Agent dispatches tool execution requests to FastAPI via async HTTP (`POST /tools/execute`), strictly decoupling voice audio transport from business logic.
+6. **Interruption Protocol (ADR-005):** Next.js client uses an `AudioWorklet` (`vad-processor.js`) to locally mute speaker audio in under 20ms upon user voice energy detection, simultaneously emitting `response.cancel` to the server.
+7. **Tool Mock Fallbacks:** Backend tool implementations (`calendar.py`, `contacts.py`) include realistic mock data fallbacks with simulated latency (~150ms) so end-to-end voice testing works before external OAuth keys are connected.
+8. **Anesu's Personal Decision Log:** Full strategic rationale for non-obvious choices is documented in Notion at [Anesu's Personal Decision Log & Non-Obvious Architecture Choices](https://app.notion.com/p/Anesu-s-Personal-Decision-Log-Non-Obvious-Architecture-Choices-3ddcf5b722df813e8c27fdea150da7fc).
 
 ---
 
@@ -67,15 +72,21 @@
 
 When picking up work or pairing on this codebase, prioritize in this order:
 
-1. **Populate Credentials:**
+1. **Branching Rule:** Always create a feature branch off `develop`:
+   ```bash
+   git checkout develop
+   git pull origin develop
+   git checkout -b feat/your-feature-name
+   ```
+2. **Populate Credentials:**
    * Review [`.env`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/.env) with Anesu and insert `GOOGLE_API_KEY`, `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `DATABASE_URL`.
-2. **Database Migration (`db/`) [Assigned to Anesu - ANE-02]:**
+3. **Database Migration (`db/`) [Assigned to Anesu - ANE-02]:**
    * Run `db/migrations/001_initial_schema.sql` against the Neon PostgreSQL database.
    * Verify table creation: `tasks`, `idempotency_records`, `user_preferences`.
-3. **Backend Service Test (`backend/`) [Assigned to Collaborator 1 - COL1-01]:**
+4. **Backend Service Test (`backend/`) [Assigned to Collaborator 1 - COL1-01]:**
    * Ensure Python 3.12 is installed; run `pip install -r backend/requirements.txt`.
    * Start FastAPI dev server: `uvicorn backend.app.main:app --reload --port 8000`.
    * Send test POST to `http://localhost:8000/tools/execute` with `{"tool_name": "get_calendar_availability", "parameters": {}}`.
-4. **Frontend Installation & Run (`frontend/`) [Assigned to Collaborator 2 - COL2-03]:**
+5. **Frontend Installation & Run (`frontend/`) [Assigned to Collaborator 2 - COL2-03]:**
    * In `frontend/`, run `npm install`.
    * Start Next.js dev server: `npm run dev` and open `http://localhost:3000`.
