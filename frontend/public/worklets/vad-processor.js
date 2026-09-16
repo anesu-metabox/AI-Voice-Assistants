@@ -1,0 +1,49 @@
+/**
+ * VAD AudioWorklet Processor (ADR-005)
+ * Runs in a dedicated audio thread to detect voice activity with <15ms latency.
+ * Emits 'speech_start' and 'speech_end' messages to the main thread.
+ */
+
+class VADProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.energyThreshold = 0.025; // Calibrated mic energy threshold
+    this.silenceHangoverFrames = 25; // ~300ms at 128 samples / 48kHz
+    this.silentFramesCount = 0;
+    this.isSpeaking = false;
+  }
+
+  process(inputs, outputs, parameters) {
+    const input = inputs[0];
+    if (!input || !input[0]) return true;
+
+    const channelData = input[0];
+    let sumSquares = 0.0;
+
+    for (let i = 0; i < channelData.length; i++) {
+      sumSquares += channelData[i] * channelData[i];
+    }
+
+    const rms = Math.sqrt(sumSquares / channelData.length);
+
+    if (rms > this.energyThreshold) {
+      this.silentFramesCount = 0;
+      if (!this.isSpeaking) {
+        this.isSpeaking = true;
+        this.port.postMessage({ type: "speech_start", energy: rms });
+      }
+    } else {
+      if (this.isSpeaking) {
+        this.silentFramesCount++;
+        if (this.silentFramesCount > this.silenceHangoverFrames) {
+          this.isSpeaking = false;
+          this.port.postMessage({ type: "speech_end" });
+        }
+      }
+    }
+
+    return true;
+  }
+}
+
+registerProcessor("vad-processor", VADProcessor);
