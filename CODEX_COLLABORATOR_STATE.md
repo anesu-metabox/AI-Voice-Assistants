@@ -83,13 +83,13 @@ When picking up work or pairing on this codebase, prioritize in this order:
    ```
 2. **Populate Credentials:**
    * Review [`.env`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/.env) with Anesu and insert `GOOGLE_API_KEY`, `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `DATABASE_URL`.
-3. **Database Migration (`db/`) [Assigned to Anesu - ANE-02]:**
-   * Run `db/migrations/001_initial_schema.sql` against the Neon PostgreSQL database.
-   * Verify table creation: `tasks`, `idempotency_records`, `user_preferences`.
+3. **Database Migration (`db/`) [Assigned to Anesu - ANE-02 — COMPLETED & VERIFIED]:**
+   * Migration `001_initial_schema.sql` successfully deployed to Neon project `divine-hat-17233837` on branch `production`.
+   * Verified active tables: `tasks`, `idempotency_records`, and `user_preferences`.
 4. **Backend Service Test (`backend/`) [Assigned to Collaborator 1 - COL1-01]:**
-   * Ensure Python 3.12 is installed; run `pip install -r backend/requirements.txt`.
+   * Python 3.14 runtime verified via `py` launcher; run `py -m pip install -r backend/requirements.txt`.
    * Start FastAPI dev server: `uvicorn backend.app.main:app --reload --port 8000`.
    * Send test POST to `http://localhost:8000/tools/execute` with `{"tool_name": "get_calendar_availability", "parameters": {}}`.
 5. **Frontend Installation & Run (`frontend/`) [Assigned to Collaborator 2 - COL2-03]:**
-   * In `frontend/`, run `npm install`.
+   * In `frontend/`, dependencies installed and TypeScript typecheck passing (`npx tsc --noEmit`).
    * Start Next.js dev server: `npm run dev` and open `http://localhost:3000`.
