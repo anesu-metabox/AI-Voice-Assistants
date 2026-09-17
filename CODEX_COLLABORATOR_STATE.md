@@ -24,6 +24,8 @@
 | File Path | Component | Architectural Purpose & Exported Entities |
 | :--- | :--- | :--- |
 | [`.github/workflows/ci.yml`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/.github/workflows/ci.yml) | CI/CD Quality Gate | Automated GitHub Actions checking Python syntax, TypeScript typecheck, and DDL integrity on PRs. |
+| [`.neon`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/.neon) | Neon Context | Linked project context (`divine-hat-17233837`) and branch (`production`). |
+| [`neon.ts`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/neon.ts) | Neon Policy | Config-as-code specification deployed to Neon branch via `neon deploy`. |
 | [`.gitignore`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/.gitignore) | Repository Hygiene | Excludes `.env`, node_modules, `.next`, Python cache, and virtual environments from GitHub. |
 | [`.env`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/.env) | Root Config | Pre-formatted environment config with keys for LiveKit, Gemini, Neon Postgres, and Google OAuth. |
 | [`AGENT_GOAL.md`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/AGENT_GOAL.md) | Orchestrator | Antigravity operational directives, laws of grounded confirmation, Sacred Main law, and milestone rubric. |
