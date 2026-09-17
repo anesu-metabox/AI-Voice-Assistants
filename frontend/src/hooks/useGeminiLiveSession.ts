@@ -133,6 +133,7 @@ export const useGeminiLiveSession = () => {
             // Create Gemini client
             const ai = new GoogleGenAI({
                 apiKey: token,
+                httpOptions: { apiVersion: "v1alpha" },
             });
 
             // Create audio context
@@ -241,7 +242,9 @@ export const useGeminiLiveSession = () => {
 
                     onclose: (event: any) => {
                         console.log(
-                            "Gemini Live closed:",
+                            "Gemini Live closed. Code:",
+                            event?.code,
+                            "Reason:",
                             event?.reason
                         );
 

@@ -1,6 +1,25 @@
 import { NextResponse } from "next/server";
 import { GoogleGenAI, Modality } from "@google/genai";
 
+async function getGoogleServerTime(): Promise<number> {
+    try {
+        const res = await fetch("https://generativelanguage.googleapis.com", {
+            method: "HEAD",
+            cache: "no-store",
+        });
+        const serverDate = res.headers.get("date");
+        if (serverDate) {
+            const serverMs = new Date(serverDate).getTime();
+            if (!isNaN(serverMs)) {
+                return serverMs;
+            }
+        }
+    } catch (err) {
+        console.warn("Failed to get Google server time header, falling back to local time:", err);
+    }
+    return Date.now();
+}
+
 export async function GET() {
     try {
         let apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -14,16 +33,20 @@ export async function GET() {
 
         const ai = new GoogleGenAI({
             apiKey: apiKey,
+            httpOptions: { apiVersion: "v1alpha" },
         });
+
+        // Use authoritative Google server time to prevent clock skew / expired token errors (1011)
+        const serverNow = await getGoogleServerTime();
 
         const token = await ai.authTokens.create({
             config: {
                 uses: 1,
                 expireTime: new Date(
-                    Date.now() + 30 * 60 * 1000
+                    serverNow + 30 * 60 * 1000
                 ).toISOString(),
                 newSessionExpireTime: new Date(
-                    Date.now() + 60 * 1000
+                    serverNow + 5 * 60 * 1000
                 ).toISOString(),
                 liveConnectConstraints: {
                     model: "gemini-3.8-live",
