@@ -3,15 +3,17 @@ import { GoogleGenAI, Modality } from "@google/genai";
 
 export async function GET() {
     try {
-        if (!process.env.GEMINI_API_KEY) {
+        let apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+        if (!apiKey) {
             return NextResponse.json(
-                { error: "GEMINI_API_KEY is not configured." },
+                { error: "GEMINI_API_KEY or GOOGLE_API_KEY is not configured." },
                 { status: 500 }
             );
         }
+        apiKey = apiKey.replace(/^["']|["']$/g, '').trim();
 
         const ai = new GoogleGenAI({
-            apiKey: process.env.GEMINI_API_KEY,
+            apiKey: apiKey,
         });
 
         const token = await ai.authTokens.create({
