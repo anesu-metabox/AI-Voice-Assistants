@@ -1,23 +1,33 @@
 """
 Tools Execution Router
-Central dispatcher for executing voice tools synchronously with idempotency protection.
+Central dispatcher for executing voice tools synchronously with idempotency protection,
+strict Pydantic runtime schema validation, and ANE-03 Confirmation Protocol enforcement.
 """
 
 import logging
 import time
 from typing import Any, Callable, Dict
+import uuid
 
 from fastapi import APIRouter, HTTPException, status
+from pydantic import ValidationError
 
-from ..schemas.tools import ToolExecutionRequest, ToolExecutionResponse
-from ..tools.calendar import get_calendar_availability, book_event
+from ..schemas.tools import (
+    ToolExecutionRequest,
+    ToolExecutionResponse,
+    ToolName,
+    validate_tool_params,
+    get_tool_input_schema,
+)
+from ..tools.calendar import get_calendar_availability, book_event, cancel_event
 from ..tools.contacts import search_contacts
+from ..tools.email import draft_email
+from ..tools.tasks import create_durable_task
 
 # Relative import of DB idempotency engine
 import sys
 from pathlib import Path
 
-# Add project root to path if needed for db imports
 root_path = str(Path(__file__).resolve().parents[3])
 if root_path not in sys.path:
     sys.path.append(root_path)
@@ -31,32 +41,115 @@ from db.idempotency import (
 logger = logging.getLogger("voice_bot.api.tools")
 router = APIRouter(prefix="/tools", tags=["tools"])
 
-# Tool Registry
+# Tool Registry for Sprint 1
 TOOL_REGISTRY: Dict[str, Callable[..., Any]] = {
-    "get_calendar_availability": get_calendar_availability,
-    "book_event": book_event,
-    "search_contacts": search_contacts,
+    ToolName.GET_CALENDAR_AVAILABILITY.value: get_calendar_availability,
+    ToolName.BOOK_EVENT.value: book_event,
+    ToolName.CANCEL_EVENT.value: cancel_event,
+    ToolName.SEARCH_CONTACTS.value: search_contacts,
+    ToolName.DRAFT_EMAIL.value: draft_email,
+    ToolName.CREATE_DURABLE_TASK.value: create_durable_task,
 }
+
+# High-impact destructive tools requiring explicit confirmation (ANE-03)
+CONFIRMATION_REQUIRED_TOOLS = {
+    ToolName.CANCEL_EVENT.value,
+}
+
+
+@router.get("/schemas")
+async def get_all_tool_schemas() -> Dict[str, Any]:
+    """
+    Returns the JSONSchema definitions for all registered tools.
+    Used for LLM function calling registration and documentation.
+    """
+    return {
+        tool_name: get_tool_input_schema(tool_name)
+        for tool_name in TOOL_REGISTRY.keys()
+    }
 
 
 @router.post("/execute", response_model=ToolExecutionResponse)
 async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
     """
-    Execute a registered voice tool by name with parameters and optional idempotency key.
+    Execute a registered voice tool with:
+    1. Tool existence check
+    2. Strict Pydantic parameter schema validation (Anti-Divergence Pillar 2)
+    3. ANE-03 Confirmation Protocol check for destructive actions
+    4. Distributed idempotency lock acquisition (Zero Duplication Guarantee)
+    5. Async execution and latency measurement (<450ms budget)
     """
     start_time = time.perf_counter()
     tool_name = request.tool_name
 
+    # 1. Verify tool exists in registry
     if tool_name not in TOOL_REGISTRY:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown tool '{tool_name}'. Available tools: {list(TOOL_REGISTRY.keys())}",
         )
 
+    # 2. Strict Pydantic Schema Validation
+    try:
+        validated_model = validate_tool_params(tool_name, request.parameters)
+        tool_kwargs = validated_model.model_dump()
+    except ValidationError as val_err:
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        error_hints = [
+            f"'{' -> '.join(str(loc) for loc in err.get('loc', []))}': {err.get('msg')}"
+            for err in val_err.errors()
+        ]
+        combined_error = "; ".join(error_hints)
+        logger.warning("Tool validation failed for '%s': %s", tool_name, combined_error)
+        return ToolExecutionResponse(
+            status="error",
+            error_code="VALIDATION_ERROR",
+            error_message=f"Invalid arguments for {tool_name}: {combined_error}",
+            execution_time_ms=elapsed_ms,
+            idempotency_key=request.idempotency_key,
+        )
+    except Exception as exc:
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        return ToolExecutionResponse(
+            status="error",
+            error_code="SCHEMA_ERROR",
+            error_message=str(exc),
+            execution_time_ms=elapsed_ms,
+            idempotency_key=request.idempotency_key,
+        )
+
+    # 3. ANE-03 Permission Interceptor for Destructive Actions
+    if tool_name in CONFIRMATION_REQUIRED_TOOLS:
+        is_confirmed = tool_kwargs.get("confirm", False)
+        if not is_confirmed:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            confirmation_token = f"cnfmtk_{uuid.uuid4().hex[:16]}"
+            target_id = tool_kwargs.get("event_id", "specified item")
+            prompt_to_speak = (
+                f"Are you sure you want to cancel the event with ID {target_id}? "
+                "Please say yes to confirm or no to cancel."
+            )
+            logger.info("ANE-03 Interceptor gated tool '%s'; issued token %s", tool_name, confirmation_token)
+            return ToolExecutionResponse(
+                status="confirmation_required",
+                data={
+                    "status": "confirmation_required",
+                    "confirmation_token": confirmation_token,
+                    "prompt_to_speak": prompt_to_speak,
+                    "tool_name": tool_name,
+                    "impact_summary": {
+                        "action": tool_name,
+                        "parameters": tool_kwargs,
+                    },
+                },
+                execution_time_ms=elapsed_ms,
+                idempotency_key=request.idempotency_key,
+            )
+
     tool_func = TOOL_REGISTRY[tool_name]
     idempotency_key = request.idempotency_key
 
-    # 1. Idempotency Check (if key provided)
+    # 4. Idempotency Check (if key provided for write actions)
     if idempotency_key:
         is_new, cached_payload, msg = await acquire_idempotency_lock(
             key=idempotency_key,
@@ -75,17 +168,23 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
             else:
                 return ToolExecutionResponse(
                     status="conflict",
+                    error_code="IDEMPOTENCY_CONFLICT",
                     error_message=msg,
                     execution_time_ms=elapsed_ms,
                     idempotency_key=idempotency_key,
                 )
 
-    # 2. Execute Tool Function
+    # 5. Inject context for system-level tools (e.g. durable task runner)
+    if tool_name == ToolName.CREATE_DURABLE_TASK.value:
+        tool_kwargs["user_id"] = request.user_id
+        tool_kwargs["session_id"] = request.session_id
+
+    # 6. Execute Tool Function
     try:
-        result = await tool_func(**request.parameters)
+        result = await tool_func(**tool_kwargs)
         elapsed_ms = (time.perf_counter() - start_time) * 1000
 
-        # 3. Commit Idempotency Lock on Success
+        # 7. Commit Idempotency Lock on Success
         if idempotency_key:
             await commit_idempotency_lock(key=idempotency_key, response_payload=result)
 
@@ -100,12 +199,13 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         logger.exception("Error executing tool '%s': %s", tool_name, exc)
 
-        # 4. Release Lock on Error
+        # 8. Release Lock on Error
         if idempotency_key:
             await release_idempotency_lock(key=idempotency_key)
 
         return ToolExecutionResponse(
             status="error",
+            error_code="EXECUTION_ERROR",
             error_message=str(exc),
             execution_time_ms=elapsed_ms,
             idempotency_key=idempotency_key,
