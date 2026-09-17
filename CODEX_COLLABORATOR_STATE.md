@@ -54,6 +54,7 @@
 | [`frontend/src/hooks/useClientVAD.ts`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/frontend/src/hooks/useClientVAD.ts) | Frontend | Web Audio hook setting `gain.value = 0.0` in <20ms and sending cancellation signal. |
 | [`frontend/src/hooks/useLiveKitSession.ts`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/frontend/src/hooks/useLiveKitSession.ts) | Frontend | Room lifecycle, Web Audio graph, and data channel messaging. |
 | [`frontend/src/app/page.tsx`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/frontend/src/app/page.tsx) | Frontend | 3-column reactive executive voice assistant dashboard. |
+| [`frontend/src/lib/types.ts`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/frontend/src/lib/types.ts) | Frontend | Shared TypeScript interfaces for tasks, transcripts, and audio sessions. |
 
 ---
 
