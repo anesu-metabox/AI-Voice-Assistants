@@ -1,4 +1,4 @@
-"use client";
+/**"use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Room, RoomEvent, Track, RemoteTrackPublication, RemoteParticipant } from "livekit-client";
@@ -170,4 +170,4 @@ export const useLiveKitSession = () => {
     toggleHandsFree: () => setIsHandsFree((h) => !h),
     handleInterruption,
   };
-};
+}; **/
