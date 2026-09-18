@@ -5,9 +5,10 @@ import { AudioVisualizer } from "@/components/audio/AudioVisualizer";
 import { AudioControls } from "@/components/audio/AudioControls";
 import { TranscriptDeck } from "@/components/transcript/TranscriptDeck";
 import { TaskDeck } from "@/components/tasks/TaskDeck";
-import { useLiveKitSession } from "@/hooks/useLiveKitSession";
+//import { useLiveKitSession } from "@/hooks/useLiveKitSession";
 import { useClientVAD } from "@/hooks/useClientVAD";
 import { Sparkles, ShieldCheck } from "lucide-react";
+import { useGeminiLiveSession } from "@/hooks/useGeminiLiveSession";
 
 export default function Home() {
   const {
@@ -27,7 +28,7 @@ export default function Home() {
     toggleMute,
     toggleHandsFree,
     handleInterruption,
-  } = useLiveKitSession();
+  } = useGeminiLiveSession();
 
   // Sub-20ms Interruption VAD Hook (ADR-005)
   useClientVAD({

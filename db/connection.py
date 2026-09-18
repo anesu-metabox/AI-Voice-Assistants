@@ -5,6 +5,7 @@ Manages lightweight connection pooling to Neon Serverless PostgreSQL.
 
 import os
 import logging
+import urllib.parse
 from typing import Optional
 import asyncpg
 from dotenv import load_dotenv
@@ -14,6 +15,14 @@ load_dotenv()
 logger = logging.getLogger("voice_bot.db")
 
 _pool: Optional[asyncpg.Pool] = None
+
+
+def sanitize_db_url(url: str) -> str:
+    """
+    Strips query parameters (e.g. channel_binding, sslmode) from database URL for asyncpg compatibility.
+    """
+    parsed = urllib.parse.urlsplit(url)
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
 
 
 async def get_db_pool() -> asyncpg.Pool:
@@ -29,11 +38,11 @@ async def get_db_pool() -> asyncpg.Pool:
                 "Please update your .env file."
             )
 
-        # Neon requires sslmode=require; asyncpg handles ssl via ssl='require' parameter
-        # Clean postgresql:// url if sslmode is in query string
+        clean_url = sanitize_db_url(database_url)
         logger.info("Initializing asyncpg connection pool...")
         _pool = await asyncpg.create_pool(
-            dsn=database_url,
+            dsn=clean_url,
+            ssl="require",
             min_size=2,
             max_size=10,
             command_timeout=10,

@@ -23,6 +23,9 @@ Your mandate is to build, maintain, and audit an ultra-low-latency (<450ms turna
    * `agent/` (LiveKit WebRTC Runner) communicates with `backend/` (FastAPI) via async HTTP (`POST /tools/execute`). Never couple voice transport directly to business logic execution.
 4. **Sub-20ms Interruption Cut-Off:**
    * Local client AudioWorklet VAD mutes playback buffer in <20ms and fires `response.cancel`. The backend must halt generation and maintain conversation transcript continuity.
+5. **The Sacred Main & Gatekeeper Law (ADR-009):**
+   * `main` is sacred. NEVER push directly to `main`. Only Anesu (`anesu-metabox`) can merge to `main`.
+   * All ongoing work, feature branches, and test verifications must target `develop`.
 
 ---
 
@@ -31,8 +34,8 @@ Your mandate is to build, maintain, and audit an ultra-low-latency (<450ms turna
 | Phase | Description | Owner | Target Date | Status |
 | :--- | :--- | :--- | :--- | :--- |
 | **Phase 1** | Local Environment & Credentials Setup (`.env`) | Anesu / Antigravity | 2026-09-17 | [Completed] |
-| **Phase 2** | Full Skeleton Directory Structure (`agent`, `backend`, `db`, `frontend`) | Anesu / Antigravity | 2026-09-17 | [In Progress] |
-| **Phase 3** | Database Migration & Idempotency Locking Engine (`db/`) | Anesu | 2026-09-23 | [Pending] |
+| **Phase 2** | Full Skeleton Directory Structure (`agent`, `backend`, `db`, `frontend`) | Anesu / Antigravity | 2026-09-17 | [Completed] |
+| **Phase 3** | Database Migration & Idempotency Locking Engine (`db/`) | Anesu | 2026-09-17 | [Completed] |
 | **Phase 4** | FastAPI Tool Dispatcher & Direct Tools (`backend/`) | Collaborator 1 | 2026-09-27 | [Pending] |
 | **Phase 5** | LiveKit WebRTC Voice Streaming & AudioWorklet VAD (`frontend/` + `agent/`) | Collaborator 2 | 2026-10-02 | [Pending] |
 | **Phase 6** | Dual-Speed Task Engine & Worker Queue (`backend/`) | Collaborator 1 | 2026-10-08 | [Pending] |

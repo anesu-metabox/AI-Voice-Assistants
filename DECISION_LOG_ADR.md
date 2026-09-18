@@ -16,6 +16,7 @@
 | **ADR-006** | Single-Session Realtime API vs Decoupled GPT-Live Architecture | 2026-09-16 | [Superseded by ADR-008] | Anesu Mupesa |
 | **ADR-007** | Evaluation of Modular Stack (Deepgram + LLM + Cartesia) | 2026-09-16 | [Retained as Production Fallback] | Full Team |
 | **ADR-008** | Selection of Google Gemini Live (via LiveKit Agents) as Baseline Voice Engine | 2026-09-16 | [Accepted - Active Strategic Baseline] | Full Team |
+| **ADR-009** | Sacred Main Branch, Sole Gatekeeper Governance & Protected Workflow | 2026-09-17 | [Accepted] | Anesu Mupesa |
 
 ---
 
@@ -104,3 +105,29 @@ The team evaluated three viable technical paths for building the **AI VOICE BOT*
 - **Tool Dispatcher & Security:** FastAPI service.
 - **State & Idempotency:** PostgreSQL.
 - **Documented Fallback:** Modular LiveKit Stack (Deepgram Nova-2 + Cartesia Sonic).
+
+---
+
+### ADR-009: Sacred Main Branch, Sole Gatekeeper Governance & Protected Workflow
+- **Date:** 2026-09-17
+- **Status:** [Accepted]
+- **Owner:** Anesu Mupesa (Lead Architect & Systems Orchestrator)
+- **Scope:** Source Control, Release Management, Git Branching Strategy, CI/CD
+
+#### 1. Context & Problem Statement
+With multiple engineers and autonomous agents committing code across WebRTC media transports, FastAPI endpoints, and database migrations, unrestricted pushes to `main` introduce severe operational risks:
+1. Accidental broken builds or unverified tool contracts deployed to production.
+2. Inadvertent credential or sensitive configuration leakage.
+3. Uncoordinated feature merges creating regression bugs during client demos.
+
+#### 2. Decision
+1. **Sacred Main Trunk:** The `main` branch is designated as sacred. Direct pushes to `main` are strictly prohibited.
+2. **Sole Gatekeeper:** Only **Anesu Mupesa (`anesu-metabox`)** is authorized to push or merge pull requests into `main`.
+3. **Integration Trunk (`develop`):** A persistent `develop` branch is established as the staging and simulation environment where all daily work merges.
+4. **Feature Branching:** All team members (Anesu, Collaborator 1, Collaborator 2) and AI coding assistants must work in short-lived feature branches (`feat/...`, `fix/...`) branched off `develop`.
+5. **Automated CI Quality Gate:** Automated CI workflows (`.github/workflows/ci.yml`) run on every PR. Passing all tests (Python syntax, TypeScript typecheck, DDL validation) is an absolute prerequisite for merging into `develop` or promoting to `main` ("No Green, No Merge").
+6. **Promotion Protocol:** Anesu promotes releases from `develop` to `main` via formal release PRs after end-to-end verification.
+
+#### 3. Consequences
+- **Positive:** Zero unverified code enters the production baseline. Full auditability and release stability.
+- **Trade-off:** Requires a minor branch switching discipline for collaborators, mitigated by automated CI and standardized branch naming.
