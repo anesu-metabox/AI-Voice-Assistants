@@ -1,7 +1,8 @@
 """
-Calendar Database Persistence Tools
+Calendar Database Persistence & Google Calendar Tools
 Provides PostgreSQL-backed calendar availability querying, event booking with atomic
-advisory locking, and event cancellation with soft deletion and audit logging.
+advisory locking, event cancellation with soft deletion, audit logging, and optional
+live Google Calendar API integration with OAuth 2.0.
 """
 
 import asyncio
@@ -13,6 +14,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 import uuid
 import zoneinfo
+
+from ..config import settings
+from ..services.google_calendar import (
+    book_google_calendar_event,
+    get_google_calendar_availability,
+)
 
 root_path = str(Path(__file__).resolve().parents[3])
 if root_path not in sys.path:
@@ -63,13 +70,28 @@ async def get_calendar_availability(
 ) -> Dict[str, Any]:
     """
     Query available calendar slots for a date range dynamically.
-    Fetches working hours from user_preferences (default 09:00 - 17:00),
-    queries calendar_events for existing confirmed bookings on the target date range,
-    and calculates free slot intervals by subtracting occupied periods.
+    Checks live Google Calendar if configured and authenticated;
+    otherwise queries Neon PostgreSQL calendar_events and user_preferences.
     """
     user_uuid = _parse_user_uuid(user_id)
     logger.info("Computing calendar availability for user %s (%s to %s)", user_uuid, start_date, end_date)
 
+    # 1. Attempt live Google Calendar lookup if credentials are configured
+    if settings.google_client_id and settings.google_client_secret:
+        try:
+            live_result = await get_google_calendar_availability(
+                user_id=str(user_id),
+                start_date=start_date,
+                end_date=end_date,
+                duration_minutes=duration_minutes,
+            )
+            if live_result:
+                logger.info("Retrieved %d live calendar slots from Google Calendar.", len(live_result.get("available_slots", [])))
+                return live_result
+        except Exception as exc:
+            logger.warning("Google Calendar lookup error (%s); falling back to database.", exc)
+
+    # 2. Database-backed dynamic availability
     pool = await get_db_pool()
     working_hours = {"start": "09:00", "end": "17:00"}
     pref_tz = "UTC"
@@ -211,7 +233,8 @@ async def book_event(
     """
     Create and schedule a new calendar event with atomic transaction advisory locking.
     Prevents race conditions and double bookings.
-    Persists event in calendar_events and emits audit task into tasks table.
+    Persists event in calendar_events, integrates with Google Calendar if connected,
+    and emits audit task into tasks table.
     """
     user_uuid = _parse_user_uuid(user_id)
     start_dt = _parse_iso_datetime(start_time)
@@ -219,6 +242,7 @@ async def book_event(
     attendees_list = attendees if attendees is not None else []
     meet_link = f"https://meet.google.com/{uuid.uuid4().hex[:3]}-{uuid.uuid4().hex[:4]}-{uuid.uuid4().hex[:3]}"
     event_id = uuid.uuid4()
+    live_booking = None
 
     logger.info(
         "Attempting atomic booking for user %s: '%s' [%s - %s]",
@@ -280,6 +304,23 @@ async def book_event(
                     "next_available_slot": next_available_slot,
                 }
 
+            # Attempt live Google Calendar booking if credentials are configured
+            if settings.google_client_id and settings.google_client_secret:
+                try:
+                    live_booking = await book_google_calendar_event(
+                        user_id=str(user_id),
+                        title=title,
+                        start_time=start_time,
+                        duration_minutes=duration_minutes,
+                        attendees=attendees_list,
+                        description=description,
+                        location=location,
+                    )
+                    if live_booking and live_booking.get("meet_link"):
+                        meet_link = live_booking["meet_link"]
+                except Exception as exc:
+                    logger.warning("Live Google Calendar booking failed (%s); continuing with database persistence.", exc)
+
             # Insert confirmed booking
             row = await conn.fetchrow(
                 """
@@ -308,8 +349,12 @@ async def book_event(
                 "attendees": attendees_list,
                 "meet_link": row["meet_link"],
                 "status": row["status"],
-                "source": "neon_postgres",
+                "source": "google_calendar_live" if live_booking else "neon_postgres",
             }
+            if live_booking and live_booking.get("html_link"):
+                result_payload["html_link"] = live_booking["html_link"]
+            if live_booking and live_booking.get("event_id"):
+                result_payload["google_event_id"] = live_booking["event_id"]
 
             # Record audit event into tasks table
             task_id = uuid.uuid4()

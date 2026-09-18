@@ -191,7 +191,10 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
 
     # 6. Execute Tool Function
     try:
-        result = await tool_func(**tool_kwargs)
+        import inspect
+        sig = inspect.signature(tool_func)
+        call_params = {k: v for k, v in tool_kwargs.items() if k in sig.parameters}
+        result = await tool_func(**call_params)
         elapsed_ms = (time.perf_counter() - start_time) * 1000
 
         # Handle structured conflict returned by tools (e.g. slot collision)
