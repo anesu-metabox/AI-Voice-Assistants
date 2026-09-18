@@ -174,8 +174,16 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
                     idempotency_key=idempotency_key,
                 )
 
-    # 5. Inject context for system-level tools (e.g. durable task runner)
-    if tool_name == ToolName.CREATE_DURABLE_TASK.value:
+    # 5. Inject context for system-level and user-scoped tools
+    if tool_name in (
+        ToolName.BOOK_EVENT.value,
+        ToolName.GET_CALENDAR_AVAILABILITY.value,
+        ToolName.CANCEL_EVENT.value,
+    ):
+        tool_kwargs["user_id"] = tool_kwargs.get("user_id") or request.user_id
+        if tool_name == ToolName.BOOK_EVENT.value:
+            tool_kwargs["session_id"] = tool_kwargs.get("session_id") or request.session_id
+    elif tool_name == ToolName.CREATE_DURABLE_TASK.value:
         tool_kwargs["user_id"] = request.user_id
         tool_kwargs["session_id"] = request.session_id
 
@@ -183,6 +191,32 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
     try:
         result = await tool_func(**tool_kwargs)
         elapsed_ms = (time.perf_counter() - start_time) * 1000
+
+        # Handle structured conflict returned by tools (e.g. slot collision)
+        if isinstance(result, dict) and result.get("status") == "conflict":
+            if idempotency_key:
+                await release_idempotency_lock(key=idempotency_key)
+            msg = result.get("error") or result.get("message") or "Time slot already occupied"
+            return ToolExecutionResponse(
+                status="conflict",
+                error_code="SLOT_CONFLICT",
+                error_message=msg,
+                message=msg,
+                data=result,
+                execution_time_ms=elapsed_ms,
+                idempotency_key=idempotency_key,
+            )
+
+        # Handle confirmation_required returned directly by tools
+        if isinstance(result, dict) and result.get("status") == "confirmation_required":
+            msg = result.get("message") or "Confirmation required"
+            return ToolExecutionResponse(
+                status="confirmation_required",
+                message=msg,
+                data=result,
+                execution_time_ms=elapsed_ms,
+                idempotency_key=idempotency_key,
+            )
 
         # 7. Commit Idempotency Lock on Success
         if idempotency_key:

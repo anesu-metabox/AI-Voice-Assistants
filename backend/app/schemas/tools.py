@@ -42,12 +42,12 @@ class GetCalendarAvailabilityParams(ToolParamsBase):
     start_date: Optional[str] = Field(
         default=None,
         description="Start date to query in YYYY-MM-DD format. Defaults to today.",
-        pattern=r"^\d{4}-\d{2}-\d{2}$",
+        pattern=r"^\d{4}-\d{2}-\d{2}(?:T.*)?$",
     )
     end_date: Optional[str] = Field(
         default=None,
         description="End date to query in YYYY-MM-DD format. Defaults to start_date.",
-        pattern=r"^\d{4}-\d{2}-\d{2}$",
+        pattern=r"^\d{4}-\d{2}-\d{2}(?:T.*)?$",
     )
     duration_minutes: int = Field(
         default=30,
@@ -59,14 +59,21 @@ class GetCalendarAvailabilityParams(ToolParamsBase):
         default="UTC",
         description="IANA Timezone string, e.g. 'UTC', 'America/New_York', 'Europe/London'.",
     )
+    user_id: Optional[str] = Field(
+        default=None,
+        description="UUID of the authenticated user to check availability for.",
+    )
 
 
 class CalendarAvailabilityResult(ToolResultBase):
-    date: str = Field(..., description="The query date in YYYY-MM-DD format")
-    available_slots: List[str] = Field(..., description="List of ISO 8601 available timestamp strings")
-    duration_minutes: int = Field(..., description="Slot length in minutes")
+    date: Optional[str] = Field(default=None, description="The query date in YYYY-MM-DD format")
+    start_date: Optional[str] = Field(default=None, description="Start date of availability window")
+    end_date: Optional[str] = Field(default=None, description="End date of availability window")
+    user_id: Optional[str] = Field(default=None, description="User UUID")
+    available_slots: List[str] = Field(default_factory=list, description="List of ISO 8601 available timestamp strings")
+    duration_minutes: int = Field(default=30, description="Slot length in minutes")
     timezone: str = Field(default="UTC")
-    source: str = Field(default="google_calendar")
+    source: str = Field(default="neon_postgres")
 
 
 class BookEventParams(ToolParamsBase):
@@ -100,10 +107,19 @@ class BookEventParams(ToolParamsBase):
         max_length=255,
         description="Meeting location or video conferencing link description.",
     )
+    user_id: Optional[str] = Field(
+        default=None,
+        description="UUID of the user booking the event.",
+    )
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Optional LiveKit session identifier.",
+    )
 
 
 class BookEventResult(ToolResultBase):
-    event_id: str = Field(..., description="Unique event identifier")
+    event_id: Optional[str] = Field(default=None, description="Unique event identifier")
+    id: Optional[str] = Field(default=None, description="Unique event UUID")
     title: str = Field(..., description="Event title")
     start_time: str = Field(..., description="Confirmed ISO 8601 start timestamp")
     end_time: str = Field(..., description="Confirmed ISO 8601 end timestamp")
@@ -111,7 +127,7 @@ class BookEventResult(ToolResultBase):
     attendees: List[str] = Field(default_factory=list)
     meet_link: Optional[str] = Field(default=None, description="Video conferencing link")
     status: str = Field(default="confirmed", description="Scheduling status")
-    source: str = Field(default="google_calendar")
+    source: str = Field(default="neon_postgres")
 
 
 class CancelEventParams(ToolParamsBase):
@@ -134,12 +150,17 @@ class CancelEventParams(ToolParamsBase):
         default=None,
         description="Cryptographic token issued by the confirmation interceptor.",
     )
+    user_id: Optional[str] = Field(
+        default=None,
+        description="UUID of the user cancelling the event.",
+    )
 
 
 class CancelEventResult(ToolResultBase):
-    event_id: str = Field(..., description="Cancelled event identifier")
+    event_id: Optional[str] = Field(default=None, description="Cancelled event identifier")
+    id: Optional[str] = Field(default=None, description="Event identifier")
     status: str = Field(default="cancelled", description="New status")
-    cancelled_at: str = Field(..., description="ISO 8601 cancellation timestamp")
+    cancelled_at: Optional[str] = Field(default=None, description="ISO 8601 cancellation timestamp")
     reason: Optional[str] = Field(default=None)
 
 
@@ -300,6 +321,10 @@ class ToolExecutionResponse(BaseModel):
     error_message: Optional[str] = Field(
         default=None,
         description="Human-readable error description when status is 'error'",
+    )
+    message: Optional[str] = Field(
+        default=None,
+        description="Descriptive message or status explanation",
     )
     error_code: Optional[str] = Field(
         default=None,

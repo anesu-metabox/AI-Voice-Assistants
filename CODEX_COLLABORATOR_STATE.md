@@ -2,20 +2,20 @@
 
 > **Intended Recipient:** Codex (Personal Engineering Collaborator)  
 > **Authoring Lead:** Antigravity & Anesu Mupesa (Lead Architect)  
-> **Last Synchronized:** 2026-09-17  
-> **Current Cycle:** Sprint 1 — System Core & Pipeline Design  
+> **Last Synchronized:** 2026-09-18  
+> **Current Cycle:** Sprint 1 — Calendar DB Persistence & Concurrency Engine Complete  
 
 ---
 
 ## 1. Executive State Snapshot
 
-* **Current Stage:** Phase 1 (Credentials & Environment) & Phase 2 (Full-Stack Skeleton Architecture) — **SCAFFOLDED, AUTOMATED CI ACTIVE & GITHUB SYNCED**.
+* **Current Stage:** Phase 1 (Credentials & Environment) & Phase 2 (Calendar DB Persistence & Verification) — **SCAFFOLDED, MIGRATED & VERIFIED ON NEON POSTGRESQL**.
 * **GitHub Repository:** [`https://github.com/anesu-metabox/AI-Voice-Assistants.git`](https://github.com/anesu-metabox/AI-Voice-Assistants.git)
 * **Active Working Branch:** `develop` (Tracking: `origin/develop`).
 * **Sacred Main Trunk Protocol (ADR-009):** `main` is protected. Direct push to `main` is prohibited. Only **Anesu (`anesu-metabox`)** is authorized to push or merge into `main`. All feature branches and PRs must target `develop`.
 * **Notion Strategic Journal:** [Anesu's Personal Decision Log & Non-Obvious Architecture Choices](https://app.notion.com/p/Anesu-s-Personal-Decision-Log-Non-Obvious-Architecture-Choices-3ddcf5b722df813e8c27fdea150da7fc).
 * **Baseline Engine:** Google Gemini Live via LiveKit Agents (`livekit-plugins-google`) (ADR-008). Deepgram + Cartesia retained as production fallback (ADR-007).
-* **Local Tooling State:** Node.js v22.23.2 and npm 10.9.8 active; Python 3.12 installation / PATH configuration pending.
+* **Local Tooling State:** Python 3.14 verified with pytest; Node.js v22.23.2 and npm 10.9.8 active; Neon PostgreSQL `divine-hat-17233837` migrated through `002_calendar_events.sql`.
 
 ---
 
@@ -31,18 +31,24 @@
 | [`AGENT_GOAL.md`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/AGENT_GOAL.md) | Orchestrator | Antigravity operational directives, laws of grounded confirmation, Sacred Main law, and milestone rubric. |
 | [`CODEX_COLLABORATOR_STATE.md`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/CODEX_COLLABORATOR_STATE.md) | Collaboration | This live ledger tracking state, completed tasks, and next steps for Codex. |
 | [`db/migrations/001_initial_schema.sql`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/db/migrations/001_initial_schema.sql) | Database | DDL for `tasks`, `idempotency_records`, and `user_preferences` with auto-update trigger. |
-| [`db/connection.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/db/connection.py) | Database | `get_db_pool()`, `close_db_pool()` managing asyncpg pool with statement cache disabled for Neon. |
+| [`db/migrations/002_calendar_events.sql`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/db/migrations/002_calendar_events.sql) | Database | DDL for `calendar_events` table with UUID PK, constraints, composite indexes, and auto-update timestamp trigger. |
+| [`db/connection.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/db/connection.py) | Database | `get_db_pool()`, `close_db_pool()` managing asyncpg pool with statement cache disabled for Neon and sanitized DSN query parameters. |
+| [`db/run_migrations.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/db/run_migrations.py) | Database | SQL migration runner executing numbered DDL files against Neon PostgreSQL. |
 | [`db/idempotency.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/db/idempotency.py) | Database | `acquire_idempotency_lock()`, `commit_idempotency_lock()`, `release_idempotency_lock()` with in-memory fallback. |
 | [`backend/requirements.txt`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/backend/requirements.txt) | Backend | FastAPI, Uvicorn, Pydantic, Httpx, Asyncpg dependencies. |
 | [`backend/app/config.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/backend/app/config.py) | Backend | Pydantic `Settings` loading environment variables. |
-| [`backend/app/schemas/tools.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/backend/app/schemas/tools.py) | Backend | Strict Pydantic models for all 6 Sprint 1 tools, parameter validation, and ANE-03 confirmation schemas. |
-| [`backend/app/tools/calendar.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/backend/app/tools/calendar.py) | Backend | `get_calendar_availability()`, `book_event()`, and `cancel_event()` with simulated latency & mocks. |
+| [`backend/app/schemas/tools.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/backend/app/schemas/tools.py) | Backend | Strict Pydantic models for all Sprint 1 tools, parameter validation, `user_id` injection schemas, and ANE-03 confirmation models. |
+| [`backend/app/tools/calendar.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/backend/app/tools/calendar.py) | Backend | `get_calendar_availability()`, `book_event()`, and `cancel_event()` with Neon DB persistence, `pg_advisory_xact_lock` atomic locking, and dual-speed task ledger writes. |
 | [`backend/app/tools/contacts.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/backend/app/tools/contacts.py) | Backend | `search_contacts()` with simulated latency (~110ms) & realistic mock directory. |
 | [`backend/app/tools/email.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/backend/app/tools/email.py) | Backend | `draft_email()` fast atomic email drafting with simulated latency (~130ms). |
 | [`backend/app/tools/tasks.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/backend/app/tools/tasks.py) | Backend | `create_durable_task()` registering durable tasks in PostgreSQL for Trigger.dev queue. |
-| [`backend/app/api/tools.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/backend/app/api/tools.py) | Backend | `POST /tools/execute` dispatcher enforcing Pydantic parameter validation, ANE-03 interceptor, & idempotency. |
+| [`backend/app/api/tools.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/backend/app/api/tools.py) | Backend | `POST /tools/execute` dispatcher enforcing Pydantic parameter validation, `user_id`/session injection, slot conflict formatting, ANE-03 interceptor, & idempotency. |
 | [`backend/app/api/tasks.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/backend/app/api/tasks.py) | Backend | `GET /tasks/{id}/status`, `POST /tasks/{id}/cancel` for background task lifecycle. |
 | [`backend/app/main.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/backend/app/main.py) | Backend | FastAPI application, CORS middleware, lifespan database priming, and `/health`. |
+| [`backend/tests/conftest.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/backend/tests/conftest.py) | Backend Tests | Pytest fixtures for asyncpg connection pool, tenant-isolated test user UUIDs, and automated pre/post test cleanup. |
+| [`backend/tests/test_calendar_db.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/backend/tests/test_calendar_db.py) | Backend Tests | 7 E2E integration tests verifying DDL schema, atomic reservation, dynamic availability, 10-worker concurrency, idempotency replay, soft deletion, and confirmation gates. |
+| [`pytest.ini`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/pytest.ini) | Test Config | Pytest runner configuration (`asyncio_mode = auto`, session loop scoping for asyncpg pool). |
+| [`PROJECT.md`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/PROJECT.md) | Architecture Spec | Calendar persistence architecture, interface contracts, milestone tracking, and feature inventory. |
 | [`agent/requirements.txt`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/agent/requirements.txt) | Agent Runner | `livekit-agents`, `livekit-plugins-google`, `httpx`, `python-dotenv`. |
 | [`agent/config.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/agent/config.py) | Agent Runner | System prompt, model parameters, and LiveKit connection settings. |
 | [`agent/agent.py`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/agent/agent.py) | Agent Runner | Worker entrypoint, Gemini Multimodal Live context, HTTP tool dispatch to FastAPI. |
@@ -86,8 +92,9 @@ When picking up work or pairing on this codebase, prioritize in this order:
 2. **Populate Credentials:**
    * Review [`.env`](file:///c:/Dev/Active%20Projects/METABOX%20RESOURCES/VOICE%20BOT/.env) with Anesu and insert `GOOGLE_API_KEY`, `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `DATABASE_URL`.
 3. **Database Migration (`db/`) [Assigned to Anesu - ANE-02 — COMPLETED & VERIFIED]:**
-   * Migration `001_initial_schema.sql` successfully deployed to Neon project `divine-hat-17233837` on branch `production`.
-   * Verified active tables: `tasks`, `idempotency_records`, and `user_preferences`.
+   * Migrations `001_initial_schema.sql` and `002_calendar_events.sql` successfully deployed to Neon project `divine-hat-17233837` on branch `production`.
+   * Verified active tables: `tasks`, `idempotency_records`, `user_preferences`, and `calendar_events`.
+   * End-to-end integration test suite (`backend/tests/test_calendar_db.py`) verified 100% passing (7/7 tests passed in 64s).
 4. **Backend Service Test (`backend/`) [Assigned to Collaborator 1 - COL1-01]:**
    * Python 3.14 runtime verified via `py` launcher; run `py -m pip install -r backend/requirements.txt`.
    * Start FastAPI dev server: `uvicorn backend.app.main:app --reload --port 8000`.
