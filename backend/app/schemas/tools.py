@@ -17,6 +17,7 @@ class ToolName(str, Enum):
     GET_CALENDAR_AVAILABILITY = "get_calendar_availability"
     BOOK_EVENT = "book_event"
     CANCEL_EVENT = "cancel_event"
+    LIST_EVENTS = "list_events"
     SEARCH_CONTACTS = "search_contacts"
     DRAFT_EMAIL = "draft_email"
     CREATE_DURABLE_TASK = "create_durable_task"
@@ -162,6 +163,37 @@ class CancelEventResult(ToolResultBase):
     status: str = Field(default="cancelled", description="New status")
     cancelled_at: Optional[str] = Field(default=None, description="ISO 8601 cancellation timestamp")
     reason: Optional[str] = Field(default=None)
+
+
+class ListEventsParams(ToolParamsBase):
+    start_date: Optional[str] = Field(
+        default=None,
+        description="Start date in YYYY-MM-DD format. Defaults to today.",
+        pattern=r"^\d{4}-\d{2}-\d{2}(?:T.*)?$",
+    )
+    end_date: Optional[str] = Field(
+        default=None,
+        description="End date in YYYY-MM-DD format. Defaults to start_date.",
+        pattern=r"^\d{4}-\d{2}-\d{2}(?:T.*)?$",
+    )
+    timezone: str = Field(
+        default="UTC",
+        description="IANA timezone string, e.g. 'UTC', 'Africa/Harare'.",
+    )
+    user_id: Optional[str] = Field(
+        default=None,
+        description="UUID of the authenticated user.",
+    )
+
+
+class ListEventsResult(ToolResultBase):
+    user_id: Optional[str] = Field(default=None)
+    start_date: Optional[str] = Field(default=None)
+    end_date: Optional[str] = Field(default=None)
+    timezone: str = Field(default="UTC")
+    count: int = Field(default=0)
+    events: List[Dict[str, Any]] = Field(default_factory=list)
+    source: str = Field(default="neon_postgres")
 
 
 # ==============================================================================
@@ -360,6 +392,7 @@ TOOL_SCHEMAS: Dict[str, Tuple[Type[BaseModel], Type[BaseModel]]] = {
     ToolName.GET_CALENDAR_AVAILABILITY.value: (GetCalendarAvailabilityParams, CalendarAvailabilityResult),
     ToolName.BOOK_EVENT.value: (BookEventParams, BookEventResult),
     ToolName.CANCEL_EVENT.value: (CancelEventParams, CancelEventResult),
+    ToolName.LIST_EVENTS.value: (ListEventsParams, ListEventsResult),
     ToolName.SEARCH_CONTACTS.value: (SearchContactsParams, SearchContactsResult),
     ToolName.DRAFT_EMAIL.value: (DraftEmailParams, DraftEmailResult),
     ToolName.CREATE_DURABLE_TASK.value: (CreateDurableTaskParams, DurableTaskResult),

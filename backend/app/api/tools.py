@@ -19,7 +19,7 @@ from ..schemas.tools import (
     validate_tool_params,
     get_tool_input_schema,
 )
-from ..tools.calendar import get_calendar_availability, book_event, cancel_event
+from ..tools.calendar import get_calendar_availability, book_event, cancel_event, list_events
 from ..tools.contacts import search_contacts
 from ..tools.email import draft_email
 from ..tools.tasks import create_durable_task
@@ -46,6 +46,7 @@ TOOL_REGISTRY: Dict[str, Callable[..., Any]] = {
     ToolName.GET_CALENDAR_AVAILABILITY.value: get_calendar_availability,
     ToolName.BOOK_EVENT.value: book_event,
     ToolName.CANCEL_EVENT.value: cancel_event,
+    ToolName.LIST_EVENTS.value: list_events,
     ToolName.SEARCH_CONTACTS.value: search_contacts,
     ToolName.DRAFT_EMAIL.value: draft_email,
     ToolName.CREATE_DURABLE_TASK.value: create_durable_task,
@@ -179,6 +180,7 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
         ToolName.BOOK_EVENT.value,
         ToolName.GET_CALENDAR_AVAILABILITY.value,
         ToolName.CANCEL_EVENT.value,
+        ToolName.LIST_EVENTS.value,
     ):
         tool_kwargs["user_id"] = tool_kwargs.get("user_id") or request.user_id
         if tool_name == ToolName.BOOK_EVENT.value:

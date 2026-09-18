@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { GoogleGenAI, Modality } from "@google/genai";
+import { calendarToolDeclarations } from "@/lib/tools";
 
 async function getGoogleServerTime(): Promise<number> {
     try {
@@ -54,6 +55,7 @@ export async function GET() {
                         responseModalities: [Modality.AUDIO],
                         inputAudioTranscription: {},
                         outputAudioTranscription: {},
+                        tools: [{ functionDeclarations: calendarToolDeclarations }],
                     },
                 },
             },

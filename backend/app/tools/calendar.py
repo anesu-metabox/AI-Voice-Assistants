@@ -456,3 +456,111 @@ async def cancel_event(
 
             logger.info("Successfully cancelled event %s for user %s: '%s'", event_uuid, user_uuid, row["title"])
             return result_payload
+
+
+async def list_events(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    timezone: Optional[str] = None,
+    user_id: str = "00000000-0000-0000-0000-000000000001",
+) -> Dict[str, Any]:
+    """
+    Return all confirmed calendar events for a user within a date range.
+    Used when the user asks 'what meetings do I have today/this week?'.
+    Returns the actual booked events, not free slots.
+    """
+    user_uuid = _parse_user_uuid(user_id)
+    logger.info("Fetching confirmed events for user %s (%s to %s)", user_uuid, start_date, end_date)
+
+    pool = await get_db_pool()
+    pref_tz = "UTC"
+
+    async with pool.acquire() as conn:
+        # Fetch user timezone preference
+        pref_row = await conn.fetchrow(
+            "SELECT timezone FROM user_preferences WHERE user_id = $1",
+            user_uuid,
+        )
+        if pref_row:
+            pref_tz = pref_row["timezone"] or "UTC"
+
+        effective_tz_name = timezone or pref_tz or "UTC"
+        try:
+            tz = zoneinfo.ZoneInfo(effective_tz_name)
+        except Exception:
+            tz = dt_timezone.utc
+            effective_tz_name = "UTC"
+
+        # Resolve date range
+        now_utc = datetime.now(dt_timezone.utc)
+        if not start_date:
+            start_date_obj = now_utc.astimezone(tz).date()
+        else:
+            if "T" in start_date:
+                start_date_obj = _parse_iso_datetime(start_date).astimezone(tz).date()
+            else:
+                start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date()
+
+        if not end_date:
+            end_date_obj = start_date_obj
+        else:
+            if "T" in end_date:
+                end_date_obj = _parse_iso_datetime(end_date).astimezone(tz).date()
+            else:
+                end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
+
+        if end_date_obj < start_date_obj:
+            end_date_obj = start_date_obj
+
+        # Build UTC window covering the full day(s)
+        range_start_utc = datetime.combine(start_date_obj, dt_time.min).replace(tzinfo=tz).astimezone(dt_timezone.utc)
+        range_end_utc = datetime.combine(end_date_obj, dt_time.max).replace(tzinfo=tz).astimezone(dt_timezone.utc)
+
+        rows = await conn.fetch(
+            """
+            SELECT id, title, start_time, end_time, duration_minutes, attendees, meet_link, status, created_at
+            FROM calendar_events
+            WHERE user_id = $1
+              AND status = 'confirmed'
+              AND start_time < $2
+              AND end_time > $3
+            ORDER BY start_time ASC
+            """,
+            user_uuid,
+            range_end_utc,
+            range_start_utc,
+        )
+
+        events = []
+        for row in rows:
+            raw_attendees = row["attendees"]
+            if isinstance(raw_attendees, str):
+                try:
+                    attendees_list = json.loads(raw_attendees)
+                except Exception:
+                    attendees_list = []
+            elif isinstance(raw_attendees, list):
+                attendees_list = raw_attendees
+            else:
+                attendees_list = []
+
+            events.append({
+                "id": str(row["id"]),
+                "title": row["title"],
+                "start_time": _format_utc_iso(row["start_time"]),
+                "end_time": _format_utc_iso(row["end_time"]),
+                "duration_minutes": row["duration_minutes"],
+                "attendees": attendees_list,
+                "meet_link": row["meet_link"],
+                "status": row["status"],
+            })
+
+    return {
+        "user_id": str(user_uuid),
+        "start_date": start_date_obj.strftime("%Y-%m-%d"),
+        "end_date": end_date_obj.strftime("%Y-%m-%d"),
+        "timezone": effective_tz_name,
+        "count": len(events),
+        "events": events,
+        "source": "neon_postgres",
+    }
