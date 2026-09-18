@@ -1,16 +1,23 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { AudioVisualizer } from "@/components/audio/AudioVisualizer";
 import { AudioControls } from "@/components/audio/AudioControls";
 import { TranscriptDeck } from "@/components/transcript/TranscriptDeck";
 import { TaskDeck } from "@/components/tasks/TaskDeck";
-//import { useLiveKitSession } from "@/hooks/useLiveKitSession";
-import { useClientVAD } from "@/hooks/useClientVAD";
-import { Sparkles, ShieldCheck } from "lucide-react";
+import { useLiveKitSession } from "@/hooks/useLiveKitSession";
 import { useGeminiLiveSession } from "@/hooks/useGeminiLiveSession";
+import { useClientVAD } from "@/hooks/useClientVAD";
+import { Sparkles, ShieldCheck, Radio, Globe } from "lucide-react";
 
 export default function Home() {
+  const [engine, setEngine] = useState<"livekit" | "browser_direct">("livekit");
+
+  const livekitSession = useLiveKitSession();
+  const directSession = useGeminiLiveSession();
+
+  const activeSession = engine === "livekit" ? livekitSession : directSession;
+
   const {
     connectionStatus,
     isMuted,
@@ -28,7 +35,7 @@ export default function Home() {
     toggleMute,
     toggleHandsFree,
     handleInterruption,
-  } = useGeminiLiveSession();
+  } = activeSession;
 
   // Sub-20ms Interruption VAD Hook (ADR-005)
   useClientVAD({
@@ -36,6 +43,13 @@ export default function Home() {
     assistantGainNode,
     onInterruption: handleInterruption,
   });
+
+  const handleToggleEngine = (newEngine: "livekit" | "browser_direct") => {
+    if (connectionStatus === "connected" || connectionStatus === "connecting") {
+      disconnect();
+    }
+    setEngine(newEngine);
+  };
 
   return (
     <main className="flex flex-col h-screen bg-[#070a11] text-slate-100 overflow-hidden">
@@ -47,11 +61,39 @@ export default function Home() {
           </div>
           <div>
             <h1 className="font-semibold text-sm tracking-wide text-slate-100">AI VOICE BOT</h1>
-            <p className="text-[11px] text-slate-400">Executive Task Assistant • LiveKit + Gemini Live</p>
+            <p className="text-[11px] text-slate-400">
+              Executive Task Assistant • {engine === "livekit" ? "LiveKit WebRTC + Gemini Live" : "Direct Browser Gemini"}
+            </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-4 text-xs">
+        <div className="flex items-center gap-3 text-xs">
+          {/* Engine Selector Toggle */}
+          <div className="flex items-center bg-slate-950/80 p-0.5 rounded-lg border border-slate-800">
+            <button
+              onClick={() => handleToggleEngine("livekit")}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-all ${
+                engine === "livekit"
+                  ? "bg-sky-600 text-white font-medium shadow"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Radio className="w-3 h-3" />
+              <span>LiveKit Agent</span>
+            </button>
+            <button
+              onClick={() => handleToggleEngine("browser_direct")}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-all ${
+                engine === "browser_direct"
+                  ? "bg-slate-700 text-white font-medium shadow"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Globe className="w-3 h-3" />
+              <span>Direct Browser</span>
+            </button>
+          </div>
+
           <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800/60 border border-slate-700 text-slate-300">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
             <span>Idempotency Active</span>
