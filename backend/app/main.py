@@ -8,6 +8,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .api.auth import router as auth_router
 from .api.tasks import router as tasks_router
 from .api.tools import router as tools_router
 from .config import settings
@@ -36,7 +37,12 @@ async def lifespan(app: FastAPI):
             sys.path.append(root_path)
         from db.connection import get_db_pool, close_db_pool
         if settings.database_url:
-            await get_db_pool()
+            pool = await get_db_pool(dsn=settings.database_url)
+            logger.info(
+                "Neon PostgreSQL connection pool established successfully (size=%d, max=%d).",
+                pool.get_size(),
+                pool.get_max_size(),
+            )
     except Exception as exc:
         logger.warning("Database connection pool not primed on startup (%s). Using fallback mode.", exc)
 
@@ -69,6 +75,7 @@ app.add_middleware(
 # Mount API Routers
 app.include_router(tools_router)
 app.include_router(tasks_router)
+app.include_router(auth_router)
 
 
 @app.get("/health", tags=["system"])
@@ -76,11 +83,43 @@ async def health_check():
     """
     Health check endpoint for container orchestrators and LiveKit agent readiness.
     """
+    db_status = "not_configured"
+    if settings.database_url:
+        try:
+            from db.connection import get_db_pool
+            pool = await get_db_pool()
+            db_status = "connected" if pool and not pool._closed else "disconnected"
+        except Exception:
+            db_status = "disconnected"
+
     return {
         "status": "healthy",
         "service": "ai-voice-bot-backend",
         "version": "1.0.0",
+        "database": db_status,
     }
+
+
+@app.get("/health/db", tags=["system"])
+async def database_health_check():
+    """
+    Active probe verifying the Neon PostgreSQL connection pool and query latency.
+    """
+    try:
+        import sys
+        from pathlib import Path
+        root_path = str(Path(__file__).resolve().parents[2])
+        if root_path not in sys.path:
+            sys.path.append(root_path)
+        from db.connection import check_db_connection
+        result = await check_db_connection()
+        return result
+    except Exception as exc:
+        return {
+            "status": "error",
+            "error_message": str(exc),
+            "database": "unreachable",
+        }
 
 
 if __name__ == "__main__":

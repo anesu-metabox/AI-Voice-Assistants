@@ -82,7 +82,13 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
 
     # 2. Execute Tool Function
     try:
-        result = await tool_func(**request.parameters)
+        import inspect
+        sig = inspect.signature(tool_func)
+        call_params = dict(request.parameters)
+        if "user_id" in sig.parameters and "user_id" not in call_params:
+            call_params["user_id"] = request.user_id
+
+        result = await tool_func(**call_params)
         elapsed_ms = (time.perf_counter() - start_time) * 1000
 
         # 3. Commit Idempotency Lock on Success
