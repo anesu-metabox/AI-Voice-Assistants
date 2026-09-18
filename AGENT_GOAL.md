@@ -35,7 +35,7 @@ Your mandate is to build, maintain, and audit an ultra-low-latency (<450ms turna
 | :--- | :--- | :--- | :--- | :--- |
 | **Phase 1** | Local Environment & Credentials Setup (`.env`) | Anesu / Antigravity | 2026-09-17 | [Completed] |
 | **Phase 2** | Full Skeleton Directory Structure (`agent`, `backend`, `db`, `frontend`) | Anesu / Antigravity | 2026-09-17 | [Completed] |
-| **Phase 3** | Database Migration & Idempotency Locking Engine (`db/`) | Anesu | 2026-09-23 | [Pending] |
+| **Phase 3** | Database Migration & Idempotency Locking Engine (`db/`) | Anesu | 2026-09-17 | [Completed] |
 | **Phase 4** | FastAPI Tool Dispatcher & Direct Tools (`backend/`) | Collaborator 1 | 2026-09-27 | [Pending] |
 | **Phase 5** | LiveKit WebRTC Voice Streaming & AudioWorklet VAD (`frontend/` + `agent/`) | Collaborator 2 | 2026-10-02 | [Pending] |
 | **Phase 6** | Dual-Speed Task Engine & Worker Queue (`backend/`) | Collaborator 1 | 2026-10-08 | [Pending] |

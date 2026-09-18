@@ -20,6 +20,12 @@ load_dotenv(dotenv_path=_root_dir / ".env")
 load_dotenv(dotenv_path=_backend_dir / ".env")
 load_dotenv()
 
+if str(_root_dir) not in sys.path:
+    sys.path.append(str(_root_dir))
+
+from db.connection import sanitize_db_url
+from db.run_migrations import run_migrations as apply_migrations
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("voice_bot.db.migrate")
 
@@ -31,25 +37,12 @@ async def run_migrations():
         logger.error("Neither DATABASE_URL_UNPOOLED nor DATABASE_URL is configured in .env.")
         sys.exit(1)
 
-    migrations_dir = _root_dir / "db" / "migrations"
-    sql_files = sorted(migrations_dir.glob("*.sql"))
+    logger.info("Executing tracked database migrations...")
+    await apply_migrations()
 
-    if not sql_files:
-        logger.warning("No migration files found in %s", migrations_dir)
-        return
-
-    logger.info("Connecting to Neon PostgreSQL for migrations...")
-    conn = await asyncpg.connect(dsn)
-
+    clean_url = sanitize_db_url(dsn)
+    conn = await asyncpg.connect(clean_url, ssl="require")
     try:
-        for sql_file in sql_files:
-            logger.info("Applying migration: %s", sql_file.name)
-            sql_content = sql_file.read_text(encoding="utf-8")
-            start = time.perf_counter()
-            await conn.execute(sql_content)
-            elapsed = (time.perf_counter() - start) * 1000
-            logger.info("Successfully applied %s in %.2f ms", sql_file.name, elapsed)
-
         # Query and display created tables
         rows = await conn.fetch(
             """
@@ -61,10 +54,9 @@ async def run_migrations():
         )
         tables = [r["table_name"] for r in rows]
         logger.info("Active public tables in Neon database: %s", tables)
-
     finally:
         await conn.close()
-        logger.info("Migration connection closed.")
+        logger.info("Migration inspection completed.")
 
 
 if __name__ == "__main__":

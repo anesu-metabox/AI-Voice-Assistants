@@ -2,13 +2,14 @@
 LiveKit Voice Agent Worker Entrypoint
 Integrates LiveKit WebRTC media transport with Google Gemini 2.0 Flash Multimodal Live API (ADR-008).
 Forwards tool executions to FastAPI backend via asynchronous HTTP.
+Strictly enforces Grounded Confirmation Law and ANE-03 Confirmation Protocol.
 """
 
 import asyncio
 import json
 import logging
+from typing import Annotated, Any, Dict, List, Optional
 import uuid
-from typing import Annotated, Any, Dict, Optional
 
 from dotenv import load_dotenv
 import httpx
@@ -70,30 +71,29 @@ async def call_backend_tool(
 # Voice Assistant Function Tools Context
 # ------------------------------------------------------------------------------
 class AssistantFunctionContext(function_context):
-    @function_context.ai_callable(description="Query calendar availability for a given date range")
+    @function_context.ai_callable(description="Query calendar availability for a given date range or specific date")
     async def get_calendar_availability(
         self,
-        start_date: Annotated[str, "Start date in YYYY-MM-DD format"],
-        end_date: Annotated[Optional[str], "End date in YYYY-MM-DD format"] = None,
-        duration_minutes: Annotated[int, "Meeting duration in minutes (default 30)"] = 30,
+        start_date: Annotated[Optional[str], "Start date in YYYY-MM-DD format (defaults to today)"] = None,
+        end_date: Annotated[Optional[str], "End date in YYYY-MM-DD format (defaults to start_date)"] = None,
+        duration_minutes: Annotated[int, "Minimum slot duration needed in minutes (default 30)"] = 30,
     ) -> str:
-        res = await call_backend_tool(
-            "get_calendar_availability",
-            {
-                "start_date": start_date,
-                "end_date": end_date,
-                "duration_minutes": duration_minutes,
-            },
-        )
+        params: Dict[str, Any] = {"duration_minutes": duration_minutes}
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+        res = await call_backend_tool("get_calendar_availability", params)
         return json.dumps(res)
 
-    @function_context.ai_callable(description="Schedule and book a new calendar event")
+    @function_context.ai_callable(description="Schedule and book a new calendar event with meeting participants")
     async def book_event(
         self,
-        title: Annotated[str, "Title or summary of the meeting"],
-        start_time: Annotated[str, "Start time in ISO format (e.g. 2026-09-20T14:00:00Z)"],
-        duration_minutes: Annotated[int, "Duration of the event in minutes"] = 30,
-        attendee_email: Annotated[Optional[str], "Email address of the attendee"] = None,
+        title: Annotated[str, "Title or summary of the meeting/event"],
+        start_time: Annotated[str, "Start time in ISO 8601 format (e.g. 2026-09-20T14:00:00Z)"],
+        duration_minutes: Annotated[int, "Duration of the event in minutes (default 30)"] = 30,
+        attendees: Annotated[Optional[List[str]], "List of attendee emails or names"] = None,
+        description: Annotated[Optional[str], "Meeting description or agenda notes"] = None,
     ) -> str:
         res = await call_backend_tool(
             "book_event",
@@ -101,18 +101,79 @@ class AssistantFunctionContext(function_context):
                 "title": title,
                 "start_time": start_time,
                 "duration_minutes": duration_minutes,
-                "attendees": [attendee_email] if attendee_email else [],
+                "attendees": attendees or [],
+                "description": description,
             },
             idempotency_key=str(uuid.uuid4()),
         )
         return json.dumps(res)
 
-    @function_context.ai_callable(description="Search the contacts and CRM directory")
+    @function_context.ai_callable(
+        description="Cancel an existing calendar event. If the user has not explicitly confirmed yet, call with confirm=False. If the user said yes to confirm, pass confirm=True and the confirmation token."
+    )
+    async def cancel_event(
+        self,
+        event_id: Annotated[str, "Unique event ID to cancel, e.g. 'evt_1234'"],
+        reason: Annotated[Optional[str], "Optional reason for cancellation"] = None,
+        confirm: Annotated[bool, "Must be True ONLY when user explicitly gave verbal confirmation to cancel"] = False,
+        confirmation_token: Annotated[Optional[str], "Token returned by previous confirmation_required prompt"] = None,
+    ) -> str:
+        res = await call_backend_tool(
+            "cancel_event",
+            {
+                "event_id": event_id,
+                "reason": reason,
+                "confirm": confirm,
+                "confirmation_token": confirmation_token,
+            },
+            idempotency_key=str(uuid.uuid4()) if confirm else None,
+        )
+        return json.dumps(res)
+
+    @function_context.ai_callable(description="Search the contacts and CRM directory by name, email, or company")
     async def search_contacts(
         self,
-        query: Annotated[str, "Name, email, or company to search for"],
+        query: Annotated[str, "Contact name, email address, or company to look up"],
+        limit: Annotated[int, "Maximum number of contacts to retrieve (default 5)"] = 5,
     ) -> str:
-        res = await call_backend_tool("search_contacts", {"query": query})
+        res = await call_backend_tool("search_contacts", {"query": query, "limit": limit})
+        return json.dumps(res)
+
+    @function_context.ai_callable(description="Create a draft email for executive review before sending")
+    async def draft_email(
+        self,
+        recipient_email: Annotated[str, "Primary recipient email address"],
+        subject: Annotated[str, "Subject line of the email"],
+        body: Annotated[str, "Body text content of the email"],
+    ) -> str:
+        res = await call_backend_tool(
+            "draft_email",
+            {
+                "recipient_email": recipient_email,
+                "subject": subject,
+                "body": body,
+            },
+            idempotency_key=str(uuid.uuid4()),
+        )
+        return json.dumps(res)
+
+    @function_context.ai_callable(
+        description="Hand off long-running or complex tasks (>2s) to durable background workers (e.g. multi-step analysis, report synthesis, data sync)"
+    )
+    async def create_durable_task(
+        self,
+        task_type: Annotated[str, "Category of task: 'briefing_analysis', 'research_report', 'batch_sync'"],
+        title: Annotated[str, "Descriptive title for the user's dashboard"],
+    ) -> str:
+        res = await call_backend_tool(
+            "create_durable_task",
+            {
+                "task_type": task_type,
+                "title": title,
+                "payload": {},
+            },
+            idempotency_key=str(uuid.uuid4()),
+        )
         return json.dumps(res)
 
 

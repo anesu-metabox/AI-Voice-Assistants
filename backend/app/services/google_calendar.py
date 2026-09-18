@@ -73,9 +73,13 @@ async def get_google_calendar_availability(
             available_slots = _compute_free_slots(base_date, busy_periods, duration_minutes)
 
             return {
+                "user_id": str(user_id),
                 "date": base_date,
+                "start_date": start_date or base_date,
+                "end_date": end_date or base_date,
                 "available_slots": available_slots,
                 "duration_minutes": duration_minutes,
+                "timezone": "UTC",
                 "source": "google_calendar_live",
             }
     except Exception as exc:

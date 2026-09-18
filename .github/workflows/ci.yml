@@ -28,10 +28,10 @@ jobs:
 
       - name: Verify Python Compilation & Syntax
         run: |
-          python -m py_compile db/connection.py db/idempotency.py db/tokens.py db/migrate.py
+          python -m py_compile db/connection.py db/idempotency.py db/tokens.py db/migrate.py db/run_migrations.py
           python -m py_compile backend/app/config.py backend/app/schemas/tools.py
           python -m py_compile backend/app/services/google_oauth.py backend/app/services/google_calendar.py
-          python -m py_compile backend/app/tools/calendar.py backend/app/tools/contacts.py
+          python -m py_compile backend/app/tools/calendar.py backend/app/tools/contacts.py backend/app/tools/email.py backend/app/tools/tasks.py
           python -m py_compile backend/app/api/auth.py backend/app/api/tools.py backend/app/api/tasks.py backend/app/main.py
           python -m py_compile agent/config.py agent/agent.py
 
@@ -68,4 +68,5 @@ jobs:
       - name: Verify Migration Files Exist & Non-Empty
         run: |
           test -s db/migrations/001_initial_schema.sql || exit 1
-          test -s db/migrations/002_oauth_tokens.sql || exit 1
+          test -s db/migrations/002_calendar_events.sql || exit 1
+          test -s db/migrations/003_oauth_tokens.sql || exit 1

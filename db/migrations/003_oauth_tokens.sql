@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- AI VOICE BOT — OAuth Tokens Schema Migration
--- Migration: 002_oauth_tokens.sql
+-- Migration: 003_oauth_tokens.sql
 -- Lead Architect: Anesu Mupesa (ANE-02) / Collaborator 1 (DEL-05)
 -- ==============================================================================
 

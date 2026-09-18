@@ -42,6 +42,7 @@ frontend/node_modules/
 frontend/.next/
 out/
 frontend/out/
+*.tsbuildinfo
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -54,3 +55,9 @@ pnpm-debug.log*
 *.swo
 .DS_Store
 Thumbs.db
+
+# Agent run artifacts
+.agents/*
+!.agents/skills/
+ORIGINAL_REQUEST.md
+TEST_READY.md
