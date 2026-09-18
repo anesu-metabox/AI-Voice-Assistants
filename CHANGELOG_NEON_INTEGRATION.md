@@ -478,10 +478,10 @@ async def run_migrations():
 
 | Component      | File Path                                                                                                      | Type     | Key Technical Additions                                                       |
 | :------------- | :------------------------------------------------------------------------------------------------------------- | :------- | :---------------------------------------------------------------------------- |
-| **Config**     | [`backend/app/config.py`](file:///c:/Users/Elihu%20Joseph%20MetaBox/AI-Voice-Assistants/backend/app/config.py) | Modified | `_env_files` multi-path resolution; `database_url_unpooled` setting.          |
-| **Pool**       | [`db/connection.py`](file:///c:/Users/Elihu%20Joseph%20MetaBox/AI-Voice-Assistants/db/connection.py)           | Modified | Robust `.env` loader; `check_db_connection()` latency probe; CLI test runner. |
-| **API**        | [`backend/app/main.py`](file:///c:/Users/Elihu%20Joseph%20MetaBox/AI-Voice-Assistants/backend/app/main.py)     | Modified | Lifespan pool logger; `/health` database state; `GET /health/db` endpoint.    |
-| **Migrations** | [`db/migrate.py`](file:///c:/Users/Elihu%20Joseph%20MetaBox/AI-Voice-Assistants/db/migrate.py)                 | New      | Dedicated runner targeting direct compute (`DATABASE_URL_UNPOOLED`).          |
+| **Config**     | [`backend/app/config.py`](backend/app/config.py) | Modified | `_env_files` multi-path resolution; `database_url_unpooled` setting.          |
+| **Pool**       | [`db/connection.py`](db/connection.py)           | Modified | Robust `.env` loader; `check_db_connection()` latency probe; CLI test runner. |
+| **API**        | [`backend/app/main.py`](backend/app/main.py)     | Modified | Lifespan pool logger; `/health` database state; `GET /health/db` endpoint.    |
+| **Migrations** | [`db/migrate.py`](db/migrate.py)                 | New      | Dedicated runner targeting direct compute (`DATABASE_URL_UNPOOLED`).          |
 
 ---
 

@@ -162,7 +162,8 @@ async def revoke_and_disconnect(user_id: str) -> bool:
     if token_to_revoke:
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                await client.post(GOOGLE_REVOKE_URL, params={"token": token_to_revoke})
+                res = await client.post(GOOGLE_REVOKE_URL, params={"token": token_to_revoke})
+                res.raise_for_status()
         except Exception as exc:
             logger.warning("Token revocation request to Google failed (%s). Proceeding with DB cleanup.", exc)
 

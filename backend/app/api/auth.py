@@ -4,6 +4,7 @@ Handles OAuth redirects, callback handling, connection status checking, and acco
 """
 
 from datetime import datetime, timedelta, timezone
+import html
 import json
 import logging
 from typing import Optional
@@ -68,6 +69,7 @@ async def google_callback(
     Exchanges code for access/refresh tokens and persists them into Neon PostgreSQL.
     """
     if error:
+        safe_error = html.escape(error)
         logger.warning("Google OAuth callback error received: %s", error)
         return HTMLResponse(
             content=f"""
@@ -76,7 +78,7 @@ async def google_callback(
                 <body style="font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0f172a; color: #f87171;">
                     <div style="background: #1e293b; padding: 2rem 3rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); text-align: center; max-width: 480px;">
                         <h2 style="margin-top: 0;">Connection Failed</h2>
-                        <p style="color: #cbd5e1;">Google returned an error: <strong>{error}</strong></p>
+                        <p style="color: #cbd5e1;">Google returned an error: <strong>{safe_error}</strong></p>
                         <a href="/auth/google/login" style="display: inline-block; margin-top: 1rem; padding: 0.6rem 1.2rem; background: #3b82f6; color: white; text-decoration: none; border-radius: 6px;">Try Again</a>
                     </div>
                 </body>
