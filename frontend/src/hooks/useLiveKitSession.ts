@@ -1,7 +1,7 @@
-/**"use client";
+"use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
-import { Room, RoomEvent, Track, RemoteTrackPublication, RemoteParticipant } from "livekit-client";
+import { useState, useCallback, useRef } from "react";
+import { Room, RoomEvent, Track } from "livekit-client";
 import { ConnectionStatus, TranscriptMessage, TaskItem } from "@/lib/types";
 
 export const useLiveKitSession = () => {
@@ -14,10 +14,13 @@ export const useLiveKitSession = () => {
   const [messages, setMessages] = useState<TranscriptMessage[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
 
+  // Reactive Web Audio nodes (ADR-005) - managed in useState so useClientVAD and AudioVisualizer re-render
+  const [assistantGainNode, setAssistantGainNode] = useState<GainNode | null>(null);
+  const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
+
   const roomRef = useRef<Room | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
-  const assistantGainRef = useRef<GainNode | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
   const sendDataMessage = useCallback((data: Record<string, any>) => {
     if (roomRef.current && roomRef.current.state === "connected") {
@@ -27,10 +30,10 @@ export const useLiveKitSession = () => {
   }, []);
 
   const handleInterruption = useCallback(() => {
-    // Send immediate cancellation to voice server
+    // 1. Send immediate cancellation signal across DataChannel to agent
     sendDataMessage({ type: "response.cancel" });
 
-    // Mark current speaking assistant message as interrupted
+    // 2. Mark current speaking assistant message as interrupted
     setMessages((prev) => {
       const last = prev[prev.length - 1];
       if (last && last.speaker === "assistant" && !last.isInterrupted) {
@@ -52,14 +55,14 @@ export const useLiveKitSession = () => {
       }
       const { token, wsUrl } = await res.json();
 
-      // 2. Instantiate Room
+      // 2. Instantiate Room with adaptive streaming
       const room = new Room({
         adaptiveStream: true,
         dynacast: true,
       });
       roomRef.current = room;
 
-      // Handle Data Channel Messages
+      // 3. Handle DataChannel Messages
       room.on(RoomEvent.DataReceived, (payload: Uint8Array) => {
         try {
           const str = new TextDecoder().decode(payload);
@@ -69,36 +72,59 @@ export const useLiveKitSession = () => {
             setMessages((prev) => [
               ...prev,
               {
-                id: `msg_${Date.now()}`,
-                speaker: event.speaker,
-                text: event.text,
+                id: event.id || `msg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                speaker: event.speaker || "assistant",
+                text: event.text || "",
+                isInterrupted: event.isInterrupted || false,
                 timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
               },
             ]);
-          } else if (event.type === "task_update") {
+          } else if (event.type === "task_update" && event.task) {
+            const rawTask = event.task;
+            const normalizedTask: TaskItem = {
+              id: rawTask.id || `task_${Date.now()}`,
+              title: rawTask.title || "Voice Action",
+              toolName: rawTask.tool_name || rawTask.toolName || "tool",
+              status: rawTask.status || "completed",
+              output: rawTask.output || null,
+              errorMessage: rawTask.errorMessage || rawTask.error_message || null,
+              executionTimeMs: rawTask.executionTimeMs || rawTask.execution_time_ms || 0,
+              idempotencyKey: rawTask.idempotencyKey || rawTask.idempotency_key || null,
+              updatedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+            };
+
             setTasks((prev) => {
-              const existingIdx = prev.findIndex((t) => t.id === event.task.id);
+              const existingIdx = prev.findIndex((t) => t.id === normalizedTask.id);
               if (existingIdx >= 0) {
                 const copy = [...prev];
-                copy[existingIdx] = event.task;
+                copy[existingIdx] = normalizedTask;
                 return copy;
               }
-              return [event.task, ...prev];
+              return [normalizedTask, ...prev];
             });
           }
         } catch (e) {
-          console.error("Failed to parse LiveKit data message", e);
+          console.error("Failed to parse LiveKit DataPacket:", e);
         }
       });
 
-      // Handle Incoming Audio Track (Bot's Voice)
-      room.on(RoomEvent.TrackSubscribed, (track: Track) => {
+      // 4. Handle Incoming Audio Track (Agent's Voice)
+      room.on(RoomEvent.TrackSubscribed, async (track: Track) => {
         if (track.kind === Track.Kind.Audio) {
           const audioElement = track.attach();
-          audioElement.play().catch(console.error);
+          try {
+            await audioElement.play();
+          } catch (e) {
+            console.warn("Audio element play error:", e);
+          }
 
-          // Connect Web Audio API gain & analyser
+          // Initialize Web Audio API graph
           const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+          audioCtxRef.current = audioCtx;
+          if (audioCtx.state === "suspended") {
+            await audioCtx.resume();
+          }
+
           const source = audioCtx.createMediaElementSource(audioElement);
           const gainNode = audioCtx.createGain();
           const analyser = audioCtx.createAnalyser();
@@ -108,24 +134,31 @@ export const useLiveKitSession = () => {
           gainNode.connect(analyser);
           analyser.connect(audioCtx.destination);
 
-          assistantGainRef.current = gainNode;
-          analyserRef.current = analyser;
-
+          // Update React state so useClientVAD and AudioVisualizer receive active nodes
+          setAssistantGainNode(gainNode);
+          setAnalyserNode(analyser);
           setIsBotSpeaking(true);
         }
       });
 
-      // Connect to LiveKit Room
+      room.on(RoomEvent.TrackUnsubscribed, (track: Track) => {
+        if (track.kind === Track.Kind.Audio) {
+          track.detach();
+          setIsBotSpeaking(false);
+        }
+      });
+
+      // 5. Connect to LiveKit SFU Room
       await room.connect(wsUrl, token);
 
-      // Publish Local Microphone
+      // 6. Capture and Publish Local Microphone
       const localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       micStreamRef.current = localStream;
       await room.localParticipant.setMicrophoneEnabled(true);
 
       setConnectionStatus("connected");
     } catch (err) {
-      console.error("LiveKit connection error:", err);
+      console.error("LiveKit room connection error:", err);
       setConnectionStatus("error");
     }
   }, []);
@@ -139,6 +172,12 @@ export const useLiveKitSession = () => {
       micStreamRef.current.getTracks().forEach((t) => t.stop());
       micStreamRef.current = null;
     }
+    if (audioCtxRef.current && audioCtxRef.current.state !== "closed") {
+      audioCtxRef.current.close().catch(console.error);
+      audioCtxRef.current = null;
+    }
+    setAssistantGainNode(null);
+    setAnalyserNode(null);
     setConnectionStatus("disconnected");
     setIsBotSpeaking(false);
     setIsUserSpeaking(false);
@@ -146,9 +185,9 @@ export const useLiveKitSession = () => {
 
   const toggleMute = useCallback(() => {
     if (roomRef.current) {
-      const current = !isMuted;
-      roomRef.current.localParticipant.setMicrophoneEnabled(!current);
-      setIsMuted(current);
+      const nextMuted = !isMuted;
+      roomRef.current.localParticipant.setMicrophoneEnabled(!nextMuted);
+      setIsMuted(nextMuted);
     }
   }, [isMuted]);
 
@@ -161,8 +200,8 @@ export const useLiveKitSession = () => {
     latencyMs,
     messages,
     tasks,
-    analyserNode: analyserRef.current,
-    assistantGainNode: assistantGainRef.current,
+    analyserNode,
+    assistantGainNode,
     micStream: micStreamRef.current,
     connect,
     disconnect,
@@ -170,4 +209,4 @@ export const useLiveKitSession = () => {
     toggleHandsFree: () => setIsHandsFree((h) => !h),
     handleInterruption,
   };
-}; **/
+};
