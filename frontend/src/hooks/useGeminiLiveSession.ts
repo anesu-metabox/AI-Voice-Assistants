@@ -8,6 +8,7 @@ import {
     CALENDAR_SYSTEM_INSTRUCTION,
     classifyAssistantTurn,
     isAllowedCalendarTool,
+    type ScopeDecision,
 } from "@/lib/assistantPolicy";
 import { TaskItem } from "@/lib/types";
 
@@ -40,7 +41,7 @@ export const useGeminiLiveSession = () => {
     const processorRef = useRef<ScriptProcessorNode | null>(null);
     const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
     const idempotencyKeysRef = useRef<Map<string, string>>(new Map());
-    const scopeDecisionRef = useRef<{ action: "allow" | "redirect"; calendarContextActive: boolean } | null>(null);
+    const scopeDecisionRef = useRef<ScopeDecision | null>(null);
 
     const getStableIdempotencyKey = useCallback(
         (toolName: string, args: Record<string, any>, callId: string) => {

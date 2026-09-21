@@ -9,6 +9,24 @@ const rootDir = resolve(testDir, "../..");
 const frontendDir = resolve(testDir, "..");
 
 describe("FastAPI & Next.js Endpoints Integration Verification", () => {
+  it("uses the Elihu dashboard as the Next.js home page", () => {
+    const pagePath = resolve(frontendDir, "src/app/page.tsx");
+    assert.ok(existsSync(pagePath), "Next home page must exist");
+    const content = readFileSync(pagePath, "utf-8");
+    assert.match(content, /from ["']@\/App["']/);
+    assert.match(content, /return <App \/>/);
+  });
+
+  it("provides Next proxy routes for dashboard settings and LiveKit", () => {
+    for (const route of [
+      "src/app/api/assistant-config/route.ts",
+      "src/app/api/company-profile/route.ts",
+      "src/app/api/livekit/token/route.ts",
+    ]) {
+      assert.ok(existsSync(resolve(frontendDir, route)), `${route} must exist`);
+    }
+  });
+
   it("verifies root .env contains essential FastAPI connection settings", () => {
     const envPath = resolve(rootDir, ".env");
     assert.ok(existsSync(envPath), "Root .env file must exist");
@@ -18,16 +36,14 @@ describe("FastAPI & Next.js Endpoints Integration Verification", () => {
     assert.match(envContent, /BACKEND_PORT=8000/, "BACKEND_PORT should be configured");
     assert.match(envContent, /BACKEND_URL=http:\/\/127\.0\.0\.1:8000/, "BACKEND_URL should point to 8000");
     assert.match(envContent, /CORS_ORIGINS=.*localhost:3000/, "CORS_ORIGINS must permit Next.js port 3000");
-    assert.match(envContent, /NEXT_PUBLIC_BACKEND_URL=http:\/\/127\.0\.0\.1:8000/, "NEXT_PUBLIC_BACKEND_URL must be set");
   });
 
-  it("verifies frontend/.env.local contains internal and client backend URLs", () => {
+  it("verifies frontend/.env.local contains the internal backend URL", () => {
     const envLocalPath = resolve(frontendDir, ".env.local");
     assert.ok(existsSync(envLocalPath), "frontend/.env.local file must exist");
     const envContent = readFileSync(envLocalPath, "utf-8");
 
     assert.match(envContent, /BACKEND_URL=http:\/\/127\.0\.0\.1:8000/, "Internal BACKEND_URL must be configured");
-    assert.match(envContent, /NEXT_PUBLIC_BACKEND_URL=http:\/\/127\.0\.0\.1:8000/, "NEXT_PUBLIC_BACKEND_URL must be configured");
   });
 
   it("verifies /api/tools/execute route implementation structure", () => {

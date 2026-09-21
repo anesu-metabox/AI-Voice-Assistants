@@ -14,7 +14,6 @@ body {
   overflow-x: hidden;
 }
 
-/* Custom scrollbar for transcripts and card lists */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;

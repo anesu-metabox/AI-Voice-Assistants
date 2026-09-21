@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { TestingSandboxPage } from "./components/sandbox/TestingSandboxPage";
 

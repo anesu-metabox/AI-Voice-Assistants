@@ -13,7 +13,6 @@ interface GoogleAuthStatus {
   error?: string;
 }
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000";
 const DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000001";
 
 export function GoogleCalendarAuth() {
@@ -23,7 +22,7 @@ export function GoogleCalendarAuth() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/auth/google/status?user_id=${DEFAULT_USER_ID}`, {
+      const res = await fetch(`/auth/google/status?user_id=${DEFAULT_USER_ID}`, {
         cache: "no-store",
       });
       if (res.ok) {
@@ -61,7 +60,7 @@ export function GoogleCalendarAuth() {
     const top = window.screenY + (window.outerHeight - height) / 2;
 
     const popup = window.open(
-      `${BACKEND_URL}/auth/google/login?user_id=${DEFAULT_USER_ID}`,
+      `/auth/google/login?user_id=${DEFAULT_USER_ID}`,
       "GoogleOAuth",
       `width=${width},height=${height},left=${left},top=${top},status=no,menubar=no,toolbar=no`
     );
@@ -79,7 +78,7 @@ export function GoogleCalendarAuth() {
   const handleDisconnect = async () => {
     setActionLoading(true);
     try {
-      await fetch(`${BACKEND_URL}/auth/google/disconnect?user_id=${DEFAULT_USER_ID}`, {
+      await fetch(`/auth/google/disconnect?user_id=${DEFAULT_USER_ID}`, {
         method: "POST",
       });
       await fetchStatus();
