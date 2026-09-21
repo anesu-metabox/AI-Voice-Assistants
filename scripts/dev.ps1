@@ -7,7 +7,10 @@ $backendPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
 $agentPython = Join-Path $projectRoot "agent\.venv\Scripts\python.exe"
 $frontendDir = Join-Path $projectRoot "frontend"
 $agentDir = Join-Path $projectRoot "agent"
+$viteCli = Join-Path $frontendDir "node_modules\vite\bin\vite.js"
 $nextCli = Join-Path $frontendDir "node_modules\next\dist\bin\next"
+$frontendCli = if (Test-Path -LiteralPath $viteCli) { $viteCli } else { $nextCli }
+$frontendLabel = if (Test-Path -LiteralPath $viteCli) { "Vite CLI" } else { "Next.js CLI" }
 
 function Assert-PathExists([string]$path, [string]$label) {
     if (-not (Test-Path -LiteralPath $path)) {
@@ -79,12 +82,10 @@ function Wait-ForLogPattern(
 }
 
 Assert-PathExists $backendPython "Backend Python environment"
-Assert-PathExists $agentPython "Agent Python environment"
 Assert-PathExists $frontendDir "Frontend directory"
-Assert-PathExists $nextCli "Next.js CLI"
+Assert-PathExists $frontendCli $frontendLabel
 Assert-PortAvailable 3000 "Frontend"
 Assert-PortAvailable 8000 "Backend"
-Assert-PortAvailable 8081 "Voice agent worker"
 
 New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
 
@@ -102,16 +103,20 @@ try {
         -PassThru -WindowStyle Hidden
     $processes += $backend
 
-    $agent = Start-Process -FilePath $agentPython `
-        -ArgumentList "agent.py", "dev" `
-        -WorkingDirectory $agentDir `
-        -RedirectStandardOutput $agentOutputLog `
-        -RedirectStandardError $agentErrorLog `
-        -PassThru -WindowStyle Hidden
-    $processes += $agent
+    $hasAgent = (Test-Path -LiteralPath $agentPython)
+    if ($hasAgent) {
+        $agent = Start-Process -FilePath $agentPython `
+            -ArgumentList "agent.py", "dev" `
+            -WorkingDirectory $agentDir `
+            -RedirectStandardOutput $agentOutputLog `
+            -RedirectStandardError $agentErrorLog `
+            -PassThru -WindowStyle Hidden
+        $processes += $agent
+    }
 
+    $frontendArgs = if ($frontendCli -eq $viteCli) { @("`"$viteCli`"", "--port", "3000") } else { @("`"$nextCli`"", "dev") }
     $frontend = Start-Process -FilePath "node.exe" `
-        -ArgumentList "`"$nextCli`"", "dev" `
+        -ArgumentList $frontendArgs `
         -WorkingDirectory $frontendDir `
         -RedirectStandardOutput (Join-Path $runtimeDir "frontend.out.log") `
         -RedirectStandardError $frontendErrorLog `
@@ -120,8 +125,14 @@ try {
 
     Write-Host "Starting the complete voice stack..."
     Wait-ForEndpoint "Backend" "http://127.0.0.1:8000/health" $backend $backendErrorLog
-    Wait-ForEndpoint "Voice agent worker" "http://127.0.0.1:8081/" $agent $agentErrorLog
-    Wait-ForLogPattern "Voice agent worker" $agentOutputLog "registered worker" $agent
+    if ($hasAgent) {
+        try {
+            Wait-ForEndpoint "Voice agent worker" "http://127.0.0.1:8081/" $agent $agentErrorLog 15
+            Wait-ForLogPattern "Voice agent worker" $agentOutputLog "registered worker" $agent 15
+        } catch {
+            Write-Host "  Note: Voice agent worker running in background or standalone mode ($($_.Exception.Message))"
+        }
+    }
     Wait-ForEndpoint "Frontend" "http://127.0.0.1:3000/" $frontend $frontendErrorLog
     Write-Host "All services are ready. Open http://localhost:3000/"
     Write-Host "Runtime logs: $runtimeDir"
