@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     const payload = {
       tool_name,
       parameters,
-      user_id: user_id || DEFAULT_USER_ID,
+      user_id: user_id || null,
       session_id: session_id || null,
       idempotency_key: idempotency_key || null,
     };

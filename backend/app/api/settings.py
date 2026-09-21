@@ -29,6 +29,7 @@ DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000001"
 # ─── Pydantic Schemas ─────────────────────────────────────────────────────────
 
 class CompanyProfileRequest(BaseModel):
+    user_id: Optional[str] = Field(default=None)
     company_name: str = Field(..., min_length=1, max_length=255)
     website_url: Optional[str] = Field(default="")
     company_phone: Optional[str] = Field(default="")
@@ -37,6 +38,7 @@ class CompanyProfileRequest(BaseModel):
 
 
 class AssistantConfigRequest(BaseModel):
+    user_id: Optional[str] = Field(default=None)
     assistant_name: str = Field(..., min_length=1, max_length=255)
     voice_engine: str = Field(default="Aoede")
     inbound_greeting: str = Field(default="")
@@ -67,9 +69,10 @@ async def update_company_profile(
     user_id: str = Query(default=DEFAULT_USER_ID),
 ):
     """Save or update company profile and operational parameters into Neon PostgreSQL."""
+    target_user_id = payload.user_id or user_id or DEFAULT_USER_ID
     try:
         updated = await save_company_profile(
-            user_id=user_id,
+            user_id=target_user_id,
             company_name=payload.company_name,
             website_url=payload.website_url,
             company_phone=payload.company_phone,
@@ -107,9 +110,10 @@ async def update_assistant_config(
     user_id: str = Query(default=DEFAULT_USER_ID),
 ):
     """Save or update assistant configuration into Neon PostgreSQL."""
+    target_user_id = payload.user_id or user_id or DEFAULT_USER_ID
     try:
         updated = await save_assistant_config(
-            user_id=user_id,
+            user_id=target_user_id,
             assistant_name=payload.assistant_name,
             voice_engine=payload.voice_engine,
             inbound_greeting=payload.inbound_greeting,
@@ -131,7 +135,7 @@ async def update_assistant_config(
 @router.get("/livekit/token", summary="Generate LiveKit Room Access Token")
 async def generate_livekit_token(
     room_name: Optional[str] = Query(default=None),
-    user_id: str = Query(default=DEFAULT_USER_ID),
+    user_id: Optional[str] = Query(default=None),
     participant_name: Optional[str] = Query(default="Tester"),
 ):
     """
@@ -174,14 +178,17 @@ async def generate_livekit_token(
 
         # Ensure room and dispatch agent worker so the AI bot enters the session immediately
         try:
+            import json as _json
             from livekit.api import LiveKitAPI, CreateRoomRequest, CreateAgentDispatchRequest
             lk_api = LiveKitAPI(ws_url, api_key, api_secret)
+            resolved_uid = user_id if (user_id and str(user_id).lower() not in ("guest", "none", "null", "")) else None
+            room_meta = _json.dumps({"user_id": resolved_uid} if resolved_uid else {})
             try:
-                await lk_api.room.create_room(CreateRoomRequest(name=resolved_room, empty_timeout=300))
+                await lk_api.room.create_room(CreateRoomRequest(name=resolved_room, empty_timeout=300, metadata=room_meta))
             except Exception:
                 pass
             try:
-                await lk_api.agent_dispatch.create_dispatch(CreateAgentDispatchRequest(room=resolved_room))
+                await lk_api.agent_dispatch.create_dispatch(CreateAgentDispatchRequest(room=resolved_room, metadata=room_meta))
             except Exception as d_exc:
                 logger.debug("Agent dispatch note: %s", d_exc)
             await lk_api.aclose()

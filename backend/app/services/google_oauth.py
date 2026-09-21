@@ -26,6 +26,7 @@ DEFAULT_SCOPES = [
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/calendar.readonly",
     "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
     "openid",
 ]
 
@@ -37,7 +38,8 @@ def get_authorization_url(
 ) -> str:
     """
     Generate the Google OAuth 2.0 authorization URL.
-    Enforces access_type=offline and prompt=consent to ensure a refresh token is returned.
+    Enforces access_type=offline and prompt=select_account consent to ensure the Google account
+    chooser is presented and a refresh token is returned.
     """
     resolved_redirect = redirect_uri or settings.google_redirect_uri
     resolved_scopes = scopes or DEFAULT_SCOPES
@@ -51,7 +53,7 @@ def get_authorization_url(
         "response_type": "code",
         "scope": " ".join(resolved_scopes),
         "access_type": "offline",
-        "prompt": "consent",
+        "prompt": "select_account consent",
         "state": state,
         "include_granted_scopes": "true",
     }
@@ -82,6 +84,20 @@ async def exchange_code_for_tokens(
     if response.status_code != 200:
         logger.error("Failed to exchange code for tokens: %s - %s", response.status_code, response.text)
         raise ValueError(f"Google OAuth token exchange failed: {response.text}")
+    return response.json()
+
+
+async def fetch_google_user_profile(access_token: str) -> Dict[str, Any]:
+    """
+    Fetch user identity profile from Google UserInfo endpoint using active access token.
+    Returns dictionary with email, name, sub (Google Subject ID), picture, etc.
+    """
+    url = "https://www.googleapis.com/oauth2/v3/userinfo"
+    client = get_http_client()
+    response = await client.get(url, headers={"Authorization": f"Bearer {access_token}"})
+    if response.status_code != 200:
+        logger.warning("Failed to fetch Google userinfo (%s): %s", response.status_code, response.text)
+        return {}
     return response.json()
 
 

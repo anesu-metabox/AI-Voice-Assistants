@@ -51,14 +51,16 @@ def _parse_iso_datetime(dt_str: str) -> datetime:
     return dt.astimezone(dt_timezone.utc)
 
 
-def _parse_user_uuid(user_id: Any) -> uuid.UUID:
-    """Parse user ID to UUID object with fallback to default test user."""
+def _parse_user_uuid(user_id: Any) -> Optional[uuid.UUID]:
+    """Parse user ID to UUID object. Returns None if invalid, missing, or guest."""
     if isinstance(user_id, uuid.UUID):
         return user_id
+    if not user_id or str(user_id).lower() in ("guest", "none", "null", ""):
+        return None
     try:
         return uuid.UUID(str(user_id))
     except (ValueError, TypeError, AttributeError):
-        return uuid.UUID("00000000-0000-0000-0000-000000000001")
+        return None
 
 
 async def get_calendar_availability(
@@ -66,7 +68,7 @@ async def get_calendar_availability(
     end_date: Optional[str] = None,
     duration_minutes: int = 30,
     timezone: Optional[str] = None,
-    user_id: str = "00000000-0000-0000-0000-000000000001",
+    user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Query available calendar slots for a date range dynamically.
@@ -74,6 +76,14 @@ async def get_calendar_availability(
     otherwise queries Neon PostgreSQL calendar_events and user_preferences.
     """
     user_uuid = _parse_user_uuid(user_id)
+    if user_uuid is None:
+        return {
+            "status": "error",
+            "error": "NOT_CONNECTED",
+            "message": "Google Calendar is not connected. Please connect your Google Calendar account in the Integrations page.",
+            "available_slots": [],
+        }
+
     logger.info("Computing calendar availability for user %s (%s to %s)", user_uuid, start_date, end_date)
 
     # 1. Attempt live Google Calendar lookup if credentials are configured
@@ -227,7 +237,7 @@ async def book_event(
     attendees: Optional[List[str]] = None,
     description: Optional[str] = None,
     location: Optional[str] = "Google Meet",
-    user_id: str = "00000000-0000-0000-0000-000000000001",
+    user_id: Optional[str] = None,
     session_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
@@ -237,6 +247,13 @@ async def book_event(
     and emits audit task into tasks table.
     """
     user_uuid = _parse_user_uuid(user_id)
+    if user_uuid is None:
+        return {
+            "status": "error",
+            "error": "NOT_CONNECTED",
+            "message": "Google Calendar is not connected. Please connect your Google Calendar account in the Integrations page to schedule events.",
+        }
+
     start_dt = _parse_iso_datetime(start_time)
     end_dt = start_dt + timedelta(minutes=duration_minutes)
     attendees_list = attendees if attendees is not None else []
@@ -397,7 +414,7 @@ async def cancel_event(
     reason: Optional[str] = None,
     confirm: bool = False,
     confirmation_token: Optional[str] = None,
-    user_id: str = "00000000-0000-0000-0000-000000000001",
+    user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Cancel an existing calendar event via soft deletion (status='cancelled', cancelled_at=NOW()).
@@ -414,6 +431,12 @@ async def cancel_event(
         }
 
     user_uuid = _parse_user_uuid(user_id)
+    if user_uuid is None:
+        return {
+            "status": "error",
+            "error": "NOT_CONNECTED",
+            "message": "Google Calendar is not connected. Please connect your Google Calendar account in the Integrations page.",
+        }
     try:
         event_uuid = uuid.UUID(str(event_id))
     except (ValueError, TypeError):
@@ -507,7 +530,7 @@ async def list_events(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     timezone: Optional[str] = None,
-    user_id: str = "00000000-0000-0000-0000-000000000001",
+    user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Return all confirmed calendar events for a user within a date range.
@@ -515,6 +538,14 @@ async def list_events(
     Returns the actual booked events, not free slots.
     """
     user_uuid = _parse_user_uuid(user_id)
+    if user_uuid is None:
+        return {
+            "status": "error",
+            "error": "NOT_CONNECTED",
+            "message": "Google Calendar is not connected. Please connect your Google Calendar account in the Integrations page to view events.",
+            "events": [],
+            "count": 0,
+        }
     logger.info("Fetching confirmed events for user %s (%s to %s)", user_uuid, start_date, end_date)
 
     pool = await get_db_pool()

@@ -285,6 +285,21 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
                 idempotency_key=idempotency_key,
             )
 
+        # Handle structured error returned by tools (e.g. not connected)
+        if isinstance(result, dict) and result.get("status") == "error":
+            if idempotency_key:
+                await release_idempotency_lock(key=idempotency_key)
+            msg = result.get("message") or result.get("error") or "Tool execution error"
+            return ToolExecutionResponse(
+                status="error",
+                error_code=result.get("error") or "TOOL_ERROR",
+                error_message=msg,
+                message=msg,
+                data=result,
+                execution_time_ms=elapsed_ms,
+                idempotency_key=idempotency_key,
+            )
+
         # 8. Commit Idempotency Lock on Success
         if idempotency_key:
             await commit_idempotency_lock(key=idempotency_key, response_payload=result)

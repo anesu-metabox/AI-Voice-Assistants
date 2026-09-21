@@ -168,10 +168,12 @@ class VoiceBotAgent(Agent):
         self,
         room: rtc.Room,
         instructions: str,
+        user_id: Optional[str] = None,
         ssl_context: Optional[ssl.SSLContext] = None,
     ):
         super().__init__(instructions=instructions)
         self.room = room
+        self.user_id = user_id
         self._idempotency_keys: Dict[str, str] = {}
         self._backend_client = httpx.AsyncClient(
             timeout=httpx.Timeout(15.0, connect=5.0),
@@ -179,6 +181,13 @@ class VoiceBotAgent(Agent):
             verify=ssl_context if ssl_context is not None else True,
             trust_env=False,
         )
+
+    def _resolve_user(self, user_id: Optional[str]) -> Optional[str]:
+        if user_id and str(user_id).lower() not in ("default", "guest", "none", "null", ""):
+            return user_id
+        if self.user_id and str(self.user_id).lower() not in ("default", "guest", "none", "null", ""):
+            return self.user_id
+        return None
 
     def _stable_write_key(self, tool_name: str, params: Dict[str, Any]) -> str:
         logical_action = f"{tool_name}:{json.dumps(params, sort_keys=True, separators=(',', ':'))}"
@@ -195,11 +204,19 @@ class VoiceBotAgent(Agent):
         start_date: Annotated[Optional[str], "Start date in YYYY-MM-DD format (defaults to today)."] = None,
         end_date: Annotated[Optional[str], "End date in YYYY-MM-DD format (defaults to start_date)."] = None,
         duration_minutes: Annotated[int, "Minimum slot duration in minutes (default 30)."] = 30,
-        user_id: Annotated[str, "User UUID."] = DEFAULT_USER_ID,
+        user_id: Annotated[Optional[str], "User UUID."] = None,
     ) -> str:
         task_id = f"task_{uuid.uuid4().hex[:8]}"
         title = f"Checking availability for {start_date or 'today'}"
         await broadcast_task_update(self.room, task_id, title, "get_calendar_availability", "running")
+
+        target_user = self._resolve_user(user_id)
+        if not target_user:
+            msg = "Google Calendar is not connected. Please connect your Google Calendar account in the Integrations page to check availability."
+            await broadcast_task_update(
+                self.room, task_id, title, "get_calendar_availability", "failed", error=msg
+            )
+            return json.dumps({"status": "error", "error": "NOT_CONNECTED", "message": msg})
 
         try:
             params: Dict[str, Any] = {"duration_minutes": duration_minutes}
@@ -211,7 +228,7 @@ class VoiceBotAgent(Agent):
             result = await call_backend_tool(
                 "get_calendar_availability",
                 params,
-                user_id=user_id,
+                user_id=target_user,
                 idempotency_key=None,
                 client=self._backend_client,
             )
@@ -234,11 +251,19 @@ class VoiceBotAgent(Agent):
         self,
         start_date: Annotated[Optional[str], "Start date in YYYY-MM-DD format (defaults to today)."] = None,
         end_date: Annotated[Optional[str], "End date in YYYY-MM-DD format (defaults to start_date)."] = None,
-        user_id: Annotated[str, "User UUID."] = DEFAULT_USER_ID,
+        user_id: Annotated[Optional[str], "User UUID."] = None,
     ) -> str:
         task_id = f"task_{uuid.uuid4().hex[:8]}"
         title = f"Listing events for {start_date or 'today'}"
         await broadcast_task_update(self.room, task_id, title, "list_events", "running")
+
+        target_user = self._resolve_user(user_id)
+        if not target_user:
+            msg = "Google Calendar is not connected. Please connect your Google Calendar account in the Integrations page to view events."
+            await broadcast_task_update(
+                self.room, task_id, title, "list_events", "failed", error=msg
+            )
+            return json.dumps({"status": "error", "error": "NOT_CONNECTED", "message": msg})
 
         try:
             params: Dict[str, Any] = {}
@@ -250,7 +275,7 @@ class VoiceBotAgent(Agent):
             result = await call_backend_tool(
                 "list_events",
                 params,
-                user_id=user_id,
+                user_id=target_user,
                 idempotency_key=None,
                 client=self._backend_client,
             )
@@ -277,11 +302,19 @@ class VoiceBotAgent(Agent):
         attendees: Annotated[Optional[List[str]], "List of attendee email addresses or names."] = None,
         description: Annotated[Optional[str], "Meeting notes or description."] = None,
         location: Annotated[Optional[str], "Meeting location (default 'Google Meet')."] = "Google Meet",
-        user_id: Annotated[str, "User UUID."] = DEFAULT_USER_ID,
+        user_id: Annotated[Optional[str], "User UUID."] = None,
     ) -> str:
         task_id = f"task_{uuid.uuid4().hex[:8]}"
         action_title = f"Booking: {title}"
         await broadcast_task_update(self.room, task_id, action_title, "book_event", "running")
+
+        target_user = self._resolve_user(user_id)
+        if not target_user:
+            msg = "Google Calendar is not connected. Please connect your Google Calendar account in the Integrations page before scheduling events."
+            await broadcast_task_update(
+                self.room, task_id, action_title, "book_event", "failed", error=msg
+            )
+            return json.dumps({"status": "error", "error": "NOT_CONNECTED", "message": msg})
 
         try:
             params = {
@@ -298,7 +331,7 @@ class VoiceBotAgent(Agent):
             result = await call_backend_tool(
                 "book_event",
                 params,
-                user_id=user_id,
+                user_id=target_user,
                 idempotency_key=idempotency_key,
                 client=self._backend_client,
             )
@@ -323,11 +356,19 @@ class VoiceBotAgent(Agent):
         reason: Annotated[Optional[str], "Optional reason for cancellation."] = None,
         confirm: Annotated[bool, "Set to true if user explicitly confirmed cancellation."] = False,
         confirmation_token: Annotated[Optional[str], "Exact token returned by a prior confirmation_required response."] = None,
-        user_id: Annotated[str, "User UUID."] = DEFAULT_USER_ID,
+        user_id: Annotated[Optional[str], "User UUID."] = None,
     ) -> str:
         task_id = f"task_{uuid.uuid4().hex[:8]}"
         title = f"Cancelling event {event_id}"
         await broadcast_task_update(self.room, task_id, title, "cancel_event", "running")
+
+        target_user = self._resolve_user(user_id)
+        if not target_user:
+            msg = "Google Calendar is not connected. Please connect your Google Calendar account in the Integrations page to manage events."
+            await broadcast_task_update(
+                self.room, task_id, title, "cancel_event", "failed", error=msg
+            )
+            return json.dumps({"status": "error", "error": "NOT_CONNECTED", "message": msg})
 
         try:
             params: Dict[str, Any] = {"event_id": event_id, "confirm": confirm}
@@ -340,7 +381,7 @@ class VoiceBotAgent(Agent):
             result = await call_backend_tool(
                 "cancel_event",
                 params,
-                user_id=user_id,
+                user_id=target_user,
                 idempotency_key=idempotency_key,
                 client=self._backend_client,
             )
@@ -531,12 +572,29 @@ async def entrypoint(ctx: JobContext) -> None:
             async_client_args={"verify": ssl_context, "ssl": ssl_context},
         )
 
+    # Extract scoped user_id from room or job metadata if provided
+    room_user_id = None
+    raw_meta = getattr(ctx.room, "metadata", None) or getattr(ctx.job, "metadata", None)
+    if raw_meta:
+        try:
+            parsed_meta = json.loads(raw_meta) if isinstance(raw_meta, str) else raw_meta
+            if isinstance(parsed_meta, dict) and parsed_meta.get("user_id"):
+                candidate = str(parsed_meta["user_id"])
+                if candidate.lower() not in ("guest", "none", "null", ""):
+                    room_user_id = candidate
+                    logger.info("Scoped session to user_id: %s", room_user_id)
+        except Exception as meta_err:
+            logger.warning("Could not parse room metadata '%s': %s", raw_meta, meta_err)
+
     # Fetch dynamic assistant & company profile configuration from backend
     active_instructions = SYSTEM_INSTRUCTION
     active_voice = GEMINI_VOICE
     try:
+        fetch_params = {"user_id": room_user_id} if room_user_id else {}
         async with httpx.AsyncClient(timeout=2.0) as http_client:
-            asst_resp = await http_client.get(f"{BACKEND_URL}/api/assistant-config")
+            asst_resp = await http_client.get(
+                f"{BACKEND_URL}/api/assistant-config", params=fetch_params
+            )
             if asst_resp.status_code == 200:
                 asst_data = asst_resp.json().get("data", {})
                 user_prompt = asst_data.get("system_prompt")
@@ -545,7 +603,9 @@ async def entrypoint(ctx: JobContext) -> None:
                 if asst_data.get("voice_engine"):
                     active_voice = asst_data.get("voice_engine")
 
-            comp_resp = await http_client.get(f"{BACKEND_URL}/api/company-profile")
+            comp_resp = await http_client.get(
+                f"{BACKEND_URL}/api/company-profile", params=fetch_params
+            )
             if comp_resp.status_code == 200:
                 comp_data = comp_resp.json().get("data", {})
                 c_name = comp_data.get("company_name", "Acme Operations")
@@ -572,6 +632,7 @@ async def entrypoint(ctx: JobContext) -> None:
     agent = VoiceBotAgent(
         room=ctx.room,
         instructions=active_instructions,
+        user_id=room_user_id,
         ssl_context=ssl_context if isinstance(ssl_context, ssl.SSLContext) else None,
     )
     session = AgentSession(llm=model)

@@ -4,6 +4,7 @@ import { Room, RoomEvent, Track, createLocalAudioTrack, type RemoteTrack, type R
 interface TestingSandboxProps {
   onBack: () => void;
   userId?: string;
+  userEmail?: string;
 }
 
 interface Message {
@@ -13,7 +14,11 @@ interface Message {
   timestamp: string;
 }
 
-export function TestingSandboxPage({ onBack, userId = "00000000-0000-0000-0000-000000000001" }: TestingSandboxProps) {
+export function TestingSandboxPage({
+  onBack,
+  userId = "guest",
+  userEmail,
+}: TestingSandboxProps) {
   // Session configuration from database
   const [assistantConfig, setAssistantConfig] = useState<{
     assistant_name: string;
@@ -210,7 +215,8 @@ export function TestingSandboxPage({ onBack, userId = "00000000-0000-0000-0000-0
 
     try {
       // 1. Fetch authenticated token from FastAPI backend
-      const res = await fetch(`/api/livekit/token?room_name=sandbox-demo&user_id=${userId}`);
+      const targetUid = userId && userId !== "guest" ? userId : "guest";
+      const res = await fetch(`/api/livekit/token?room_name=sandbox-demo&user_id=${targetUid}`);
       if (!res.ok) {
         throw new Error(`Failed to obtain LiveKit token: HTTP ${res.status}`);
       }
@@ -539,13 +545,22 @@ export function TestingSandboxPage({ onBack, userId = "00000000-0000-0000-0000-0
           }}
         >
           {/* Assistant Info Pill */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap", justifyContent: "center" }}>
             <span style={{ fontSize: 12, background: "#EEF2FF", color: "#3B5BDB", padding: "4px 10px", borderRadius: 6, fontWeight: 600 }}>
               Voice: {assistantConfig.voice_engine}
             </span>
             <span style={{ fontSize: 12, background: "#F0FDF4", color: "#16A34A", padding: "4px 10px", borderRadius: 6, fontWeight: 600 }}>
-              Model: Gemini 2.0 Flash Live
+              Model: Gemini Live
             </span>
+            {userEmail ? (
+              <span style={{ fontSize: 12, background: "#F0FDF4", color: "#15803D", padding: "4px 10px", borderRadius: 6, fontWeight: 600 }}>
+                📅 Calendar: {userEmail}
+              </span>
+            ) : (
+              <span style={{ fontSize: 12, background: "#FEF2F2", color: "#DC2626", padding: "4px 10px", borderRadius: 6, fontWeight: 600 }}>
+                📅 Calendar: Not Connected
+              </span>
+            )}
             <span style={{ fontSize: 12, background: "#F8FAFC", color: "#475569", padding: "4px 10px", borderRadius: 6, fontWeight: 500 }}>
               {companyProfile.timezone}
             </span>

@@ -13,13 +13,15 @@ from .connection import get_db_pool
 logger = logging.getLogger("voice_bot.db.tokens")
 
 
-def _parse_user_uuid(user_id: Any) -> uuid.UUID:
+def _parse_user_uuid(user_id: Any) -> Optional[uuid.UUID]:
     if isinstance(user_id, uuid.UUID):
         return user_id
+    if not user_id or str(user_id).lower() in ("guest", "none", "null", ""):
+        return None
     try:
         return uuid.UUID(str(user_id))
     except (ValueError, TypeError, AttributeError):
-        return uuid.UUID("00000000-0000-0000-0000-000000000001")
+        return None
 
 
 async def save_oauth_tokens(
@@ -36,6 +38,8 @@ async def save_oauth_tokens(
     Uses ON CONFLICT DO UPDATE to preserve existing refresh_token if a new one is not supplied.
     """
     user_uuid = _parse_user_uuid(user_id)
+    if user_uuid is None:
+        raise ValueError(f"Cannot save tokens for invalid user_id: {user_id}")
 
     # Ensure expires_at has timezone
     if expires_at.tzinfo is None:
@@ -76,6 +80,8 @@ async def get_oauth_tokens(user_id: str, provider: str = "google") -> Optional[D
     Retrieve stored OAuth tokens for a user and provider.
     """
     user_uuid = _parse_user_uuid(user_id)
+    if user_uuid is None:
+        return None
 
     query = """
     SELECT id, user_id, provider, access_token, refresh_token, token_type, scope, expires_at, created_at, updated_at
@@ -96,6 +102,8 @@ async def delete_oauth_tokens(user_id: str, provider: str = "google") -> bool:
     Delete stored OAuth tokens for a user (used during disconnect / revocation).
     """
     user_uuid = _parse_user_uuid(user_id)
+    if user_uuid is None:
+        return False
 
     query = "DELETE FROM oauth_tokens WHERE user_id = $1 AND provider = $2;"
 

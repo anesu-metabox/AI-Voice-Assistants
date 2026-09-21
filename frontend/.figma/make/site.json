@@ -1,0 +1,10 @@
+{
+  "description": "This AI Voice Assistant platform streamlines business communications with features like call management, integrations, and customizable assistant settings for enhanced productivity.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

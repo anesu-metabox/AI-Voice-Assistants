@@ -15,6 +15,19 @@ type Page =
   | "assistant-config"
   | "testing-sandbox";
 
+export interface CurrentUser {
+  id: string;
+  email: string;
+  name: string;
+  picture_url?: string;
+}
+
+export const LEGACY_DEFAULT_USER: CurrentUser = {
+  id: "00000000-0000-0000-0000-000000000001",
+  email: "anesu@intern-mail.metabox.technology",
+  name: "Anesu Mupesa",
+};
+
 const assetPathPrefix = "/assets";
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
@@ -314,7 +327,28 @@ function Sidebar({ page, setPage }: { page: Page; setPage: (p: Page) => void }) 
   );
 }
 
-function AppHeader({ title, subtitle }: { title: string; subtitle: string }) {
+function AppHeader({
+  title,
+  subtitle,
+  currentUser,
+  onConnectGoogle,
+  onDisconnectGoogle,
+}: {
+  title: string;
+  subtitle: string;
+  currentUser?: CurrentUser | null;
+  onConnectGoogle?: () => void;
+  onDisconnectGoogle?: () => void;
+}) {
+  const initials = currentUser
+    ? (currentUser.name || currentUser.email || "U")
+        .split(" ")
+        .map((w) => w[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase()
+    : "G";
+
   return (
     <div
       style={{
@@ -338,27 +372,126 @@ function AppHeader({ title, subtitle }: { title: string; subtitle: string }) {
           <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#22C55E" }} />
           Ava Voice Server Live
         </div>
-        <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#E8ECF4", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#3B5BDB", fontFamily: "Inter" }}>
-          MV
-        </div>
-        <span style={{ fontSize: 13, color: "#0D1526", fontFamily: "Inter", fontWeight: 500 }}>Marcus Vance</span>
+
+        {currentUser ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div
+              title={currentUser.email}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: "50%",
+                background: "#EEF2FF",
+                overflow: "hidden",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 13,
+                fontWeight: 700,
+                color: "#3B5BDB",
+                fontFamily: "Inter",
+                border: "1px solid #C7D2FE",
+              }}
+            >
+              {currentUser.picture_url ? (
+                <img src={currentUser.picture_url} alt={currentUser.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              ) : (
+                initials
+              )}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              <span style={{ fontSize: 13, color: "#0D1526", fontFamily: "Inter", fontWeight: 600 }}>
+                {currentUser.name || currentUser.email.split("@")[0]}
+              </span>
+              <span style={{ fontSize: 11, color: "#64748B", fontFamily: "Inter" }}>
+                {currentUser.email}
+              </span>
+            </div>
+            {onDisconnectGoogle && (
+              <button
+                onClick={onDisconnectGoogle}
+                title="Disconnect Google Account"
+                style={{
+                  background: "transparent",
+                  border: "1px solid #E2E8F0",
+                  borderRadius: 6,
+                  padding: "4px 8px",
+                  fontSize: 11,
+                  color: "#64748B",
+                  cursor: "pointer",
+                  fontFamily: "Inter",
+                  marginLeft: 4,
+                }}
+              >
+                Sign Out
+              </button>
+            )}
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", background: "#F1F5F9", borderRadius: 20 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#94A3B8" }} />
+              <span style={{ fontSize: 12, color: "#475569", fontFamily: "Inter", fontWeight: 500 }}>Guest User</span>
+            </div>
+            {onConnectGoogle && (
+              <button
+                onClick={onConnectGoogle}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "6px 14px",
+                  background: "#3B5BDB",
+                  color: "white",
+                  border: "none",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  fontFamily: "Inter",
+                  cursor: "pointer",
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+                }}
+              >
+                Connect Account
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function AppShell({ page, setPage, children, title, subtitle }: {
+function AppShell({
+  page,
+  setPage,
+  children,
+  title,
+  subtitle,
+  currentUser,
+  onConnectGoogle,
+  onDisconnectGoogle,
+}: {
   page: Page;
   setPage: (p: Page) => void;
   children: React.ReactNode;
   title: string;
   subtitle: string;
+  currentUser?: CurrentUser | null;
+  onConnectGoogle?: () => void;
+  onDisconnectGoogle?: () => void;
 }) {
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#F0F3FA" }}>
       <Sidebar page={page} setPage={setPage} />
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <AppHeader title={title} subtitle={subtitle} />
+        <AppHeader
+          title={title}
+          subtitle={subtitle}
+          currentUser={currentUser}
+          onConnectGoogle={onConnectGoogle}
+          onDisconnectGoogle={onDisconnectGoogle}
+        />
         <div style={{ flex: 1, padding: 24, overflowY: "auto" }}>{children}</div>
       </div>
     </div>
@@ -1277,7 +1410,17 @@ function AIConfigOnboardingPage({ setPage }: { setPage: (p: Page) => void }) {
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
-function DashboardPage({ setPage }: { setPage: (p: Page) => void }) {
+function DashboardPage({
+  setPage,
+  currentUser,
+  onConnectGoogle,
+  onDisconnectGoogle,
+}: {
+  setPage: (p: Page) => void;
+  currentUser?: CurrentUser | null;
+  onConnectGoogle?: () => void;
+  onDisconnectGoogle?: () => void;
+}) {
   const stats = [
     { label: "Total Call Count", value: "1,842", sub: "↑ 12.4%", subColor: "#22C55E" },
     { label: "Avg API Latency", value: "320ms", sub: "Good Quality", subColor: "#3B5BDB" },
@@ -1299,6 +1442,9 @@ function DashboardPage({ setPage }: { setPage: (p: Page) => void }) {
       setPage={setPage}
       title="Operational Dashboard"
       subtitle="Overview of operational trends, active voice server bounds, and target KPIs."
+      currentUser={currentUser}
+      onConnectGoogle={onConnectGoogle}
+      onDisconnectGoogle={onDisconnectGoogle}
     >
       {/* Stats row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 20 }}>
@@ -1376,7 +1522,17 @@ function DashboardPage({ setPage }: { setPage: (p: Page) => void }) {
 
 // ─── Calls Stream ─────────────────────────────────────────────────────────────
 
-function CallsPage({ setPage }: { setPage: (p: Page) => void }) {
+function CallsPage({
+  setPage,
+  currentUser,
+  onConnectGoogle,
+  onDisconnectGoogle,
+}: {
+  setPage: (p: Page) => void;
+  currentUser?: CurrentUser | null;
+  onConnectGoogle?: () => void;
+  onDisconnectGoogle?: () => void;
+}) {
   const [selectedCall, setSelectedCall] = useState(0);
   const calls = [
     {
@@ -1423,6 +1579,9 @@ function CallsPage({ setPage }: { setPage: (p: Page) => void }) {
       setPage={setPage}
       title="Calls Stream & Analytics"
       subtitle="Track live operational logs, review sentiment metrics, and evaluate agent transcript executions."
+      currentUser={currentUser}
+      onConnectGoogle={onConnectGoogle}
+      onDisconnectGoogle={onDisconnectGoogle}
     >
       <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 20, alignItems: "flex-start" }}>
         <div>
@@ -1559,7 +1718,17 @@ function CallsPage({ setPage }: { setPage: (p: Page) => void }) {
 
 // ─── Phone Numbers ────────────────────────────────────────────────────────────
 
-function PhoneNumbersPage({ setPage }: { setPage: (p: Page) => void }) {
+function PhoneNumbersPage({
+  setPage,
+  currentUser,
+  onConnectGoogle,
+  onDisconnectGoogle,
+}: {
+  setPage: (p: Page) => void;
+  currentUser?: CurrentUser | null;
+  onConnectGoogle?: () => void;
+  onDisconnectGoogle?: () => void;
+}) {
   const trunks = [
     {
       number: "+1 (800) 555-0192",
@@ -1599,6 +1768,9 @@ function PhoneNumbersPage({ setPage }: { setPage: (p: Page) => void }) {
       setPage={setPage}
       title="Business Phone Numbers"
       subtitle="Configure voice channels, rent custom local/toll-free numbers, or port existing trunks."
+      currentUser={currentUser}
+      onConnectGoogle={onConnectGoogle}
+      onDisconnectGoogle={onDisconnectGoogle}
     >
       <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 20, alignItems: "flex-start" }}>
         <div>
@@ -1711,18 +1883,46 @@ function PhoneNumbersPage({ setPage }: { setPage: (p: Page) => void }) {
 
 // ─── Integrations ─────────────────────────────────────────────────────────────
 
-function GoogleCalendarIntegrationCard() {
+function GoogleCalendarIntegrationCard({
+  currentUser,
+  onUserChange,
+}: {
+  currentUser: CurrentUser | null;
+  onUserChange: (user: CurrentUser | null) => void;
+}) {
   const [connected, setConnected] = useState(false);
+  const [accountEmail, setAccountEmail] = useState<string | null>(null);
+  const [accountName, setAccountName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const userId = "00000000-0000-0000-0000-000000000001";
 
   const checkStatus = useCallback(async () => {
+    if (!currentUser || !currentUser.id) {
+      setConnected(false);
+      setAccountEmail(null);
+      setAccountName(null);
+      setLoading(false);
+      return;
+    }
     try {
-      const res = await fetch(`/auth/google/status?user_id=${userId}`);
+      const res = await fetch(`/auth/google/status?user_id=${currentUser.id}`);
       if (res.ok) {
         const data = await res.json();
         setConnected(!!data.connected);
+        if (data.email) {
+          setAccountEmail(data.email);
+          setAccountName(data.name || null);
+          if (data.email !== currentUser.email) {
+            onUserChange({
+              id: data.user_id || currentUser.id,
+              email: data.email,
+              name: data.name || data.email.split("@")[0],
+              picture_url: data.picture_url,
+            });
+          }
+        } else {
+          setAccountEmail(null);
+        }
       } else {
         setConnected(false);
       }
@@ -1731,18 +1931,21 @@ function GoogleCalendarIntegrationCard() {
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [currentUser?.id, currentUser?.email, onUserChange]);
 
   useEffect(() => {
     checkStatus();
     const handleMsg = (e: MessageEvent) => {
       if (e.data?.type === "GOOGLE_AUTH_SUCCESS") {
+        if (e.data.user) {
+          onUserChange(e.data.user);
+        }
         checkStatus();
       }
     };
     window.addEventListener("message", handleMsg);
     return () => window.removeEventListener("message", handleMsg);
-  }, [checkStatus]);
+  }, [checkStatus, onUserChange]);
 
   const handleConnect = () => {
     setBusy(true);
@@ -1750,8 +1953,9 @@ function GoogleCalendarIntegrationCard() {
     const height = 650;
     const left = window.screenX + (window.outerWidth - width) / 2;
     const top = window.screenY + (window.outerHeight - height) / 2;
+    const loginUrl = currentUser?.id ? `/auth/google/login?user_id=${currentUser.id}` : `/auth/google/login`;
     const popup = window.open(
-      `/auth/google/login?user_id=${userId}`,
+      loginUrl,
       "GoogleOAuth",
       `width=${width},height=${height},left=${left},top=${top},status=no,menubar=no,toolbar=no`
     );
@@ -1767,7 +1971,13 @@ function GoogleCalendarIntegrationCard() {
   const handleDisconnect = async () => {
     setBusy(true);
     try {
-      await fetch(`/auth/google/disconnect?user_id=${userId}`, { method: "POST" });
+      if (currentUser?.id) {
+        await fetch(`/auth/google/disconnect?user_id=${currentUser.id}`, { method: "POST" });
+      }
+      setConnected(false);
+      setAccountEmail(null);
+      setAccountName(null);
+      onUserChange(null);
       await checkStatus();
     } catch (err) {
       console.error(err);
@@ -1775,6 +1985,8 @@ function GoogleCalendarIntegrationCard() {
       setBusy(false);
     }
   };
+
+  const displayEmail = accountEmail || (connected && currentUser ? currentUser.email : null);
 
   return (
     <div style={{ background: "white", borderRadius: 12, border: "1px solid #E8ECF4", padding: 24 }}>
@@ -1791,9 +2003,19 @@ function GoogleCalendarIntegrationCard() {
       <p style={{ fontSize: 13, color: "#7A8BAD", lineHeight: 1.6, marginBottom: 16 }}>
         Enable voice assistants to cross-reference availability, write new operational bookings, and trigger custom meeting requests during active phone calls.
       </p>
+
+      {displayEmail && (
+        <div style={{ marginBottom: 14, background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, padding: "8px 12px", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 14 }}>👤</span>
+          <div style={{ fontSize: 12, color: "#166534" }}>
+            Connected Google Account: <strong>{displayEmail}</strong>
+          </div>
+        </div>
+      )}
+
       <div style={{ borderTop: "1px solid #F3F4F6", paddingTop: 14 }}>
         {[
-          { label: "Account Authority", value: connected ? "Connected via Google OAuth" : "No active session" },
+          { label: "Account Authority", value: connected ? (displayEmail ? `OAuth: ${displayEmail}` : "Connected via Google OAuth") : "No active session" },
           { label: "Auto-Schedule Handlers", toggle: true, on: connected },
           { label: "Target Calendar", chip: connected ? '"Primary Calendar"' : '"Not Configured"' },
         ].map((row, i) => (
@@ -1809,14 +2031,24 @@ function GoogleCalendarIntegrationCard() {
           </div>
         ))}
       </div>
+
       {connected ? (
-        <button
-          onClick={handleDisconnect}
-          disabled={busy}
-          style={{ width: "100%", border: "1.5px solid #FCA5A5", borderRadius: 8, padding: "10px", fontSize: 13, fontWeight: 600, color: "#EF4444", background: "white", cursor: "pointer", fontFamily: "Inter", marginTop: 4, opacity: busy ? 0.6 : 1 }}
-        >
-          {busy ? "Disconnecting..." : "Disconnect Google Calendar"}
-        </button>
+        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+          <button
+            onClick={handleConnect}
+            disabled={busy}
+            style={{ flex: 1, border: "1px solid #3B5BDB", borderRadius: 8, padding: "10px", fontSize: 13, fontWeight: 600, color: "#3B5BDB", background: "#F0F4FF", cursor: "pointer", fontFamily: "Inter", opacity: busy ? 0.6 : 1 }}
+          >
+            {busy ? "Switching..." : "Switch Google Account"}
+          </button>
+          <button
+            onClick={handleDisconnect}
+            disabled={busy}
+            style={{ flex: 1, border: "1.5px solid #FCA5A5", borderRadius: 8, padding: "10px", fontSize: 13, fontWeight: 600, color: "#EF4444", background: "white", cursor: "pointer", fontFamily: "Inter", opacity: busy ? 0.6 : 1 }}
+          >
+            {busy ? "Disconnecting..." : "Disconnect"}
+          </button>
+        </div>
       ) : (
         <button
           onClick={handleConnect}
@@ -1830,23 +2062,40 @@ function GoogleCalendarIntegrationCard() {
   );
 }
 
-function IntegrationsPage({ setPage }: { setPage: (p: Page) => void }) {
+function IntegrationsPage({
+  setPage,
+  currentUser,
+  onUserChange,
+  onConnectGoogle,
+}: {
+  setPage: (p: Page) => void;
+  currentUser: CurrentUser | null;
+  onUserChange: (u: CurrentUser | null) => void;
+  onConnectGoogle?: () => void;
+}) {
   return (
     <AppShell
       page="integrations"
       setPage={setPage}
       title="Integrations & Workspace Apps"
       subtitle="Connect core enterprise communication stacks to synchronize schedules, contacts, and automated payloads."
+      currentUser={currentUser}
+      onConnectGoogle={onConnectGoogle}
+      onDisconnectGoogle={() => onUserChange(null)}
     >
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-        <GoogleCalendarIntegrationCard />
+        <GoogleCalendarIntegrationCard
+          currentUser={currentUser}
+          onUserChange={onUserChange}
+        />
 
         {/* Google Contacts */}
         <div style={{ background: "white", borderRadius: 12, border: "1px solid #E8ECF4", padding: 24 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
             <div style={{ width: 40, height: 40, borderRadius: 8, background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>👥</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#22C55E", fontWeight: 500 }}>
-              <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#22C55E" }} /> Connected
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: currentUser ? "#22C55E" : "#6B7280", fontWeight: 500 }}>
+              <div style={{ width: 7, height: 7, borderRadius: "50%", background: currentUser ? "#22C55E" : "#9CA3AF" }} />
+              {currentUser ? "Connected" : "Not Connected"}
             </div>
           </div>
           <div style={{ fontSize: 17, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526", marginBottom: 8 }}>
@@ -1857,9 +2106,9 @@ function IntegrationsPage({ setPage }: { setPage: (p: Page) => void }) {
           </p>
           <div style={{ borderTop: "1px solid #F3F4F6", paddingTop: 14 }}>
             {[
-              { label: "Account Authority", value: "operations@acmeops.com" },
+              { label: "Account Authority", value: currentUser?.email || "No active session" },
               { label: "Sync Directory Direction", chip: "Two-Way Sync (Bi-directional)" },
-              { label: "Auto-Create Contacts", toggle: true, on: true },
+              { label: "Auto-Create Contacts", toggle: true, on: !!currentUser },
             ].map((row, i) => (
               <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <span style={{ fontSize: 13, color: "#374151" }}>{row.label}</span>
@@ -1873,9 +2122,21 @@ function IntegrationsPage({ setPage }: { setPage: (p: Page) => void }) {
               </div>
             ))}
           </div>
-          <button style={{ width: "100%", border: "1.5px solid #FCA5A5", borderRadius: 8, padding: "10px", fontSize: 13, fontWeight: 600, color: "#EF4444", background: "white", cursor: "pointer", fontFamily: "Inter", marginTop: 4 }}>
-            Disconnect Google Contacts
-          </button>
+          {currentUser ? (
+            <button
+              onClick={() => onUserChange(null)}
+              style={{ width: "100%", border: "1.5px solid #FCA5A5", borderRadius: 8, padding: "10px", fontSize: 13, fontWeight: 600, color: "#EF4444", background: "white", cursor: "pointer", fontFamily: "Inter", marginTop: 4 }}
+            >
+              Disconnect Google Contacts
+            </button>
+          ) : (
+            <button
+              onClick={onConnectGoogle}
+              style={{ width: "100%", border: "none", borderRadius: 8, padding: "10px", fontSize: 13, fontWeight: 600, color: "white", background: "#3B5BDB", cursor: "pointer", fontFamily: "Inter", marginTop: 4 }}
+            >
+              Connect Google Contacts
+            </button>
+          )}
         </div>
       </div>
 
@@ -1899,7 +2160,17 @@ function IntegrationsPage({ setPage }: { setPage: (p: Page) => void }) {
 
 // ─── Company Setup (app screen) ───────────────────────────────────────────────
 
-function CompanySetupPage({ setPage }: { setPage: (p: Page) => void }) {
+function CompanySetupPage({
+  setPage,
+  currentUser,
+  onConnectGoogle,
+  onDisconnectGoogle,
+}: {
+  setPage: (p: Page) => void;
+  currentUser: CurrentUser | null;
+  onConnectGoogle?: () => void;
+  onDisconnectGoogle?: () => void;
+}) {
   const [companyName, setCompanyName] = useState("Acme Operations Inc.");
   const [websiteUrl, setWebsiteUrl] = useState("https://acmeops.com");
   const [companyPhone, setCompanyPhone] = useState("+1 (555) 019-2834");
@@ -1910,8 +2181,9 @@ function CompanySetupPage({ setPage }: { setPage: (p: Page) => void }) {
 
   useEffect(() => {
     async function loadCompany() {
+      if (!currentUser?.id) return;
       try {
-        const res = await fetch("/api/company-profile?user_id=00000000-0000-0000-0000-000000000001");
+        const res = await fetch(`/api/company-profile?user_id=${currentUser.id}`);
         if (res.ok) {
           const json = await res.json();
           if (json.data) {
@@ -1927,7 +2199,7 @@ function CompanySetupPage({ setPage }: { setPage: (p: Page) => void }) {
       }
     }
     loadCompany();
-  }, []);
+  }, [currentUser?.id]);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -1937,7 +2209,7 @@ function CompanySetupPage({ setPage }: { setPage: (p: Page) => void }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_id: "00000000-0000-0000-0000-000000000001",
+          user_id: currentUser?.id || "guest",
           company_name: companyName,
           website_url: websiteUrl,
           company_phone: companyPhone,
@@ -1964,6 +2236,9 @@ function CompanySetupPage({ setPage }: { setPage: (p: Page) => void }) {
       setPage={setPage}
       title="Company Setup"
       subtitle="Manage your organization profile, contact details, and operational settings."
+      currentUser={currentUser}
+      onConnectGoogle={onConnectGoogle}
+      onDisconnectGoogle={onDisconnectGoogle}
     >
       <div style={{ maxWidth: 820, display: "flex", gap: 24, alignItems: "flex-start" }}>
         <div style={{ flex: "1 1 500px", background: "white", borderRadius: 12, padding: 28, border: "1px solid #E8ECF4" }}>
@@ -2107,7 +2382,17 @@ function CompanySetupPage({ setPage }: { setPage: (p: Page) => void }) {
 
 // ─── Assistant Config (app screen) ───────────────────────────────────────────
 
-function AssistantConfigPage({ setPage }: { setPage: (p: Page) => void }) {
+function AssistantConfigPage({
+  setPage,
+  currentUser,
+  onConnectGoogle,
+  onDisconnectGoogle,
+}: {
+  setPage: (p: Page) => void;
+  currentUser: CurrentUser | null;
+  onConnectGoogle?: () => void;
+  onDisconnectGoogle?: () => void;
+}) {
   const [assistantName, setAssistantName] = useState("Support Agent – Charlie");
   const [voiceEngine, setVoiceEngine] = useState("Aoede");
   const [inboundGreeting, setInboundGreeting] = useState(
@@ -2122,8 +2407,9 @@ function AssistantConfigPage({ setPage }: { setPage: (p: Page) => void }) {
 
   useEffect(() => {
     async function loadAssistant() {
+      if (!currentUser?.id) return;
       try {
-        const res = await fetch("/api/assistant-config?user_id=00000000-0000-0000-0000-000000000001");
+        const res = await fetch(`/api/assistant-config?user_id=${currentUser.id}`);
         if (res.ok) {
           const json = await res.json();
           if (json.data) {
@@ -2139,7 +2425,7 @@ function AssistantConfigPage({ setPage }: { setPage: (p: Page) => void }) {
       }
     }
     loadAssistant();
-  }, []);
+  }, [currentUser?.id]);
 
   const handleSave = async (deploy = false) => {
     setIsSaving(true);
@@ -2149,7 +2435,7 @@ function AssistantConfigPage({ setPage }: { setPage: (p: Page) => void }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_id: "00000000-0000-0000-0000-000000000001",
+          user_id: currentUser?.id || "guest",
           assistant_name: assistantName,
           voice_engine: voiceEngine,
           inbound_greeting: inboundGreeting,
@@ -2179,6 +2465,9 @@ function AssistantConfigPage({ setPage }: { setPage: (p: Page) => void }) {
       setPage={setPage}
       title="Assistant Configuration"
       subtitle="Manage voice engine, prompts, and deployment settings for your AI assistants."
+      currentUser={currentUser}
+      onConnectGoogle={onConnectGoogle}
+      onDisconnectGoogle={onDisconnectGoogle}
     >
       <div style={{ maxWidth: 1040, display: "flex", gap: 24, alignItems: "flex-start" }}>
         <div style={{ flex: 1, background: "white", borderRadius: 12, padding: 28, border: "1px solid #E8ECF4" }}>
@@ -2355,6 +2644,72 @@ function AssistantConfigPage({ setPage }: { setPage: (p: Page) => void }) {
 
 export default function App() {
   const [page, setPage] = useState<Page>("landing");
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(() => {
+    try {
+      const saved = localStorage.getItem("ai_voice_bot_user");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return null;
+  });
+
+  const handleUserChange = (user: CurrentUser | null) => {
+    if (user) {
+      localStorage.setItem("ai_voice_bot_user", JSON.stringify(user));
+      setCurrentUser(user);
+    } else {
+      localStorage.removeItem("ai_voice_bot_user");
+      setCurrentUser(null);
+    }
+  };
+
+  const handleConnectGoogle = () => {
+    const width = 500;
+    const height = 650;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+    const popup = window.open(
+      "/auth/google/login",
+      "google_oauth",
+      `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no`
+    );
+
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === "GOOGLE_AUTH_SUCCESS") {
+        window.removeEventListener("message", onMessage);
+        const newUser: CurrentUser = {
+          id: event.data.user_id,
+          email: event.data.email || "user@gmail.com",
+          name: event.data.name || event.data.email?.split("@")[0] || "Google User",
+          picture_url: event.data.picture,
+        };
+        handleUserChange(newUser);
+      }
+    };
+    window.addEventListener("message", onMessage);
+  };
+
+  const handleDisconnectGoogle = async () => {
+    if (currentUser?.id) {
+      try {
+        await fetch(`/auth/google/disconnect?user_id=${currentUser.id}`, { method: "POST" });
+      } catch (e) {
+        console.error("Disconnect error:", e);
+      }
+    }
+    handleUserChange(null);
+  };
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    fetch(`/auth/google/status?user_id=${currentUser.id}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.connected) {
+          handleUserChange(null);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const render = () => {
     switch (page) {
@@ -2363,22 +2718,79 @@ export default function App() {
       case "onboarding-goals": return <GoalsPage setPage={setPage} />;
       case "onboarding-company": return <CompanySetupOnboardingPage setPage={setPage} />;
       case "onboarding-ai": return <AIConfigOnboardingPage setPage={setPage} />;
-      case "dashboard": return <DashboardPage setPage={setPage} />;
-      case "calls": return <CallsPage setPage={setPage} />;
-      case "phone-numbers": return <PhoneNumbersPage setPage={setPage} />;
-      case "integrations": return <IntegrationsPage setPage={setPage} />;
-      case "company-setup": return <CompanySetupPage setPage={setPage} />;
-      case "assistant-config": return <AssistantConfigPage setPage={setPage} />;
-      case "testing-sandbox": return (
-        <AppShell
-          page="assistant-config"
-          setPage={setPage}
-          title="Interactive Voice Testing Sandbox"
-          subtitle="Real-time conversational testing with Gemini Live"
-        >
-          <TestingSandboxPage onBack={() => setPage("assistant-config")} />
-        </AppShell>
-      );
+      case "dashboard":
+        return (
+          <DashboardPage
+            setPage={setPage}
+            currentUser={currentUser}
+            onConnectGoogle={handleConnectGoogle}
+            onDisconnectGoogle={handleDisconnectGoogle}
+          />
+        );
+      case "calls":
+        return (
+          <CallsPage
+            setPage={setPage}
+            currentUser={currentUser}
+            onConnectGoogle={handleConnectGoogle}
+            onDisconnectGoogle={handleDisconnectGoogle}
+          />
+        );
+      case "phone-numbers":
+        return (
+          <PhoneNumbersPage
+            setPage={setPage}
+            currentUser={currentUser}
+            onConnectGoogle={handleConnectGoogle}
+            onDisconnectGoogle={handleDisconnectGoogle}
+          />
+        );
+      case "integrations":
+        return (
+          <IntegrationsPage
+            setPage={setPage}
+            currentUser={currentUser}
+            onUserChange={handleUserChange}
+            onConnectGoogle={handleConnectGoogle}
+            onDisconnectGoogle={handleDisconnectGoogle}
+          />
+        );
+      case "company-setup":
+        return (
+          <CompanySetupPage
+            setPage={setPage}
+            currentUser={currentUser}
+            onConnectGoogle={handleConnectGoogle}
+            onDisconnectGoogle={handleDisconnectGoogle}
+          />
+        );
+      case "assistant-config":
+        return (
+          <AssistantConfigPage
+            setPage={setPage}
+            currentUser={currentUser}
+            onConnectGoogle={handleConnectGoogle}
+            onDisconnectGoogle={handleDisconnectGoogle}
+          />
+        );
+      case "testing-sandbox":
+        return (
+          <AppShell
+            page="assistant-config"
+            setPage={setPage}
+            title="Interactive Voice Testing Sandbox"
+            subtitle="Real-time conversational testing with Gemini Live"
+            currentUser={currentUser}
+            onConnectGoogle={handleConnectGoogle}
+            onDisconnectGoogle={handleDisconnectGoogle}
+          >
+            <TestingSandboxPage
+              onBack={() => setPage("assistant-config")}
+              userId={currentUser?.id || "guest"}
+              userEmail={currentUser?.email}
+            />
+          </AppShell>
+        );
     }
   };
 
