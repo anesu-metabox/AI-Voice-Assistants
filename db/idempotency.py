@@ -46,56 +46,61 @@ async def acquire_idempotency_lock(
     try:
         pool = await get_db_pool()
         async with pool.acquire() as conn:
-            # Check if key exists
-            row = await conn.fetchrow(
-                "SELECT status, response_payload, expires_at FROM idempotency_records WHERE key = $1",
-                key,
-            )
+            # Serialize inspection and acquisition on the key. This avoids the
+            # SELECT-then-INSERT race that previously surfaced as UniqueViolation.
+            async with conn.transaction():
+                await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", key)
+                row = await conn.fetchrow(
+                    """
+                    SELECT status, response_payload, expires_at
+                      FROM idempotency_records
+                     WHERE key = $1
+                     FOR UPDATE
+                    """,
+                    key,
+                )
 
-            if row:
-                status = row["status"]
-                payload = json.loads(row["response_payload"]) if row["response_payload"] else None
-                record_expiry = row["expires_at"]
+                if row:
+                    status = row["status"]
+                    payload = json.loads(row["response_payload"]) if row["response_payload"] else None
+                    record_expiry = row["expires_at"]
 
-                # If already committed, return cached response immediately
-                if status == IdempotencyStatus.COMMITTED.value:
-                    logger.info("Idempotency key %s committed previously. Returning cached payload.", key)
-                    return False, payload, "Idempotent response retrieved from cache."
+                    if status == IdempotencyStatus.COMMITTED.value:
+                        logger.info("Idempotency key %s committed previously. Returning cached payload.", key)
+                        return False, payload, "Idempotent response retrieved from cache."
 
-                # If acquired and not expired, another process is executing
-                if status == IdempotencyStatus.ACQUIRED.value and record_expiry > now:
-                    logger.warning("Idempotency key %s is currently locked by active execution.", key)
-                    return False, None, "Action is currently processing. Please wait."
+                    if status == IdempotencyStatus.ACQUIRED.value and record_expiry > now:
+                        logger.warning("Idempotency key %s is currently locked by active execution.", key)
+                        return False, None, "Action is currently processing. Please wait."
 
-                # If expired or refunded, we can re-acquire the lock
+                    await conn.execute(
+                        """
+                        UPDATE idempotency_records
+                           SET status = $1, response_payload = NULL, expires_at = $2, created_at = $3
+                         WHERE key = $4
+                        """,
+                        IdempotencyStatus.ACQUIRED.value,
+                        expires_at,
+                        now,
+                        key,
+                    )
+                    return True, None, "Lock re-acquired after expiration or refund."
+
+                parsed_user_id = uuid.UUID(user_id) if isinstance(user_id, str) and len(user_id) == 36 else uuid.uuid4()
                 await conn.execute(
                     """
-                    UPDATE idempotency_records 
-                    SET status = $1, response_payload = NULL, expires_at = $2, created_at = $3
-                    WHERE key = $4
+                    INSERT INTO idempotency_records (key, user_id, tool_name, status, expires_at, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                    ON CONFLICT (key) DO NOTHING
                     """,
+                    key,
+                    parsed_user_id,
+                    tool_name,
                     IdempotencyStatus.ACQUIRED.value,
                     expires_at,
                     now,
-                    key,
                 )
-                return True, None, "Lock re-acquired after expiration or refund."
-
-            # Insert new lock
-            parsed_user_id = uuid.UUID(user_id) if isinstance(user_id, str) and len(user_id) == 36 else uuid.uuid4()
-            await conn.execute(
-                """
-                INSERT INTO idempotency_records (key, user_id, tool_name, status, expires_at, created_at)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                """,
-                key,
-                parsed_user_id,
-                tool_name,
-                IdempotencyStatus.ACQUIRED.value,
-                expires_at,
-                now,
-            )
-            return True, None, "Lock acquired successfully."
+                return True, None, "Lock acquired successfully."
 
     except Exception as exc:
         logger.warning(

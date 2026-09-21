@@ -5,9 +5,11 @@ import { AudioVisualizer } from "@/components/audio/AudioVisualizer";
 import { AudioControls } from "@/components/audio/AudioControls";
 import { TranscriptDeck } from "@/components/transcript/TranscriptDeck";
 import { TaskDeck } from "@/components/tasks/TaskDeck";
+import { GoogleCalendarAuth } from "@/components/auth/GoogleCalendarAuth";
 import { useLiveKitSession } from "@/hooks/useLiveKitSession";
 import { useGeminiLiveSession } from "@/hooks/useGeminiLiveSession";
 import { useClientVAD } from "@/hooks/useClientVAD";
+import { isVoiceSessionActive } from "@/lib/livekitSessionRuntime";
 import { Sparkles, ShieldCheck, Radio, Globe } from "lucide-react";
 
 export default function Home() {
@@ -35,17 +37,22 @@ export default function Home() {
     toggleMute,
     toggleHandsFree,
     handleInterruption,
+    handleSpeechStart,
+    handleSpeechEnd,
   } = activeSession;
 
   // Sub-20ms Interruption VAD Hook (ADR-005)
   useClientVAD({
     micStream,
     assistantGainNode,
+    isBotSpeaking,
     onInterruption: handleInterruption,
+    onSpeechStart: handleSpeechStart,
+    onSpeechEnd: handleSpeechEnd,
   });
 
   const handleToggleEngine = (newEngine: "livekit" | "browser_direct") => {
-    if (connectionStatus === "connected" || connectionStatus === "connecting") {
+    if (isVoiceSessionActive(connectionStatus)) {
       disconnect();
     }
     setEngine(newEngine);
@@ -93,6 +100,8 @@ export default function Home() {
               <span>Direct Browser</span>
             </button>
           </div>
+
+          <GoogleCalendarAuth />
 
           <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800/60 border border-slate-700 text-slate-300">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />

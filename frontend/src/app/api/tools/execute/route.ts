@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isAllowedCalendarTool } from "@/lib/assistantPolicy";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://127.0.0.1:8000";
 const DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000001";
@@ -12,6 +13,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "tool_name is required" },
         { status: 400 }
+      );
+    }
+
+    if (!isAllowedCalendarTool(tool_name)) {
+      return NextResponse.json(
+        {
+          status: "error",
+          error_code: "POLICY_TOOL_DENIED",
+          error_message: `Tool '${tool_name}' is not enabled for the calendar-only assistant.`,
+        },
+        { status: 403 },
       );
     }
 

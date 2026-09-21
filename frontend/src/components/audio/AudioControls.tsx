@@ -26,6 +26,24 @@ export const AudioControls: React.FC<AudioControlsProps> = ({
   latencyMs = 380,
 }) => {
   const isConnected = connectionStatus === "connected";
+  const isBusy = [
+    "connecting",
+    "waiting_for_agent",
+    "waiting_for_audio",
+    "reconnecting",
+  ].includes(connectionStatus);
+  const connectButtonDisabled = [
+    "connecting",
+    "waiting_for_agent",
+    "reconnecting",
+  ].includes(connectionStatus);
+
+  const connectionLabel =
+    connectionStatus === "waiting_for_agent"
+      ? "Waiting for agent"
+      : connectionStatus === "waiting_for_audio"
+      ? "Tap to enable audio"
+      : connectionStatus;
 
   return (
     <div className="flex flex-col items-center gap-4">
@@ -35,12 +53,12 @@ export const AudioControls: React.FC<AudioControlsProps> = ({
           className={`w-2 h-2 rounded-full ${
             isConnected
               ? "bg-emerald-400 animate-pulse"
-              : connectionStatus === "connecting"
+              : isBusy
               ? "bg-amber-400 animate-pulse"
               : "bg-rose-500"
           }`}
         />
-        <span className="capitalize font-medium">{connectionStatus}</span>
+        <span className="capitalize font-medium">{connectionLabel}</span>
         {isConnected && (
           <>
             <span className="text-slate-600">|</span>
@@ -90,13 +108,25 @@ export const AudioControls: React.FC<AudioControlsProps> = ({
             </button>
           </>
         ) : (
-          <button
-            onClick={onConnect}
-            className="px-6 py-3 rounded-full bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold shadow-lg shadow-sky-500/25 transition-all flex items-center gap-2"
-          >
-            <Volume2 className="w-5 h-5" />
-            <span>Start Voice Assistant</span>
-          </button>
+          <>
+            <button
+              onClick={onConnect}
+              disabled={connectButtonDisabled}
+              className="px-6 py-3 rounded-full bg-sky-500 hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-wait text-slate-950 font-semibold shadow-lg shadow-sky-500/25 transition-all flex items-center gap-2"
+            >
+              <Volume2 className="w-5 h-5" />
+              <span>{isBusy ? connectionLabel : "Start Voice Assistant"}</span>
+            </button>
+            {isBusy && (
+              <button
+                onClick={onDisconnect}
+                className="p-3 rounded-full bg-slate-800 hover:bg-rose-600 text-slate-300 hover:text-white border border-slate-700 hover:border-rose-500 transition-all"
+                title="Cancel Voice Session"
+              >
+                <PhoneOff className="w-5 h-5" />
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>

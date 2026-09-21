@@ -576,6 +576,20 @@ async def test_edge_rebooking_cancelled_slots(
     assert dup_resp.json()["status"] == "conflict"
 
     # 3. Cancel initial event with confirm=True
+    gate_resp = await async_client.post(
+        "/tools/execute",
+        json={
+            "tool_name": "cancel_event",
+            "user_id": test_user_id,
+            "parameters": {
+                "event_id": str(event_id1),
+                "reason": "Rescheduling meeting",
+                "confirm": False,
+            },
+        },
+    )
+    confirmation_token = gate_resp.json()["data"]["confirmation_token"]
+
     cancel_resp = await async_client.post(
         "/tools/execute",
         json={
@@ -585,6 +599,7 @@ async def test_edge_rebooking_cancelled_slots(
                 "event_id": str(event_id1),
                 "reason": "Rescheduling meeting",
                 "confirm": True,
+                "confirmation_token": confirmation_token,
             },
         },
     )

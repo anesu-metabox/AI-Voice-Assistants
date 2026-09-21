@@ -209,8 +209,18 @@ async def google_callback(
                     <div class="icon">✓</div>
                     <h1>Google Calendar Connected</h1>
                     <p>Your AI Voice Assistant is now authenticated to read calendar availability and schedule meetings with Google Meet links.</p>
-                    <span class="badge">You can close this tab and return to the voice call</span>
+                    <span class="badge">Connection established — closing window...</span>
                 </div>
+                <script>
+                    try {
+                        if (window.opener) {
+                            window.opener.postMessage({ type: 'GOOGLE_AUTH_SUCCESS' }, '*');
+                            setTimeout(function() { window.close(); }, 1500);
+                        }
+                    } catch (e) {
+                        console.error(e);
+                    }
+                </script>
             </body>
         </html>
         """

@@ -11,6 +11,19 @@
 - **Team Size:** 3 Engineers
 - **Notion Command Center:** [AI VOICE BOT on Notion](https://app.notion.com/p/645a127ab3014cbdad1245aeeed7222c)
 
+## Local development
+
+Start the frontend, FastAPI backend, and LiveKit voice worker together from the
+repository root:
+
+```powershell
+npm run dev
+```
+
+The complete stack is ready when the command reports all three health checks.
+Open `http://localhost:3000/`; runtime logs are written under `.runtime/`.
+Use `npm run dev:frontend` only when intentionally running the UI without voice.
+
 ---
 
 ## Team Ownership & Roster
@@ -62,4 +75,3 @@ All core technical documentation and project tracking files are maintained direc
 2. **Instant Interruption Cut-Off:** User speech interrupts bot playback locally within **<20ms** via client VAD and sends server cancellation.
 3. **Verified Execution Authority:** The voice bot never hallucinates task success; spoken confirmations are strictly conditioned on verified `200 OK` tool outputs.
 4. **Resilience & Idempotency:** All state-modifying actions require client-generated UUID idempotency keys to eliminate duplicate operations on network drops.
-

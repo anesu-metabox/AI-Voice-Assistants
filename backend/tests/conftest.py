@@ -80,6 +80,8 @@ async def clean_test_db(db_pool: asyncpg.Pool, test_user_id: str) -> AsyncGenera
                 await conn.execute("DELETE FROM tasks WHERE user_id = $1", parsed_uid)
             if "idempotency_records" in table_names:
                 await conn.execute("DELETE FROM idempotency_records WHERE user_id = $1", parsed_uid)
+            if "confirmation_tokens" in table_names:
+                await conn.execute("DELETE FROM confirmation_tokens WHERE user_id = $1", parsed_uid)
             if "user_preferences" in table_names:
                 await conn.execute("DELETE FROM user_preferences WHERE user_id = $1", parsed_uid)
 
@@ -95,7 +97,17 @@ async def async_client() -> AsyncGenerator[httpx.AsyncClient, None]:
     """
     FastAPI test client running over httpx ASGITransport with full app lifecycle.
     """
-    async with httpx.AsyncClient(
+    class GuardrailTestClient(httpx.AsyncClient):
+        async def post(self, url, *args, **kwargs):
+            payload = kwargs.get("json")
+            if isinstance(payload, dict) and payload.get("tool_name") in {"book_event", "cancel_event"}:
+                payload = dict(payload)
+                if "idempotency_key" not in payload:
+                    payload["idempotency_key"] = str(uuid.uuid4())
+                kwargs["json"] = payload
+            return await super().post(url, *args, **kwargs)
+
+    async with GuardrailTestClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
         timeout=30.0,

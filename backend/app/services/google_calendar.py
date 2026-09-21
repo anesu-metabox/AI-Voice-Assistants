@@ -12,6 +12,7 @@ import uuid
 import httpx
 
 from .google_oauth import get_valid_access_token
+from .http_client import get_http_client
 
 logger = logging.getLogger("voice_bot.services.google_calendar")
 
@@ -60,28 +61,28 @@ async def get_google_calendar_availability(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=6.0) as client:
-            response = await client.post(url, headers=headers, json=payload)
-            if response.status_code != 200:
-                logger.error("Google Calendar freeBusy query failed: %s - %s", response.status_code, response.text)
-                return None
+        client = get_http_client()
+        response = await client.post(url, headers=headers, json=payload)
+        if response.status_code != 200:
+            logger.error("Google Calendar freeBusy query failed: %s - %s", response.status_code, response.text)
+            return None
 
-            data = response.json()
-            busy_periods = data.get("calendars", {}).get("primary", {}).get("busy", [])
+        data = response.json()
+        busy_periods = data.get("calendars", {}).get("primary", {}).get("busy", [])
 
-            # Compute free intervals across standard business hours (09:00 - 17:00 UTC)
-            available_slots = _compute_free_slots(base_date, busy_periods, duration_minutes)
+        # Compute free intervals across standard business hours (09:00 - 17:00 UTC)
+        available_slots = _compute_free_slots(base_date, busy_periods, duration_minutes)
 
-            return {
-                "user_id": str(user_id),
-                "date": base_date,
-                "start_date": start_date or base_date,
-                "end_date": end_date or base_date,
-                "available_slots": available_slots,
-                "duration_minutes": duration_minutes,
-                "timezone": "UTC",
-                "source": "google_calendar_live",
-            }
+        return {
+            "user_id": str(user_id),
+            "date": base_date,
+            "start_date": start_date or base_date,
+            "end_date": end_date or base_date,
+            "available_slots": available_slots,
+            "duration_minutes": duration_minutes,
+            "timezone": "UTC",
+            "source": "google_calendar_live",
+        }
     except Exception as exc:
         logger.exception("Error querying Google Calendar API: %s", exc)
         return None
@@ -185,33 +186,33 @@ async def book_google_calendar_event(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            response = await client.post(url, headers=headers, json=event_payload)
-            if response.status_code not in (200, 201):
-                logger.error("Google Calendar event creation failed: %s - %s", response.status_code, response.text)
-                return None
+        client = get_http_client()
+        response = await client.post(url, headers=headers, json=event_payload)
+        if response.status_code not in (200, 201):
+            logger.error("Google Calendar event creation failed: %s - %s", response.status_code, response.text)
+            return None
 
-            event_data = response.json()
-            meet_link = event_data.get("hangoutLink")
-            if not meet_link:
-                # Check conference entry points
-                entry_points = event_data.get("conferenceData", {}).get("entryPoints", [])
-                for ep in entry_points:
-                    if ep.get("entryPointType") == "video":
-                        meet_link = ep.get("uri")
-                        break
+        event_data = response.json()
+        meet_link = event_data.get("hangoutLink")
+        if not meet_link:
+            # Check conference entry points
+            entry_points = event_data.get("conferenceData", {}).get("entryPoints", [])
+            for ep in entry_points:
+                if ep.get("entryPointType") == "video":
+                    meet_link = ep.get("uri")
+                    break
 
-            return {
-                "event_id": event_data.get("id"),
-                "title": event_data.get("summary", title),
-                "start_time": start_dt.isoformat(),
-                "duration_minutes": duration_minutes,
-                "attendees": attendees or [],
-                "meet_link": meet_link or event_data.get("htmlLink"),
-                "html_link": event_data.get("htmlLink"),
-                "status": "confirmed",
-                "source": "google_calendar_live",
-            }
+        return {
+            "event_id": event_data.get("id"),
+            "title": event_data.get("summary", title),
+            "start_time": start_dt.isoformat(),
+            "duration_minutes": duration_minutes,
+            "attendees": attendees or [],
+            "meet_link": meet_link or event_data.get("htmlLink"),
+            "html_link": event_data.get("htmlLink"),
+            "status": "confirmed",
+            "source": "google_calendar_live",
+        }
     except Exception as exc:
         logger.exception("Error booking event via Google Calendar API: %s", exc)
         return None

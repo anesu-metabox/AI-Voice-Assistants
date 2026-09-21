@@ -14,6 +14,7 @@ import httpx
 
 from ..config import settings
 from db.tokens import delete_oauth_tokens, get_oauth_tokens, save_oauth_tokens
+from .http_client import get_http_client
 
 logger = logging.getLogger("voice_bot.services.google_oauth")
 
@@ -76,12 +77,12 @@ async def exchange_code_for_tokens(
         "redirect_uri": resolved_redirect,
     }
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.post(GOOGLE_TOKEN_URL, data=data)
-        if response.status_code != 200:
-            logger.error("Failed to exchange code for tokens: %s - %s", response.status_code, response.text)
-            raise ValueError(f"Google OAuth token exchange failed: {response.text}")
-        return response.json()
+    client = get_http_client()
+    response = await client.post(GOOGLE_TOKEN_URL, data=data)
+    if response.status_code != 200:
+        logger.error("Failed to exchange code for tokens: %s - %s", response.status_code, response.text)
+        raise ValueError(f"Google OAuth token exchange failed: {response.text}")
+    return response.json()
 
 
 async def get_valid_access_token(user_id: str) -> Optional[str]:
@@ -142,12 +143,12 @@ async def refresh_access_token(refresh_token: str) -> Optional[Dict[str, Any]]:
         "grant_type": "refresh_token",
     }
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.post(GOOGLE_TOKEN_URL, data=data)
-        if response.status_code != 200:
-            logger.error("Google token refresh failed: %s - %s", response.status_code, response.text)
-            return None
-        return response.json()
+    client = get_http_client()
+    response = await client.post(GOOGLE_TOKEN_URL, data=data)
+    if response.status_code != 200:
+        logger.error("Google token refresh failed: %s - %s", response.status_code, response.text)
+        return None
+    return response.json()
 
 
 async def revoke_and_disconnect(user_id: str) -> bool:
@@ -161,9 +162,9 @@ async def revoke_and_disconnect(user_id: str) -> bool:
     token_to_revoke = token_record.get("refresh_token") or token_record.get("access_token")
     if token_to_revoke:
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                res = await client.post(GOOGLE_REVOKE_URL, params={"token": token_to_revoke})
-                res.raise_for_status()
+            client = get_http_client()
+            res = await client.post(GOOGLE_REVOKE_URL, params={"token": token_to_revoke})
+            res.raise_for_status()
         except Exception as exc:
             logger.warning("Token revocation request to Google failed (%s). Proceeding with DB cleanup.", exc)
 

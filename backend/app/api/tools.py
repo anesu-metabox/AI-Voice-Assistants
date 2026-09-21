@@ -7,7 +7,6 @@ strict Pydantic runtime schema validation, and ANE-03 Confirmation Protocol enfo
 import logging
 import time
 from typing import Any, Callable, Dict
-import uuid
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import ValidationError
@@ -23,6 +22,7 @@ from ..tools.calendar import get_calendar_availability, book_event, cancel_event
 from ..tools.contacts import search_contacts
 from ..tools.email import draft_email
 from ..tools.tasks import create_durable_task
+from ..policy import is_active_tool
 
 # Relative import of DB idempotency engine
 import sys
@@ -37,6 +37,7 @@ from db.idempotency import (
     commit_idempotency_lock,
     release_idempotency_lock,
 )
+from db.confirmation import consume_confirmation_token, issue_confirmation_token
 
 logger = logging.getLogger("voice_bot.api.tools")
 router = APIRouter(prefix="/tools", tags=["tools"])
@@ -57,7 +58,6 @@ CONFIRMATION_REQUIRED_TOOLS = {
     ToolName.CANCEL_EVENT.value,
 }
 
-
 @router.get("/schemas")
 async def get_all_tool_schemas() -> Dict[str, Any]:
     """
@@ -67,6 +67,7 @@ async def get_all_tool_schemas() -> Dict[str, Any]:
     return {
         tool_name: get_tool_input_schema(tool_name)
         for tool_name in TOOL_REGISTRY.keys()
+        if is_active_tool(tool_name)
     }
 
 
@@ -83,11 +84,19 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
     start_time = time.perf_counter()
     tool_name = request.tool_name
 
-    # 1. Verify tool exists in registry
+    # 1. Verify tool exists and is enabled by the active assistant policy.
     if tool_name not in TOOL_REGISTRY:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown tool '{tool_name}'. Available tools: {list(TOOL_REGISTRY.keys())}",
+        )
+    if not is_active_tool(tool_name):
+        return ToolExecutionResponse(
+            status="error",
+            error_code="POLICY_TOOL_DENIED",
+            error_message=f"Tool '{tool_name}' is not enabled for the calendar-only assistant.",
+            execution_time_ms=(time.perf_counter() - start_time) * 1000,
+            idempotency_key=request.idempotency_key,
         )
 
     # 2. Strict Pydantic Schema Validation
@@ -119,13 +128,33 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
             idempotency_key=request.idempotency_key,
         )
 
-    # 3. ANE-03 Permission Interceptor for Destructive Actions
+    # 3. Require client-generated idempotency keys before any active write.
+    requires_write_key = tool_name == ToolName.BOOK_EVENT.value or (
+        tool_name == ToolName.CANCEL_EVENT.value and tool_kwargs.get("confirm", False)
+    )
+    if requires_write_key and not request.idempotency_key:
+        return ToolExecutionResponse(
+            status="error",
+            error_code="IDEMPOTENCY_KEY_REQUIRED",
+            error_message=f"A client-generated idempotency key is required for {tool_name}.",
+            execution_time_ms=(time.perf_counter() - start_time) * 1000,
+        )
+
+    # 4. ANE-03 Permission Interceptor for destructive actions.
     if tool_name in CONFIRMATION_REQUIRED_TOOLS:
         is_confirmed = tool_kwargs.get("confirm", False)
         if not is_confirmed:
             elapsed_ms = (time.perf_counter() - start_time) * 1000
-            confirmation_token = f"cnfmtk_{uuid.uuid4().hex[:16]}"
             target_id = tool_kwargs.get("event_id", "specified item")
+            confirmation_token, _ = await issue_confirmation_token(
+                user_id=request.user_id,
+                tool_name=tool_name,
+                event_id=str(target_id),
+                parameters={
+                    "event_id": str(target_id),
+                    "reason": tool_kwargs.get("reason"),
+                },
+            )
             prompt_to_speak = (
                 f"Are you sure you want to cancel the event with ID {target_id}? "
                 "Please say yes to confirm or no to cancel."
@@ -147,10 +176,21 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
                 idempotency_key=request.idempotency_key,
             )
 
+        confirmation_token = tool_kwargs.get("confirmation_token")
+        if not confirmation_token:
+            return ToolExecutionResponse(
+                status="error",
+                error_code="CONFIRMATION_TOKEN_REQUIRED",
+                error_message="A valid confirmation token is required to cancel an event.",
+                execution_time_ms=(time.perf_counter() - start_time) * 1000,
+                idempotency_key=request.idempotency_key,
+            )
+
     tool_func = TOOL_REGISTRY[tool_name]
     idempotency_key = request.idempotency_key
 
-    # 4. Idempotency Check (if key provided for write actions)
+    # 5. Idempotency check. This happens before token consumption so a network
+    # retry can safely receive the committed response without reusing a token.
     if idempotency_key:
         is_new, cached_payload, msg = await acquire_idempotency_lock(
             key=idempotency_key,
@@ -175,7 +215,29 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
                     idempotency_key=idempotency_key,
                 )
 
-    # 5. Inject context for system-level and user-scoped tools
+    if tool_name in CONFIRMATION_REQUIRED_TOOLS:
+        confirmed, confirmation_message = await consume_confirmation_token(
+            token=tool_kwargs["confirmation_token"],
+            user_id=request.user_id,
+            tool_name=tool_name,
+            event_id=str(tool_kwargs["event_id"]),
+            parameters={
+                "event_id": str(tool_kwargs["event_id"]),
+                "reason": tool_kwargs.get("reason"),
+            },
+        )
+        if not confirmed:
+            if idempotency_key:
+                await release_idempotency_lock(key=idempotency_key)
+            return ToolExecutionResponse(
+                status="error",
+                error_code="INVALID_CONFIRMATION_TOKEN",
+                error_message=confirmation_message,
+                execution_time_ms=(time.perf_counter() - start_time) * 1000,
+                idempotency_key=idempotency_key,
+            )
+
+    # 6. Inject context for system-level and user-scoped tools
     if tool_name in (
         ToolName.BOOK_EVENT.value,
         ToolName.GET_CALENDAR_AVAILABILITY.value,
@@ -189,7 +251,7 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
         tool_kwargs["user_id"] = request.user_id
         tool_kwargs["session_id"] = request.session_id
 
-    # 6. Execute Tool Function
+    # 7. Execute Tool Function
     try:
         import inspect
         sig = inspect.signature(tool_func)
@@ -223,7 +285,7 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
                 idempotency_key=idempotency_key,
             )
 
-        # 7. Commit Idempotency Lock on Success
+        # 8. Commit Idempotency Lock on Success
         if idempotency_key:
             await commit_idempotency_lock(key=idempotency_key, response_payload=result)
 
@@ -238,7 +300,7 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         logger.exception("Error executing tool '%s': %s", tool_name, exc)
 
-        # 8. Release Lock on Error
+        # 9. Release Lock on Error
         if idempotency_key:
             await release_idempotency_lock(key=idempotency_key)
 

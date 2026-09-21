@@ -1,8 +1,14 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, useEffect } from "react";
 import { GoogleGenAI, Modality } from "@google/genai";
 import { calendarToolDeclarations, executeBackendTool } from "@/lib/tools";
+import {
+    CALENDAR_REDIRECT_RESPONSE,
+    CALENDAR_SYSTEM_INSTRUCTION,
+    classifyAssistantTurn,
+    isAllowedCalendarTool,
+} from "@/lib/assistantPolicy";
 import { TaskItem } from "@/lib/types";
 
 type ConnectionStatus =
@@ -25,9 +31,30 @@ export const useGeminiLiveSession = () => {
 
     const sessionRef = useRef<any>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
+    const [micStream, _setMicStream] = useState<MediaStream | null>(null);
     const micStreamRef = useRef<MediaStream | null>(null);
+    const setMicStream = useCallback((stream: MediaStream | null) => {
+        micStreamRef.current = stream;
+        _setMicStream(stream);
+    }, []);
     const processorRef = useRef<ScriptProcessorNode | null>(null);
     const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+    const idempotencyKeysRef = useRef<Map<string, string>>(new Map());
+    const scopeDecisionRef = useRef<{ action: "allow" | "redirect"; calendarContextActive: boolean } | null>(null);
+
+    const getStableIdempotencyKey = useCallback(
+        (toolName: string, args: Record<string, any>, callId: string) => {
+            if (toolName !== "book_event" && toolName !== "cancel_event") return undefined;
+            const logicalAction = `${toolName}:${JSON.stringify(args, Object.keys(args).sort())}:${callId}`;
+            let key = idempotencyKeysRef.current.get(logicalAction);
+            if (!key) {
+                key = crypto.randomUUID();
+                idempotencyKeysRef.current.set(logicalAction, key);
+            }
+            return key;
+        },
+        [],
+    );
 
     const nextPlayTimeRef = useRef(0);
 
@@ -157,14 +184,7 @@ export const useGeminiLiveSession = () => {
                     inputAudioTranscription: {},
                     outputAudioTranscription: {},
 
-                    systemInstruction:
-                        "You are an executive AI voice assistant with real-time access to the user's live calendar and task database. " +
-                        "When the user asks what meetings they have, what is on their calendar, or anything about existing bookings, call `list_events`. " +
-                        "When the user asks about schedule or availability (free slots), call `get_calendar_availability`. " +
-                        "When they want to schedule, book, or reserve a meeting, call `book_event`. " +
-                        "When they want to cancel an event, call `cancel_event`. " +
-                        "If a conflict occurs, inform them and propose the next available slot. " +
-                        "Speak naturally, clearly, and concisely.",
+                    systemInstruction: CALENDAR_SYSTEM_INSTRUCTION,
 
                     tools: [{ functionDeclarations: calendarToolDeclarations }],
                 },
@@ -184,8 +204,13 @@ export const useGeminiLiveSession = () => {
                             for (const fc of functionCalls) {
                                 if (!fc.name) continue;
                                 const callId = fc.id || `call_${Date.now()}`;
+                                const args = fc.args || {};
                                 const taskItemId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
                                 const startTime = Date.now();
+
+                                const scopeDenied = scopeDecisionRef.current?.action === "redirect";
+                                const toolDenied = !isAllowedCalendarTool(fc.name);
+                                const idempotencyKey = getStableIdempotencyKey(fc.name, args, callId);
 
                                 const paramTitle = fc.args?.title || fc.args?.start_date || fc.args?.start_time || "Executing";
                                 setTasks((prev) => [
@@ -199,7 +224,15 @@ export const useGeminiLiveSession = () => {
                                     ...prev,
                                 ]);
 
-                                executeBackendTool(fc.name, fc.args || {}).then((result) => {
+                                const execution: Promise<ReturnType<typeof executeBackendTool> extends Promise<infer T> ? T : never> = scopeDenied || toolDenied
+                                    ? Promise.resolve({
+                                          status: "error" as const,
+                                          error_code: toolDenied ? "POLICY_TOOL_DENIED" : "POLICY_SCOPE_DENIED",
+                                          error_message: toolDenied ? "That tool is not available." : CALENDAR_REDIRECT_RESPONSE,
+                                      })
+                                    : executeBackendTool(fc.name, args, idempotencyKey);
+
+                                execution.then((result) => {
                                     const executionDuration = Date.now() - startTime;
                                     const isSuccess = result.status === "success";
                                     const isConflict = result.status === "conflict";
@@ -254,6 +287,11 @@ export const useGeminiLiveSession = () => {
                         ) {
                             const text =
                                 serverContent.inputTranscription.text;
+                            const decision = classifyAssistantTurn(
+                                text,
+                                scopeDecisionRef.current?.calendarContextActive ?? false,
+                            );
+                            scopeDecisionRef.current = decision;
 
                             setMessages((prev) => [
                                 ...prev,
@@ -345,6 +383,7 @@ export const useGeminiLiveSession = () => {
                 });
 
             micStreamRef.current = stream;
+            setMicStream(stream);
 
             // Microphone source
             const source =
@@ -393,7 +432,7 @@ export const useGeminiLiveSession = () => {
 
             setConnectionStatus("error");
         }
-    }, [isMuted, playAudioChunk]);
+    }, [isMuted, playAudioChunk, setMicStream]);
 
     const disconnect = useCallback(() => {
         processorRef.current?.disconnect();
@@ -407,7 +446,7 @@ export const useGeminiLiveSession = () => {
                 .getTracks()
                 .forEach((track) => track.stop());
 
-            micStreamRef.current = null;
+            setMicStream(null);
         }
 
         sessionRef.current?.close();
@@ -419,7 +458,14 @@ export const useGeminiLiveSession = () => {
         setIsBotSpeaking(false);
         setIsUserSpeaking(false);
         setConnectionStatus("disconnected");
-    }, []);
+    }, [setMicStream]);
+
+    // Clean up media streams and session on component unmount
+    useEffect(() => {
+        return () => {
+            disconnect();
+        };
+    }, [disconnect]);
 
     const toggleMute = useCallback(() => {
         setIsMuted((current) => {
@@ -445,6 +491,14 @@ export const useGeminiLiveSession = () => {
         setIsBotSpeaking(false);
     }, []);
 
+    const handleSpeechStart = useCallback(() => {
+        setIsUserSpeaking(true);
+    }, []);
+
+    const handleSpeechEnd = useCallback(() => {
+        setIsUserSpeaking(false);
+    }, []);
+
     return {
         connectionStatus,
         isMuted,
@@ -457,12 +511,14 @@ export const useGeminiLiveSession = () => {
 
         analyserNode: null,
         assistantGainNode: null,
-        micStream: micStreamRef.current,
+        micStream,
 
         connect,
         disconnect,
         toggleMute,
         toggleHandsFree,
         handleInterruption,
+        handleSpeechStart,
+        handleSpeechEnd,
     };
 };

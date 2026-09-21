@@ -536,7 +536,21 @@ async def test_cancel_event_soft_delete_and_restores_availability(
     slots_before = avail_before.json()["data"]["available_slots"]
     assert not contains_slot(slot_time, slots_before)
 
-    # 2. Cancel event with confirm=True
+    # 2. Request confirmation, then cancel with the issued single-use token.
+    gate_resp = await async_client.post(
+        "/tools/execute",
+        json={
+            "tool_name": "cancel_event",
+            "user_id": test_user_id,
+            "parameters": {
+                "event_id": str(event_id),
+                "reason": "Client requested cancellation",
+                "confirm": False,
+            },
+        },
+    )
+    confirmation_token = gate_resp.json()["data"]["confirmation_token"]
+
     cancel_resp = await async_client.post(
         "/tools/execute",
         json={
@@ -546,6 +560,7 @@ async def test_cancel_event_soft_delete_and_restores_availability(
                 "event_id": str(event_id),
                 "reason": "Client requested cancellation",
                 "confirm": True,
+                "confirmation_token": confirmation_token,
             },
         },
     )

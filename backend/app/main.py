@@ -46,9 +46,17 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Database connection pool not primed on startup (%s). Using fallback mode.", exc)
 
+    # Prime the Fast Lane HTTP client pool
+    from .services.http_client import get_http_client, close_http_client
+    get_http_client()
+
     yield
 
     logger.info("Shutting down AI Voice Bot Backend Service...")
+    try:
+        await close_http_client()
+    except Exception:
+        pass
     try:
         from db.connection import close_db_pool
         await close_db_pool()

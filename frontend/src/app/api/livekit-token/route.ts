@@ -1,10 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { AccessToken } from "livekit-server-sdk";
+import { createLiveKitRoomName } from "@/lib/livekitSessionRuntime";
 
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const room = searchParams.get("room") || "executive-voice-room";
-  const identity = searchParams.get("identity") || `user_${Math.random().toString(36).substring(2, 7)}`;
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  const sessionId = crypto.randomUUID();
+  const room = createLiveKitRoomName(sessionId);
+  const identity = `user-${sessionId}`;
 
   const apiKey = process.env.LIVEKIT_API_KEY;
   const apiSecret = process.env.LIVEKIT_API_SECRET;

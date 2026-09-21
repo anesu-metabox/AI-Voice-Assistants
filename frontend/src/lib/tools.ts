@@ -1,4 +1,5 @@
 import { FunctionDeclaration, Type } from "@google/genai";
+import { isAllowedCalendarTool } from "./assistantPolicy";
 
 export const calendarToolDeclarations: FunctionDeclaration[] = [
   {
@@ -71,6 +72,10 @@ export const calendarToolDeclarations: FunctionDeclaration[] = [
           type: Type.BOOLEAN,
           description: "Set to true if the user explicitly confirmed cancellation, false otherwise.",
         },
+        confirmation_token: {
+          type: Type.STRING,
+          description: "Exact token returned by the prior confirmation_required response.",
+        },
       },
       required: ["event_id"],
     },
@@ -107,18 +112,28 @@ export interface ToolExecutionResponse {
 
 export async function executeBackendTool(
   toolName: string,
-  parameters: Record<string, any>
+  parameters: Record<string, any>,
+  idempotencyKey?: string,
 ): Promise<ToolExecutionResponse> {
+  if (!isAllowedCalendarTool(toolName)) {
+    return {
+      status: "error",
+      error_code: "POLICY_TOOL_DENIED",
+      error_message: `Tool '${toolName}' is not enabled for the calendar-only assistant.`,
+    };
+  }
+
   try {
     const res = await fetch("/api/tools/execute", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        tool_name: toolName,
-        parameters,
-      }),
+        body: JSON.stringify({
+          tool_name: toolName,
+          parameters,
+          idempotency_key: idempotencyKey ?? null,
+        }),
     });
 
     const data = await res.json();

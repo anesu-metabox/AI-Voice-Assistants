@@ -27,7 +27,7 @@ export interface TaskItem {
   updatedAt: string;
 }
 
-export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
+export type { LiveKitConnectionStatus as ConnectionStatus } from "./livekitSessionRuntime";
 
 export interface AudioVisualizerProps {
   analyserNode?: AnalyserNode | null;
