@@ -7,7 +7,7 @@ const DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000001";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { tool_name, parameters = {}, user_id, idempotency_key } = body;
+    const { tool_name, parameters = {}, user_id, session_id, idempotency_key } = body;
 
     if (!tool_name) {
       return NextResponse.json(
@@ -31,25 +31,38 @@ export async function POST(req: NextRequest) {
       tool_name,
       parameters,
       user_id: user_id || DEFAULT_USER_ID,
+      session_id: session_id || null,
       idempotency_key: idempotency_key || null,
     };
 
-    const targetUrl = `${BACKEND_URL}/tools/execute`;
+    const targetUrl = `${BACKEND_URL.replace(/\/+$/, "")}/tools/execute`;
     const backendRes = await fetch(targetUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(15000),
     });
 
-    const responseData = await backendRes.json();
+    let responseData: any;
+    const responseText = await backendRes.text();
+    try {
+      responseData = JSON.parse(responseText);
+    } catch {
+      responseData = {
+        status: backendRes.ok ? "success" : "error",
+        error_message: responseText || `Backend responded with HTTP status ${backendRes.status}`,
+      };
+    }
+
     return NextResponse.json(responseData, { status: backendRes.status });
   } catch (err: any) {
     console.error("Error proxying tool execution to backend:", err);
     return NextResponse.json(
       {
         status: "error",
+        error_code: "BACKEND_PROXY_ERROR",
         error_message: `Backend proxy failure: ${err?.message || String(err)}`,
       },
       { status: 502 }

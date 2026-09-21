@@ -1,10 +1,44 @@
 "use client";
 
-import React from "react";
-import { CheckCircle2, Clock, AlertTriangle, XCircle, Key } from "lucide-react";
+import React, { useState } from "react";
+import { CheckCircle2, Clock, AlertTriangle, XCircle, Key, Ban, Loader2 } from "lucide-react";
 import { TaskItem, TaskStatus } from "@/lib/types";
 
-export const TaskCard: React.FC<{ task: TaskItem }> = ({ task }) => {
+interface TaskCardProps {
+  task: TaskItem;
+  onCancel?: (taskId: string) => void;
+}
+
+export const TaskCard: React.FC<TaskCardProps> = ({ task, onCancel }) => {
+  const [currentStatus, setCurrentStatus] = useState<TaskStatus>(task.status);
+  const [cancelling, setCancelling] = useState(false);
+
+  // Sync state if prop changes
+  React.useEffect(() => {
+    setCurrentStatus(task.status);
+  }, [task.status]);
+
+  const handleCancelTask = async () => {
+    if (cancelling) return;
+    setCancelling(true);
+    try {
+      const res = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (res.ok && data.cancelled) {
+        setCurrentStatus("cancelled");
+        if (onCancel) {
+          onCancel(task.id);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to cancel task:", err);
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   const getStatusBadge = (status: TaskStatus) => {
     switch (status) {
       case "completed":
@@ -40,11 +74,29 @@ export const TaskCard: React.FC<{ task: TaskItem }> = ({ task }) => {
     }
   };
 
+  const canCancel = currentStatus === "running" || currentStatus === "pending";
+
   return (
     <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-slate-700 transition-all text-xs">
       <div className="flex items-center justify-between mb-2">
         <span className="font-semibold text-slate-200 truncate">{task.title}</span>
-        {getStatusBadge(task.status)}
+        <div className="flex items-center gap-1.5">
+          {getStatusBadge(currentStatus)}
+          {canCancel && (
+            <button
+              onClick={handleCancelTask}
+              disabled={cancelling}
+              title="Cancel task"
+              className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-50"
+            >
+              {cancelling ? (
+                <Loader2 className="w-3 h-3 animate-spin text-slate-400" />
+              ) : (
+                <Ban className="w-3 h-3" />
+              )}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center justify-between text-slate-400 mb-2">

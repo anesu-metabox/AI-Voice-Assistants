@@ -531,9 +531,38 @@ async def entrypoint(ctx: JobContext) -> None:
             async_client_args={"verify": ssl_context, "ssl": ssl_context},
         )
 
+    # Fetch dynamic assistant & company profile configuration from backend
+    active_instructions = SYSTEM_INSTRUCTION
+    active_voice = GEMINI_VOICE
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as http_client:
+            asst_resp = await http_client.get(f"{BACKEND_URL}/api/assistant-config")
+            if asst_resp.status_code == 200:
+                asst_data = asst_resp.json().get("data", {})
+                user_prompt = asst_data.get("system_prompt")
+                if user_prompt:
+                    active_instructions = f"{user_prompt}\n\nOperational Grounding Policy:\n{SYSTEM_INSTRUCTION}"
+                if asst_data.get("voice_engine"):
+                    active_voice = asst_data.get("voice_engine")
+
+            comp_resp = await http_client.get(f"{BACKEND_URL}/api/company-profile")
+            if comp_resp.status_code == 200:
+                comp_data = comp_resp.json().get("data", {})
+                c_name = comp_data.get("company_name", "Acme Operations")
+                c_phone = comp_data.get("company_phone", "")
+                c_email = comp_data.get("support_email", "")
+                c_tz = comp_data.get("timezone", "")
+                active_instructions = (
+                    f"Company Context: You represent '{c_name}'. "
+                    f"Support Email: '{c_email}', Phone: '{c_phone}', Default Timezone: '{c_tz}'.\n"
+                    f"{active_instructions}"
+                )
+    except Exception as fetch_err:
+        logger.debug("Using baseline prompt; dynamic settings fetch skipped: %s", fetch_err)
+
     model = realtime.RealtimeModel(
         model=GEMINI_MODEL,
-        voice=GEMINI_VOICE,
+        voice=active_voice,
         api_key=GOOGLE_API_KEY,
         api_version=GEMINI_API_VERSION,
         http_options=http_options,
@@ -542,7 +571,7 @@ async def entrypoint(ctx: JobContext) -> None:
     # 2. Instantiate Agent & Session
     agent = VoiceBotAgent(
         room=ctx.room,
-        instructions=SYSTEM_INSTRUCTION,
+        instructions=active_instructions,
         ssl_context=ssl_context if isinstance(ssl_context, ssl.SSLContext) else None,
     )
     session = AgentSession(llm=model)

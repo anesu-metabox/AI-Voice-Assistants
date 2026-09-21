@@ -80,7 +80,7 @@ async def get_calendar_availability(
     if settings.google_client_id and settings.google_client_secret:
         try:
             live_result = await get_google_calendar_availability(
-                user_id=str(user_id),
+                user_id=str(user_uuid),
                 start_date=start_date,
                 end_date=end_date,
                 duration_minutes=duration_minutes,
@@ -308,9 +308,9 @@ async def book_event(
             if settings.google_client_id and settings.google_client_secret:
                 try:
                     live_booking = await book_google_calendar_event(
-                        user_id=str(user_id),
+                        user_id=str(user_uuid),
                         title=title,
-                        start_time=start_time,
+                        start_time=_format_utc_iso(start_dt),
                         duration_minutes=duration_minutes,
                         attendees=attendees_list,
                         description=description,

@@ -1,0 +1,87 @@
+@import 'tailwindcss';
+
+@font-face {
+  font-family: "Bricolage Grotesque:96pt ExtraBold";
+  font-style: normal;
+  font-weight: 800;
+  src: url("https://static.figma.com/font/BricolageGrotesque_opsz_wdth_wght__1") format("woff2");
+}
+
+@font-face {
+  font-family: "Bricolage Grotesque:Bold";
+  font-style: normal;
+  font-weight: 700;
+  src: url("https://static.figma.com/font/BricolageGrotesque_opsz_wdth_wght__1") format("woff2");
+}
+
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 800;
+  src: url("https://static.figma.com/font/BricolageGrotesque_opsz_wdth_wght__1") format("woff2");
+}
+
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 700;
+  src: url("https://static.figma.com/font/BricolageGrotesque_opsz_wdth_wght__1") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter:Regular";
+  font-style: normal;
+  font-weight: 400;
+  src: url("https://static.figma.com/font/Inter_1") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter:Medium";
+  font-style: normal;
+  font-weight: 500;
+  src: url("https://static.figma.com/font/Inter_1") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter:Semi Bold";
+  font-style: normal;
+  font-weight: 600;
+  src: url("https://static.figma.com/font/Inter_1") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter:Bold";
+  font-style: normal;
+  font-weight: 700;
+  src: url("https://static.figma.com/font/Inter_1") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter:Italic";
+  font-style: italic;
+  font-weight: 400;
+  src: url("https://static.figma.com/font/Inter_1") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  src: url("https://static.figma.com/font/Inter_1") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: italic;
+  font-weight: 100 900;
+  src: url("https://static.figma.com/font/Inter_1") format("woff2");
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Inter", sans-serif;
+  font-weight: 400;
+}

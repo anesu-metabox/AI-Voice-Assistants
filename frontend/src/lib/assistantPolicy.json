@@ -23,21 +23,22 @@
       "\\b(capital of|who is the president|what is the meaning of)\\b"
     ],
     "calendarIntent": [
-      "\\b(calendar|calendars|meeting|meetings|appointment|appointments|event|events|availability|available times?|free times?|free slots?|booking|bookings)\\b",
-      "\\b(book|schedule|reserve|cancel|reschedule|move|shift)\\b.{0,50}\\b(meeting|appointment|event|call|slot|calendar)\\b",
-      "\\b(what(?:'s| is) on my schedule|do i have anything scheduled)\\b"
+      "\\b(calendar|calendars|meeting|meetings|appointment|appointments|event|events|availability|available times?|free times?|free slots?|booking|bookings|sync|catch\\s*up)\\b",
+      "\\b(book|schedule|reserve|cancel|reschedule|move|shift|set\\s*up|create|organize|plan)\\b.{0,60}\\b(meeting|appointment|event|call|slot|calendar|session|sync|time)\\b",
+      "\\b(book|schedule|reserve|set\\s*up)\\b.{0,40}\\b(for|at|on|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b",
+      "\\b(what(?:'s| is) on my schedule|do i have anything scheduled|check my schedule|check my calendar|when am i free)\\b"
     ],
     "social": [
       "^(hi|hello|hey|good morning|good afternoon|good evening)[!. ]*$",
-      "^(thanks|thank you|okay|ok|got it)[!. ]*$",
+      "^(thanks|thank you|okay|ok|got it|cool|great)[!. ]*$",
       "\\b(what can you do|how can you help|are you there|who are you)\\b"
     ],
     "calendarFollowUp": [
-      "\\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|june|july|august|september|october|november|december)\\b",
+      "\\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|january|february|march|april|may|june|july|august|september|october|november|december)\\b",
       "\\b(at\\s+)?([01]?\\d|2[0-3])(?::[0-5]\\d)?\\s*(am|pm)?\\b",
-      "^(yes|no|confirm|do it|that works|cancel it|book it|move it|make it so)[!. ]*$",
+      "^(yes|no|confirm|do it|that works|sounds good|please do|sure|cancel it|book it|move it|make it so|proceed|go ahead)[!. ]*$",
       "\\b(\\d+|half an?|an?)\\s*(minutes?|hours?)\\b",
-      "\\b(add|invite|remove)\\b.{0,30}\\b(attendee|guest|email|them|him|her)\\b"
+      "\\b(add|invite|remove|with)\\b.{0,30}\\b(attendee|guest|email|them|him|her|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})\\b"
     ]
   }
 }

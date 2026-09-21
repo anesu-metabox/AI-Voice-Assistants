@@ -146,10 +146,17 @@ async def book_google_calendar_event(
 
     # Parse start and compute end time
     try:
-        clean_start = start_time.replace("Z", "+00:00")
-        start_dt = datetime.fromisoformat(clean_start)
+        clean_start = str(start_time).strip().replace(" ", "T").replace("Z", "+00:00")
+        try:
+            start_dt = datetime.fromisoformat(clean_start)
+        except Exception:
+            if len(clean_start) == 16:  # YYYY-MM-DDTHH:MM
+                clean_start += ":00+00:00"
+            start_dt = datetime.fromisoformat(clean_start)
         if start_dt.tzinfo is None:
             start_dt = start_dt.replace(tzinfo=timezone.utc)
+        else:
+            start_dt = start_dt.astimezone(timezone.utc)
     except Exception as exc:
         logger.error("Invalid ISO 8601 start_time provided (%s): %s", start_time, exc)
         raise ValueError(f"Invalid ISO 8601 start_time timestamp: {start_time}") from exc

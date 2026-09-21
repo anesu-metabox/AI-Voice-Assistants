@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api.auth import router as auth_router
+from .api.settings import router as settings_router
 from .api.tasks import router as tasks_router
 from .api.tools import router as tools_router
 from .config import settings
@@ -80,10 +81,50 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount API Routers
+# Mount API Routers (both root, /api, and /api/v1 prefixes for backward compatibility)
 app.include_router(tools_router)
 app.include_router(tasks_router)
 app.include_router(auth_router)
+app.include_router(settings_router)
+app.include_router(tools_router, prefix="/api")
+app.include_router(tasks_router, prefix="/api")
+app.include_router(auth_router, prefix="/api")
+app.include_router(settings_router, prefix="/api")
+app.include_router(tools_router, prefix="/api/v1")
+app.include_router(tasks_router, prefix="/api/v1")
+app.include_router(auth_router, prefix="/api/v1")
+app.include_router(settings_router, prefix="/api/v1")
+
+
+from fastapi.responses import Response
+
+
+@app.get("/", tags=["system"])
+async def root():
+    """
+    Root status endpoint displaying backend service health, documentation, and API routes.
+    """
+    return {
+        "status": "online",
+        "service": "AI Voice Bot FastAPI Backend",
+        "version": "1.0.0",
+        "documentation": "/docs",
+        "openapi": "/openapi.json",
+        "health": "/health",
+        "endpoints": {
+            "tools": "/tools/execute",
+            "schemas": "/tools/schemas",
+            "auth": "/auth/google/login",
+            "company_profile": "/api/company-profile",
+            "assistant_config": "/api/assistant-config",
+            "livekit_token": "/api/livekit/token",
+        },
+    }
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(status_code=204)
 
 
 @app.get("/health", tags=["system"])

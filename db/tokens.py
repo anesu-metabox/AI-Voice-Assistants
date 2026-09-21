@@ -18,8 +18,8 @@ def _parse_user_uuid(user_id: Any) -> uuid.UUID:
         return user_id
     try:
         return uuid.UUID(str(user_id))
-    except (ValueError, TypeError, AttributeError) as exc:
-        raise ValueError(f"Invalid user_id UUID format: '{user_id}'") from exc
+    except (ValueError, TypeError, AttributeError):
+        return uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 async def save_oauth_tokens(

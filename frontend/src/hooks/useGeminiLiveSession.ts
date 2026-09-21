@@ -208,8 +208,14 @@ export const useGeminiLiveSession = () => {
                                 const taskItemId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
                                 const startTime = Date.now();
 
-                                const scopeDenied = scopeDecisionRef.current?.action === "redirect";
                                 const toolDenied = !isAllowedCalendarTool(fc.name);
+                                if (!toolDenied) {
+                                    scopeDecisionRef.current = {
+                                        action: "allow",
+                                        reason: "calendar_intent",
+                                        calendarContextActive: true,
+                                    };
+                                }
                                 const idempotencyKey = getStableIdempotencyKey(fc.name, args, callId);
 
                                 const paramTitle = fc.args?.title || fc.args?.start_date || fc.args?.start_time || "Executing";
@@ -224,11 +230,11 @@ export const useGeminiLiveSession = () => {
                                     ...prev,
                                 ]);
 
-                                const execution: Promise<ReturnType<typeof executeBackendTool> extends Promise<infer T> ? T : never> = scopeDenied || toolDenied
+                                const execution: Promise<ReturnType<typeof executeBackendTool> extends Promise<infer T> ? T : never> = toolDenied
                                     ? Promise.resolve({
                                           status: "error" as const,
-                                          error_code: toolDenied ? "POLICY_TOOL_DENIED" : "POLICY_SCOPE_DENIED",
-                                          error_message: toolDenied ? "That tool is not available." : CALENDAR_REDIRECT_RESPONSE,
+                                          error_code: "POLICY_TOOL_DENIED",
+                                          error_message: "That tool is not available.",
                                       })
                                     : executeBackendTool(fc.name, args, idempotencyKey);
 

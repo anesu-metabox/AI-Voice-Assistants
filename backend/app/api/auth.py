@@ -232,7 +232,17 @@ async def google_auth_status(user_id: str = Query(default=DEFAULT_USER_ID)):
     """
     Check if the user has an active Google Calendar integration.
     """
-    tokens = await get_oauth_tokens(user_id=user_id, provider="google")
+    try:
+        tokens = await get_oauth_tokens(user_id=user_id, provider="google")
+    except Exception as exc:
+        logger.debug("Database token lookup skipped or failed (%s). Returning disconnected.", exc)
+        return {
+            "connected": False,
+            "provider": "google",
+            "user_id": user_id,
+            "note": "database_not_connected",
+        }
+
     if not tokens:
         return {
             "connected": False,
@@ -260,7 +270,11 @@ async def google_disconnect(user_id: str = Query(default=DEFAULT_USER_ID)):
     """
     Revoke Google tokens and remove from PostgreSQL database.
     """
-    success = await revoke_and_disconnect(user_id=user_id)
+    try:
+        success = await revoke_and_disconnect(user_id=user_id)
+    except Exception as exc:
+        logger.warning("Revoke and disconnect error: %s", exc)
+        success = False
     return {
         "status": "disconnected" if success else "not_found",
         "user_id": user_id,
