@@ -224,3 +224,38 @@ async def book_google_calendar_event(
         logger.exception("Error booking event via Google Calendar API: %s", exc)
         return None
 
+
+async def delete_google_calendar_event(
+    user_id: str,
+    google_event_id: str,
+) -> bool:
+    """
+    Delete an event from Google Calendar via Google Calendar API.
+    Returns True if deletion succeeded (200 or 204), or False otherwise.
+    """
+    if not google_event_id or not user_id:
+        return False
+
+    try:
+        access_token = await get_valid_access_token(user_id)
+        if not access_token:
+            logger.warning("No valid Google access token for user %s to delete event %s", user_id, google_event_id)
+            return False
+
+        url = f"{GOOGLE_CALENDAR_API_BASE}/calendars/primary/events/{google_event_id}"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+        }
+        client = get_http_client()
+        response = await client.delete(url, headers=headers)
+        if response.status_code in (200, 204, 404, 410):
+            logger.info("Successfully deleted event %s from Google Calendar (status %s)", google_event_id, response.status_code)
+            return True
+        else:
+            logger.warning("Google Calendar delete returned %s: %s", response.status_code, response.text)
+            return False
+    except Exception as exc:
+        logger.exception("Error deleting event %s from Google Calendar: %s", google_event_id, exc)
+        return False
+
+

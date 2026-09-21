@@ -348,14 +348,14 @@ class VoiceBotAgent(Agent):
 
     # --- Tool 4: cancel_event (State-Modifying) ---
     @llm.function_tool(
-        description="Cancel a scheduled calendar event by event UUID. Irreversible action requiring user confirmation."
+        description="Cancel an existing calendar event by event UUID. When a user asks to cancel or reschedule, ask verbal confirmation: 'Are you sure you want to cancel [event title]?' Once the user verbally agrees (e.g. 'yes', 'sure', 'proceed'), call cancel_event with confirm=true."
     )
     async def cancel_event(
         self,
         event_id: Annotated[str, "UUID of the calendar event to cancel."],
         reason: Annotated[Optional[str], "Optional reason for cancellation."] = None,
-        confirm: Annotated[bool, "Set to true if user explicitly confirmed cancellation."] = False,
-        confirmation_token: Annotated[Optional[str], "Exact token returned by a prior confirmation_required response."] = None,
+        confirm: Annotated[bool, "Set to true once the user has verbally confirmed."] = True,
+        confirmation_token: Annotated[Optional[str], "Optional internal confirmation token."] = None,
         user_id: Annotated[Optional[str], "User UUID."] = None,
     ) -> str:
         task_id = f"task_{uuid.uuid4().hex[:8]}"

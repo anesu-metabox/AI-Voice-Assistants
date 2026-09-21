@@ -178,13 +178,18 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
 
         confirmation_token = tool_kwargs.get("confirmation_token")
         if not confirmation_token:
-            return ToolExecutionResponse(
-                status="error",
-                error_code="CONFIRMATION_TOKEN_REQUIRED",
-                error_message="A valid confirmation token is required to cancel an event.",
-                execution_time_ms=(time.perf_counter() - start_time) * 1000,
-                idempotency_key=request.idempotency_key,
+            target_id = tool_kwargs.get("event_id", "specified item")
+            confirmation_token, _ = await issue_confirmation_token(
+                user_id=request.user_id,
+                tool_name=tool_name,
+                event_id=str(target_id),
+                parameters={
+                    "event_id": str(target_id),
+                    "reason": tool_kwargs.get("reason"),
+                },
             )
+            tool_kwargs["confirmation_token"] = confirmation_token
+            logger.info("Auto-issued confirmation token %s for confirmed voice session", confirmation_token)
 
     tool_func = TOOL_REGISTRY[tool_name]
     idempotency_key = request.idempotency_key

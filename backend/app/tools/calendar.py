@@ -19,6 +19,7 @@ from ..config import settings
 from ..services.google_calendar import (
     book_google_calendar_event,
     get_google_calendar_availability,
+    delete_google_calendar_event,
 )
 
 root_path = str(Path(__file__).resolve().parents[3])
@@ -437,19 +438,39 @@ async def cancel_event(
             "error": "NOT_CONNECTED",
             "message": "Google Calendar is not connected. Please connect your Google Calendar account in the Integrations page.",
         }
+    event_uuid = None
     try:
         event_uuid = uuid.UUID(str(event_id))
     except (ValueError, TypeError):
-        return {
-            "event_id": str(event_id),
-            "id": str(event_id),
-            "status": "error",
-            "error_message": f"Invalid event ID UUID format: {event_id}",
-        }
+        event_uuid = None
 
     pool = await get_db_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
+            if event_uuid is None:
+                # Attempt to look up confirmed event by title for this user
+                matched = await conn.fetchrow(
+                    """
+                    SELECT id FROM calendar_events
+                    WHERE user_id = $1
+                      AND status = 'confirmed'
+                      AND title ILIKE $2
+                    ORDER BY start_time ASC
+                    LIMIT 1
+                    """,
+                    user_uuid,
+                    f"%{event_id}%",
+                )
+                if matched:
+                    event_uuid = matched["id"]
+                else:
+                    return {
+                        "event_id": str(event_id),
+                        "id": str(event_id),
+                        "status": "error",
+                        "error_message": f"Event '{event_id}' not found for user {user_uuid}.",
+                    }
+
             # Soft delete confirmed event
             row = await conn.fetchrow(
                 """
@@ -523,6 +544,26 @@ async def cancel_event(
             )
 
             logger.info("Successfully cancelled event %s for user %s: '%s'", event_uuid, user_uuid, row["title"])
+
+            # If there is an associated Google Calendar booking, delete it from Google Calendar asynchronously
+            task_row = await conn.fetchrow(
+                """
+                SELECT output_result FROM tasks
+                WHERE user_id = $1 AND tool_name = 'book_event' AND output_result::text LIKE '%' || $2 || '%'
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                user_uuid,
+                str(event_uuid),
+            )
+            if task_row and task_row["output_result"]:
+                try:
+                    output_data = json.loads(task_row["output_result"])
+                    google_eid = output_data.get("google_event_id")
+                    if google_eid:
+                        asyncio.create_task(delete_google_calendar_event(str(user_uuid), google_eid))
+                except Exception as g_err:
+                    logger.warning("Failed to parse task output for Google event id: %s", g_err)
+
             return result_payload
 
 
