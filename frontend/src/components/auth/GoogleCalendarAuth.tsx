@@ -2,19 +2,18 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { Calendar, CheckCircle2, LogOut, Loader2, AlertCircle } from "lucide-react";
+import { logSafeFailure } from "@/lib/safeLogging";
 
 interface GoogleAuthStatus {
   connected: boolean;
   provider?: string;
-  user_id?: string;
+  email?: string;
+  google_email?: string;
   expires_at?: string;
   can_refresh?: boolean;
   scope?: string;
   error?: string;
 }
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000";
-const DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000001";
 
 export function GoogleCalendarAuth() {
   const [status, setStatus] = useState<GoogleAuthStatus | null>(null);
@@ -23,8 +22,9 @@ export function GoogleCalendarAuth() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/auth/google/status?user_id=${DEFAULT_USER_ID}`, {
+      const res = await fetch("/auth/google/status", {
         cache: "no-store",
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
@@ -44,7 +44,7 @@ export function GoogleCalendarAuth() {
 
     // Listen for cross-window messages from OAuth popup
     const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === "GOOGLE_AUTH_SUCCESS") {
+      if (event.origin === window.location.origin && event.data?.type === "GOOGLE_AUTH_SUCCESS") {
         fetchStatus();
       }
     };
@@ -61,7 +61,7 @@ export function GoogleCalendarAuth() {
     const top = window.screenY + (window.outerHeight - height) / 2;
 
     const popup = window.open(
-      `${BACKEND_URL}/auth/google/login?user_id=${DEFAULT_USER_ID}`,
+      "/auth/google/login",
       "GoogleOAuth",
       `width=${width},height=${height},left=${left},top=${top},status=no,menubar=no,toolbar=no`
     );
@@ -79,12 +79,13 @@ export function GoogleCalendarAuth() {
   const handleDisconnect = async () => {
     setActionLoading(true);
     try {
-      await fetch(`${BACKEND_URL}/auth/google/disconnect?user_id=${DEFAULT_USER_ID}`, {
+      await fetch("/auth/google/disconnect", {
         method: "POST",
+        credentials: "include",
       });
       await fetchStatus();
     } catch (err) {
-      console.error("Error disconnecting Google Calendar:", err);
+      logSafeFailure("Google Calendar disconnect failed", err);
     } finally {
       setActionLoading(false);
     }
@@ -106,6 +107,11 @@ export function GoogleCalendarAuth() {
           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
           <span className="font-medium">Calendar Connected</span>
         </div>
+        {(status.email || status.google_email) && (
+          <span className="text-xs text-slate-400" title="Connected Google account">
+            {status.email || status.google_email}
+          </span>
+        )}
         <button
           onClick={handleDisconnect}
           disabled={actionLoading}

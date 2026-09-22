@@ -35,13 +35,16 @@ async def create_durable_task(
     Preserves state across connection drops and restarts.
     """
     task_id = str(uuid.uuid4())
-    effective_user_id = user_id or "00000000-0000-0000-0000-000000000001"
-    logger.info("Registering durable task %s of type '%s': %s", task_id, task_type, title)
+    if not user_id:
+        raise ValueError("A verified company identity is required for durable tasks")
+    effective_user_id = user_id
+    logger.info("Registering durable task")
 
     # Persist initial pending state to Neon Postgres if pool is available
     try:
         pool = await get_db_pool()
-        async with pool.acquire() as conn:
+        async with pool.acquire() as conn, conn.transaction():
+            await conn.execute("SELECT set_config('app.company_id', $1, true)", effective_user_id)
             await conn.execute(
                 """
                 INSERT INTO tasks (id, user_id, session_id, title, status, tool_name, input_parameters)
@@ -54,9 +57,10 @@ async def create_durable_task(
                 task_type,
                 json.dumps(payload),
             )
-        logger.info("Durable task %s successfully persisted to PostgreSQL", task_id)
+        logger.info("Durable task successfully persisted to PostgreSQL")
     except Exception as exc:
-        logger.warning("Could not persist task %s to database (continuing with in-memory state): %s", task_id, exc)
+        logger.error("Could not persist durable task (error_type=%s)", type(exc).__name__)
+        raise RuntimeError("durable task service unavailable") from exc
 
     spoken_ack = f"I've started that {title.lower()}. I will update your dashboard as soon as it is finished."
 

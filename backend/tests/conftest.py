@@ -5,8 +5,12 @@ automatic database tenant cleanup, and FastAPI async HTTP client.
 """
 
 import asyncio
+import hashlib
+import hmac
+import json
 import logging
 import os
+import time
 from typing import AsyncGenerator
 import urllib.parse
 import uuid
@@ -93,10 +97,41 @@ async def clean_test_db(db_pool: asyncpg.Pool, test_user_id: str) -> AsyncGenera
 
 
 @pytest.fixture
-async def async_client() -> AsyncGenerator[httpx.AsyncClient, None]:
+async def requires_migrated_oauth_schema(db_pool: asyncpg.Pool) -> None:
+    """Skip provider-contract tests when pointed at the pre-008 production schema."""
+    present = await db_pool.fetchval(
+        """
+        SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'oauth_tokens'
+              AND column_name = 'access_token_ciphertext'
+        )
+        """
+    )
+    if not present:
+        pytest.skip(
+            "requires migrations 008+; run against the isolated migrated Neon branch"
+        )
+
+
+@pytest.fixture
+async def async_client(test_user_id: str, monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[httpx.AsyncClient, None]:
     """
     FastAPI test client running over httpx ASGITransport with full app lifecycle.
     """
+    secret = "calendar-integration-test-secret"
+    monkeypatch.setenv("LIVEKIT_SESSION_CONTEXT_SECRET", secret)
+    issued_at = int(time.time())
+    context = {
+        "company_id": test_user_id,
+        "auth_subject": f"auth:{test_user_id}",
+        "issued_at": issued_at,
+        "session_id": f"calendar-test-{test_user_id}",
+    }
+    message = json.dumps(context, sort_keys=True, separators=(",", ":")).encode()
+    context["signature"] = hmac.new(secret.encode(), message, hashlib.sha256).hexdigest()
+
     class GuardrailTestClient(httpx.AsyncClient):
         async def post(self, url, *args, **kwargs):
             payload = kwargs.get("json")
@@ -105,6 +140,9 @@ async def async_client() -> AsyncGenerator[httpx.AsyncClient, None]:
                 if "idempotency_key" not in payload:
                     payload["idempotency_key"] = str(uuid.uuid4())
                 kwargs["json"] = payload
+            headers = dict(kwargs.get("headers") or {})
+            headers.setdefault("X-Verified-Session-Context", json.dumps(context))
+            kwargs["headers"] = headers
             return await super().post(url, *args, **kwargs)
 
     async with GuardrailTestClient(

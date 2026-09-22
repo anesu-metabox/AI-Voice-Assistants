@@ -4,10 +4,12 @@ Applies sequential SQL migrations using the direct (unpooled) database endpoint.
 """
 
 import asyncio
+import argparse
 import logging
 import os
 from pathlib import Path
 import sys
+from urllib.parse import urlsplit
 import asyncpg
 from dotenv import load_dotenv
 
@@ -15,7 +17,7 @@ root_path = str(Path(__file__).resolve().parents[1])
 if root_path not in sys.path:
     sys.path.append(root_path)
 
-from db.connection import sanitize_db_url
+from db.connection import assert_database_branch_is_safe, sanitize_db_url
 
 load_dotenv()
 
@@ -26,7 +28,7 @@ logging.basicConfig(
 logger = logging.getLogger("voice_bot.migrations")
 
 
-async def run_migrations() -> None:
+async def run_migrations(*, allow_production: bool = False) -> None:
     """
     Run all pending SQL migrations against the direct unpooled database connection.
     """
@@ -34,6 +36,23 @@ async def run_migrations() -> None:
     if not db_url:
         raise ValueError("Neither DATABASE_URL_UNPOOLED nor DATABASE_URL is configured.")
 
+    branch_name = os.getenv("NEON_BRANCH", "").strip().lower()
+    if not branch_name:
+        raise RuntimeError(
+            "NEON_BRANCH must explicitly identify the target branch before migrations can run"
+        )
+    if branch_name in {"production", "main", "primary"} and not allow_production:
+        raise RuntimeError(
+            "Refusing to migrate the production Neon branch without --allow-production. "
+            "Create/test an isolated branch first and confirm destructive OAuth migration impact."
+        )
+    assert_database_branch_is_safe(allow_protected=allow_production)
+
+    parsed_host = urlsplit(db_url).hostname or ""
+    if "pooler" in parsed_host.lower():
+        raise RuntimeError(
+            "Migrations require the direct/unpooled Neon endpoint; do not use a pooler URL"
+        )
     clean_url = sanitize_db_url(db_url)
     logger.info("Connecting to Neon PostgreSQL direct endpoint for migrations...")
 
@@ -83,4 +102,11 @@ async def run_migrations() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(run_migrations())
+    parser = argparse.ArgumentParser(description="Apply versioned Neon migrations")
+    parser.add_argument(
+        "--allow-production",
+        action="store_true",
+        help="Explicitly authorize migration when NEON_BRANCH is production/main/primary",
+    )
+    args = parser.parse_args()
+    asyncio.run(run_migrations(allow_production=args.allow_production))

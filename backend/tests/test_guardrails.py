@@ -1,10 +1,35 @@
 """Focused guardrail tests that do not require calendar side effects."""
 
+import hashlib
+import hmac
+import json
+import time
+
 import pytest
+from fastapi import HTTPException
 
 from agent.assistant_policy import classify_assistant_turn
 from backend.app.policy import ACTIVE_TOOL_NAMES
+from backend.app.api.tools import is_tool_granted_by_profile
+from backend.app.api.tools import get_all_tool_schemas
 from db.confirmation import consume_confirmation_token, issue_confirmation_token
+
+
+def _verified_headers(monkeypatch: pytest.MonkeyPatch, profile_version: int | None = None) -> dict[str, str]:
+    monkeypatch.setenv("LIVEKIT_SESSION_CONTEXT_SECRET", "guardrail-test-secret")
+    payload = {
+        "company_id": "00000000-0000-0000-0000-000000000123",
+        "auth_subject": "auth-user-123",
+        "issued_at": int(time.time()),
+        "session_id": "guardrail-session",
+    }
+    if profile_version is not None:
+        payload["profile_version"] = profile_version
+    message = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    payload["signature"] = hmac.new(
+        b"guardrail-test-secret", message, hashlib.sha256
+    ).hexdigest()
+    return {"X-Verified-Session-Context": json.dumps(payload)}
 
 
 def test_calendar_policy_has_exact_active_tool_surface():
@@ -14,6 +39,13 @@ def test_calendar_policy_has_exact_active_tool_surface():
         "book_event",
         "cancel_event",
     }
+
+
+@pytest.mark.asyncio
+async def test_tool_schema_discovery_requires_verified_tenant_context():
+    with pytest.raises(HTTPException) as error:
+        await get_all_tool_schemas(None)
+    assert error.value.status_code == 401
 
 
 @pytest.mark.parametrize(
@@ -37,8 +69,61 @@ def test_calendar_follow_up_requires_active_context():
     assert decision.reason == "calendar_follow_up"
 
 
+def test_company_faq_capability_overrides_calendar_only_scope_without_tools():
+    capabilities = {"company_faq": {"enabled": True}}
+    company_context = {"business_hours": {"monday": "09:00-17:00"}}
+    assert classify_assistant_turn(
+        "What are your opening hours?", company_capabilities=capabilities,
+        company_context=company_context,
+    ).action == "allow"
+    assert classify_assistant_turn(
+        "Tell me a joke", company_capabilities=capabilities
+    ).action == "redirect"
+    assert classify_assistant_turn(
+        "Check my calendar", company_capabilities=capabilities
+    ).reason == "calendar_unavailable"
+    assert classify_assistant_turn(
+        "Explain quantum mechanics", company_capabilities=capabilities,
+        company_context=company_context,
+    ).action == "redirect"
+
+
+def test_backend_tool_execution_requires_snapshot_grant():
+    calendar_tool = "get_calendar_availability"
+    assert is_tool_granted_by_profile(
+        calendar_tool,
+        {"compiled_policy": {"allowedTools": [calendar_tool]}},
+    )
+    assert not is_tool_granted_by_profile(
+        calendar_tool,
+        {"compiled_policy": {"allowedTools": []}},
+    )
+    assert not is_tool_granted_by_profile(calendar_tool, None)
+
+
 @pytest.mark.asyncio
-async def test_dormant_backend_tool_is_denied_before_execution(async_client):
+async def test_signed_profile_snapshot_denies_ungranted_calendar_tool_before_execution(
+    async_client, monkeypatch
+):
+    from backend.app.api import tools as tools_api
+
+    async def load_profile(*, company_id, version):
+        assert version == 7
+        return {"compiled_policy": {"allowedTools": []}}
+
+    monkeypatch.setattr(tools_api, "get_published_agent_profile", load_profile)
+    response = await async_client.post(
+        "/tools/execute",
+        json={"tool_name": "list_events", "parameters": {}},
+        headers=_verified_headers(monkeypatch, profile_version=7),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["error_code"] == "POLICY_TOOL_DENIED"
+
+
+@pytest.mark.asyncio
+async def test_dormant_backend_tool_is_denied_before_execution(async_client, monkeypatch):
     response = await async_client.post(
         "/tools/execute",
         json={
@@ -49,15 +134,15 @@ async def test_dormant_backend_tool_is_denied_before_execution(async_client):
                 "body": "This must not execute.",
             },
         },
+        headers=_verified_headers(monkeypatch),
     )
     body = response.json()
-    assert response.status_code == 200
-    assert body["status"] == "error"
-    assert body["error_code"] == "POLICY_TOOL_DENIED"
+    assert response.status_code == 404
+    assert "Unknown tool" in body["detail"]
 
 
 @pytest.mark.asyncio
-async def test_active_booking_requires_idempotency_key(async_client):
+async def test_active_booking_requires_idempotency_key(async_client, monkeypatch):
     response = await async_client.post(
         "/tools/execute",
         json={
@@ -66,9 +151,9 @@ async def test_active_booking_requires_idempotency_key(async_client):
                 "title": "Missing key test",
                 "start_time": "2026-12-01T09:00:00Z",
             },
-            "user_id": "00000000-0000-0000-0000-000000000001",
             "idempotency_key": None,
         },
+        headers=_verified_headers(monkeypatch),
     )
     body = response.json()
     assert body["status"] == "error"

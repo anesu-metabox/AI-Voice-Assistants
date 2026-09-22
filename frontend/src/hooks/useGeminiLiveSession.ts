@@ -8,8 +8,10 @@ import {
     CALENDAR_SYSTEM_INSTRUCTION,
     classifyAssistantTurn,
     isAllowedCalendarTool,
+    type ScopeDecision,
 } from "@/lib/assistantPolicy";
 import { TaskItem } from "@/lib/types";
+import { logSafeFailure } from "@/lib/safeLogging";
 
 type ConnectionStatus =
     | "disconnected"
@@ -40,7 +42,7 @@ export const useGeminiLiveSession = () => {
     const processorRef = useRef<ScriptProcessorNode | null>(null);
     const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
     const idempotencyKeysRef = useRef<Map<string, string>>(new Map());
-    const scopeDecisionRef = useRef<{ action: "allow" | "redirect"; calendarContextActive: boolean } | null>(null);
+    const scopeDecisionRef = useRef<ScopeDecision | null>(null);
 
     const getStableIdempotencyKey = useCallback(
         (toolName: string, args: Record<string, any>, callId: string) => {
@@ -199,7 +201,9 @@ export const useGeminiLiveSession = () => {
                         // Handle tool calls from Gemini Live
                         if (message.toolCall?.functionCalls) {
                             const functionCalls = message.toolCall.functionCalls;
-                            console.log("Received toolCall from Gemini Live:", functionCalls);
+                        // Never log model arguments: calendar parameters may contain
+                        // attendee details, event titles, or private descriptions.
+                        console.log("Received tool call from dormant Gemini path");
 
                             for (const fc of functionCalls) {
                                 if (!fc.name) continue;
@@ -260,7 +264,7 @@ export const useGeminiLiveSession = () => {
                                     );
 
                                     if (sessionRef.current) {
-                                        console.log("Sending sendToolResponse for callId:", callId, result);
+                                        console.log("Sending tool response from dormant Gemini path");
                                         sessionRef.current.sendToolResponse({
                                             functionResponses: [
                                                 {
@@ -279,7 +283,7 @@ export const useGeminiLiveSession = () => {
                         }
 
                         if (message.toolCallCancellation?.ids) {
-                            console.log("Tool call cancellation requested for IDs:", message.toolCallCancellation.ids);
+                            console.log("Tool call cancellation requested by dormant Gemini path");
                             return;
                         }
 
@@ -354,10 +358,7 @@ export const useGeminiLiveSession = () => {
                     },
 
                     onerror: (error: any) => {
-                        console.error(
-                            "Gemini Live error:",
-                            error
-                        );
+                        logSafeFailure("Dormant Gemini voice path failed", error);
 
                         setConnectionStatus("error");
                     },
@@ -431,14 +432,11 @@ export const useGeminiLiveSession = () => {
 
             setConnectionStatus("connected");
         } catch (error) {
-            console.error(
-                "Gemini Live connection error:",
-                error
-            );
+            logSafeFailure("Dormant Gemini voice connection failed", error);
 
             setConnectionStatus("error");
         }
-    }, [isMuted, playAudioChunk, setMicStream]);
+    }, [getStableIdempotencyKey, isMuted, playAudioChunk, setMicStream]);
 
     const disconnect = useCallback(() => {
         processorRef.current?.disconnect();

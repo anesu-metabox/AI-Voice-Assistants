@@ -12,24 +12,21 @@ from .connection import get_db_pool
 
 logger = logging.getLogger("voice_bot.db.settings")
 
-DEFAULT_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
-
-
 def _parse_user_uuid(user_id: Any) -> uuid.UUID:
     if isinstance(user_id, uuid.UUID):
         return user_id
     try:
         return uuid.UUID(str(user_id))
-    except (ValueError, TypeError, AttributeError):
-        return uuid.uuid5(uuid.NAMESPACE_DNS, str(user_id))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise ValueError("A verified company UUID is required for settings access") from exc
 
 
 # ─── Company Profile Operations ───────────────────────────────────────────────
 
-async def get_company_profile(user_id: Any = DEFAULT_USER_ID) -> Dict[str, Any]:
+async def get_company_profile(user_id: Any) -> Dict[str, Any]:
     """
     Retrieve company profile for a given user.
-    Returns defaults if no record exists yet.
+    Returns an empty onboarding profile if no record exists yet.
     """
     user_uuid = _parse_user_uuid(user_id)
     pool = await get_db_pool()
@@ -38,7 +35,8 @@ async def get_company_profile(user_id: Any = DEFAULT_USER_ID) -> Dict[str, Any]:
     FROM company_profiles
     WHERE user_id = $1;
     """
-    async with pool.acquire() as conn:
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT set_config('app.company_id', $1, true)", str(user_uuid))
         row = await conn.fetchrow(query, user_uuid)
         if row:
             return {
@@ -53,14 +51,13 @@ async def get_company_profile(user_id: Any = DEFAULT_USER_ID) -> Dict[str, Any]:
                 "updated_at": row["updated_at"].isoformat(),
             }
 
-    # Return default company profile
     return {
         "user_id": str(user_uuid),
-        "company_name": "Acme Operations Inc.",
-        "website_url": "https://acmeops.com",
-        "company_phone": "+1 (555) 019-2834",
-        "support_email": "support@acmeops.com",
-        "timezone": "America/New_York (EST)",
+        "company_name": "",
+        "website_url": "",
+        "company_phone": "",
+        "support_email": "",
+        "timezone": "Indian/Mauritius",
     }
 
 
@@ -70,7 +67,7 @@ async def save_company_profile(
     website_url: Optional[str] = None,
     company_phone: Optional[str] = None,
     support_email: Optional[str] = None,
-    timezone: str = "America/New_York (EST)",
+    timezone: str = "Indian/Mauritius",
 ) -> Dict[str, Any]:
     """
     Insert or update the company profile for the user.
@@ -90,7 +87,8 @@ async def save_company_profile(
         updated_at = NOW()
     RETURNING id, user_id, company_name, website_url, company_phone, support_email, timezone, updated_at;
     """
-    async with pool.acquire() as conn:
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT set_config('app.company_id', $1, true)", str(user_uuid))
         row = await conn.fetchrow(
             query,
             user_uuid,
@@ -114,10 +112,10 @@ async def save_company_profile(
 
 # ─── Assistant Configuration Operations ───────────────────────────────────────
 
-async def get_assistant_config(user_id: Any = DEFAULT_USER_ID) -> Dict[str, Any]:
+async def get_assistant_config(user_id: Any) -> Dict[str, Any]:
     """
     Retrieve assistant configuration for a given user.
-    Returns defaults if no record exists yet.
+    Returns an empty assistant draft if no record exists yet.
     """
     user_uuid = _parse_user_uuid(user_id)
     pool = await get_db_pool()
@@ -126,7 +124,8 @@ async def get_assistant_config(user_id: Any = DEFAULT_USER_ID) -> Dict[str, Any]
     FROM assistant_configs
     WHERE user_id = $1;
     """
-    async with pool.acquire() as conn:
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT set_config('app.company_id', $1, true)", str(user_uuid))
         row = await conn.fetchrow(query, user_uuid)
         if row:
             return {
@@ -142,14 +141,13 @@ async def get_assistant_config(user_id: Any = DEFAULT_USER_ID) -> Dict[str, Any]
                 "updated_at": row["updated_at"].isoformat(),
             }
 
-    # Return default assistant configuration
     return {
         "user_id": str(user_uuid),
-        "assistant_name": "Support Agent – Charlie",
+        "assistant_name": "",
         "voice_engine": "Aoede",
-        "inbound_greeting": "Thank you for calling Acme Operations Support. This is Ava, how can I assist you with your account settings today?",
-        "system_prompt": "You are a support voice agent. Your tone is warm, polite and direct. Resolve return inquiries using the attached knowledge base. Never invent details outside Acme guidelines. If client requests a tier override, trigger salesforce routing.",
-        "knowledge_base_notes": "Standard return window is 30 days. Priority tier requires Gold membership.",
+        "inbound_greeting": "",
+        "system_prompt": "",
+        "knowledge_base_notes": "",
         "is_deployed": False,
     }
 
@@ -182,7 +180,8 @@ async def save_assistant_config(
         updated_at = NOW()
     RETURNING id, user_id, assistant_name, voice_engine, inbound_greeting, system_prompt, knowledge_base_notes, is_deployed, updated_at;
     """
-    async with pool.acquire() as conn:
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT set_config('app.company_id', $1, true)", str(user_uuid))
         row = await conn.fetchrow(
             query,
             user_uuid,

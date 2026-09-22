@@ -1,0 +1,35 @@
+# Credentials and local developer configuration
+.env
+.env.*
+!.env.example
+backend/**/.env
+backend/**/.env.*
+.neon
+neon.local.*
+
+# Source-control and local runtime state
+.git
+.github
+.codex
+.agents
+.venv
+venv
+__pycache__
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+logs
+*.log
+.runtime
+
+# Frontend and unrelated local tooling are not part of the Python image
+frontend
+live-api-web-console
+node_modules
+**/node_modules
+dist
+build

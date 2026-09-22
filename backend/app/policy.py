@@ -20,3 +20,12 @@ def is_active_tool(tool_name: str) -> bool:
 
 def policy_document() -> dict[str, Any]:
     return _POLICY
+
+
+def is_tool_in_policy(tool_name: str, compiled_policy: dict[str, Any] | None = None) -> bool:
+    """Check the immutable platform allowlist and optional company grant."""
+    if tool_name not in ACTIVE_TOOL_NAMES:
+        return False
+    if compiled_policy is None:
+        return True
+    return tool_name in set(compiled_policy.get("allowedTools", ()))

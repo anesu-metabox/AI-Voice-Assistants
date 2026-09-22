@@ -21,10 +21,6 @@ class IdempotencyStatus(str, Enum):
     REFUNDED = "refunded"
 
 
-# In-memory fallback cache for development/testing when PostgreSQL is offline
-_in_memory_locks: Dict[str, Dict[str, Any]] = {}
-
-
 async def acquire_idempotency_lock(
     key: str,
     user_id: str,
@@ -44,8 +40,10 @@ async def acquire_idempotency_lock(
     expires_at = now + timedelta(seconds=ttl_seconds)
 
     try:
+        parsed_user_id = uuid.UUID(user_id)
         pool = await get_db_pool()
-        async with pool.acquire() as conn:
+        async with pool.acquire() as conn, conn.transaction():
+            await conn.execute("SELECT set_config('app.company_id', $1, true)", str(parsed_user_id))
             # Serialize inspection and acquisition on the key. This avoids the
             # SELECT-then-INSERT race that previously surfaced as UniqueViolation.
             async with conn.transaction():
@@ -66,11 +64,11 @@ async def acquire_idempotency_lock(
                     record_expiry = row["expires_at"]
 
                     if status == IdempotencyStatus.COMMITTED.value:
-                        logger.info("Idempotency key %s committed previously. Returning cached payload.", key)
+                        logger.info("Committed idempotency record found; returning cached payload.")
                         return False, payload, "Idempotent response retrieved from cache."
 
                     if status == IdempotencyStatus.ACQUIRED.value and record_expiry > now:
-                        logger.warning("Idempotency key %s is currently locked by active execution.", key)
+                        logger.warning("Idempotency record is currently locked by active execution.")
                         return False, None, "Action is currently processing. Please wait."
 
                     await conn.execute(
@@ -86,8 +84,7 @@ async def acquire_idempotency_lock(
                     )
                     return True, None, "Lock re-acquired after expiration or refund."
 
-                parsed_user_id = uuid.UUID(user_id) if isinstance(user_id, str) and len(user_id) == 36 else uuid.uuid4()
-                await conn.execute(
+                insert_result = await conn.execute(
                     """
                     INSERT INTO idempotency_records (key, user_id, tool_name, status, expires_at, created_at)
                     VALUES ($1, $2, $3, $4, $5, $6)
@@ -100,74 +97,62 @@ async def acquire_idempotency_lock(
                     expires_at,
                     now,
                 )
+                if insert_result.endswith(" 0"):
+                    return False, None, "Idempotency key is already owned by another tenant."
                 return True, None, "Lock acquired successfully."
 
     except Exception as exc:
-        logger.warning(
-            "PostgreSQL idempotency check failed (%s). Falling back to in-memory lock engine.",
-            exc,
-        )
-        # Fallback to local memory lock
-        if key in _in_memory_locks:
-            rec = _in_memory_locks[key]
-            if rec["status"] == IdempotencyStatus.COMMITTED.value:
-                return False, rec.get("payload"), "Idempotent response retrieved from in-memory cache."
-            if rec["status"] == IdempotencyStatus.ACQUIRED.value and rec["expires_at"] > now:
-                return False, None, "Action is currently processing in-memory."
-
-        _in_memory_locks[key] = {
-            "status": IdempotencyStatus.ACQUIRED.value,
-            "tool_name": tool_name,
-            "payload": None,
-            "expires_at": expires_at,
-        }
-        return True, None, "In-memory lock acquired."
+        logger.error("PostgreSQL idempotency check failed (error_type=%s)", type(exc).__name__)
+        raise RuntimeError("idempotency service unavailable") from exc
 
 
-async def commit_idempotency_lock(key: str, response_payload: Dict[str, Any]) -> None:
+async def commit_idempotency_lock(key: str, response_payload: Dict[str, Any], user_id: str) -> None:
     """
     Commit an idempotency lock with the verified response payload.
     """
     payload_json = json.dumps(response_payload)
     try:
+        parsed_user_id = uuid.UUID(user_id)
         pool = await get_db_pool()
-        async with pool.acquire() as conn:
+        async with pool.acquire() as conn, conn.transaction():
+            await conn.execute("SELECT set_config('app.company_id', $1, true)", str(parsed_user_id))
             await conn.execute(
                 """
                 UPDATE idempotency_records
                 SET status = $1, response_payload = $2
-                WHERE key = $3
+                WHERE key = $3 AND user_id = $4
                 """,
                 IdempotencyStatus.COMMITTED.value,
                 payload_json,
                 key,
+                parsed_user_id,
             )
-            logger.info("Idempotency key %s committed to PostgreSQL.", key)
+            logger.info("Idempotency record committed to PostgreSQL.")
     except Exception as exc:
-        logger.warning("PostgreSQL commit failed (%s). Updating in-memory lock.", exc)
-        if key in _in_memory_locks:
-            _in_memory_locks[key]["status"] = IdempotencyStatus.COMMITTED.value
-            _in_memory_locks[key]["payload"] = response_payload
+        logger.error("PostgreSQL idempotency commit failed (error_type=%s)", type(exc).__name__)
+        raise RuntimeError("idempotency service unavailable") from exc
 
 
-async def release_idempotency_lock(key: str) -> None:
+async def release_idempotency_lock(key: str, user_id: str) -> None:
     """
     Release or refund a lock when a tool call fails without causing state side-effects.
     """
     try:
+        parsed_user_id = uuid.UUID(user_id)
         pool = await get_db_pool()
-        async with pool.acquire() as conn:
+        async with pool.acquire() as conn, conn.transaction():
+            await conn.execute("SELECT set_config('app.company_id', $1, true)", str(parsed_user_id))
             await conn.execute(
                 """
                 UPDATE idempotency_records
                 SET status = $1
-                WHERE key = $2
+                WHERE key = $2 AND user_id = $3
                 """,
                 IdempotencyStatus.REFUNDED.value,
                 key,
+                parsed_user_id,
             )
-            logger.info("Idempotency key %s released/refunded.", key)
+            logger.info("Idempotency record released/refunded.")
     except Exception as exc:
-        logger.warning("PostgreSQL release failed (%s). Releasing in-memory lock.", exc)
-        if key in _in_memory_locks:
-            _in_memory_locks[key]["status"] = IdempotencyStatus.REFUNDED.value
+        logger.error("PostgreSQL idempotency release failed (error_type=%s)", type(exc).__name__)
+        raise RuntimeError("idempotency service unavailable") from exc

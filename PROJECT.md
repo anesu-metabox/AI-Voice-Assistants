@@ -1,4 +1,13 @@
-# Project: Calendar DB Persistence for AI Voice Bot
+# Archived Project Notes: Calendar DB Persistence for AI Voice Bot
+
+> **Historical only — not the current architecture or implementation contract.**
+> This document records an earlier single-user calendar implementation. Its
+> `user_id` parameters, shared demo UUID examples, schema description, and
+> migration/test status are superseded and must not be copied into active code.
+> The current source of truth is [the implementation roadmap](docs/IMPLEMENTATION_ROADMAP.md),
+> [implementation status](docs/IMPLEMENTATION_STATUS.md), and
+> [QA/security review](docs/QA-review.md). Tenant identity now comes from
+> verified Neon Auth sessions and company-scoped authorization.
 
 ## Architecture
 - **Database Layer**: Neon Serverless PostgreSQL (`divine-hat-17233837`), managed via `asyncpg`. Pooled connection (`DATABASE_URL`) with `statement_cache_size=0` for runtime queries; unpooled direct connection (`DATABASE_URL_UNPOOLED`) for migrations and DDL.

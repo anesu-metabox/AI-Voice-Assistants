@@ -22,19 +22,6 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-import uuid
-
-def _parse_user_uuid(user_id: Any) -> Optional[uuid.UUID]:
-    if isinstance(user_id, uuid.UUID):
-        return user_id
-    if not user_id or str(user_id).lower() in ("guest", "none", "null", ""):
-        return None
-    try:
-        return uuid.UUID(str(user_id))
-    except (ValueError, TypeError, AttributeError):
-        return None
-
-
 async def issue_confirmation_token(
     *,
     user_id: str,
@@ -45,20 +32,17 @@ async def issue_confirmation_token(
 ) -> tuple[str, datetime]:
     token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
-    user_uuid = _parse_user_uuid(user_id)
-    if user_uuid is None:
-        return token, expires_at
-
     pool = await get_db_pool()
-    async with pool.acquire() as conn:
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT set_config('app.company_id', $1, true)", user_id)
         await conn.execute(
             """
             INSERT INTO confirmation_tokens
                 (token_hash, user_id, tool_name, event_id, parameters, expires_at)
-            VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+            VALUES ($1, $2::uuid, $3, $4, $5::jsonb, $6)
             """,
             hash_token(token),
-            user_uuid,
+            user_id,
             tool_name,
             event_id,
             canonical_parameters(parameters),
@@ -75,18 +59,15 @@ async def consume_confirmation_token(
     event_id: str,
     parameters: dict[str, Any],
 ) -> tuple[bool, str]:
-    user_uuid = _parse_user_uuid(user_id)
-    if user_uuid is None:
-        return False, "Invalid user."
-
     pool = await get_db_pool()
-    async with pool.acquire() as conn:
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT set_config('app.company_id', $1, true)", user_id)
         row = await conn.fetchrow(
             """
             UPDATE confirmation_tokens
                SET consumed_at = NOW()
              WHERE token_hash = $1
-               AND user_id = $2
+               AND user_id = $2::uuid
                AND tool_name = $3
                AND event_id = $4
                AND parameters = $5::jsonb
@@ -95,7 +76,7 @@ async def consume_confirmation_token(
          RETURNING token_hash
             """,
             hash_token(token),
-            user_uuid,
+            user_id,
             tool_name,
             event_id,
             canonical_parameters(parameters),

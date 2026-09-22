@@ -1,12 +1,12 @@
 # AI VOICE BOT — Project Repository & Documentation Hub
 
-> **Project Mission:** Build a low-latency (<450ms), production-grade AI Voice Assistant capable of conversational fluency, real-world task execution (calendars, CRM, contacts, emails, documents), and resilient background task persistence.
+> **Project Mission:** Build a secure, company-configurable voice assistant with Neon Auth and tenant-isolated company data, Google Calendar integration, and a single LiveKit + Gemini voice path. 3CX call handling is planned but not yet implemented end-to-end.
 
 ---
 
 ## Project Overview
 - **Project Name:** AI VOICE BOT
-- **Status:** [Active] — Sprint 1 (Architecture, Tool Pipeline & Audio Baseline)
+- **Status:** In progress — implementation and local verification underway; production rollout gates remain open.
 - **Target MVP Launch:** October 2026
 - **Team Size:** 3 Engineers
 - **Notion Command Center:** [AI VOICE BOT on Notion](https://app.notion.com/p/645a127ab3014cbdad1245aeeed7222c)
@@ -20,58 +20,51 @@ repository root:
 npm run dev
 ```
 
-The complete stack is ready when the command reports all three health checks.
-Open `http://localhost:3000/`; runtime logs are written under `.runtime/`.
+The launcher starts Next.js, FastAPI, the credential broker, and the LiveKit
+worker. It refuses to start if the root `.env` selects `NEON_BRANCH=production`,
+because local testing must use an isolated Neon branch. Set the matching test
+branch and its connection strings before running the stack. Open
+`http://localhost:3000/`; runtime logs are written under `.runtime/`.
 Use `npm run dev:frontend` only when intentionally running the UI without voice.
-
----
-
-## Team Ownership & Roster
-
-| Member | Role | Core Responsibility |
-| :--- | :--- | :--- |
-| **Anesu Mupesa** | **Lead Architect & Systems Orchestrator** | System architecture, execution loop, state ledger, safety/permissions, code review. |
-| **Collaborator 1** | **Backend & Integrations Lead** | FastAPI service, tool registry, external API connectors (Google Calendar, CRM), async worker queue. |
-| **Collaborator 2** | **Voice Engine & Frontend UX Lead** | WebRTC audio streaming, client UI, microphone capture/VAD, live audio visualizer, interruption handling. |
 
 ---
 
 ## Repository Documentation Index
 
-All core technical documentation and project tracking files are maintained directly in this repository and synchronized with Notion:
-
-- [**ROADMAP_AND_PROGRESS.md**](./ROADMAP_AND_PROGRESS.md) — Master sprint plan, deliverable milestones, SLAs, and active risk registers.
-- [**TEAM_DELIVERABLES.md**](./TEAM_DELIVERABLES.md) — Detailed task breakdowns, due dates, and acceptance criteria for Anesu, Collaborator 1, and Collaborator 2.
-- [**ARCHITECTURE.md**](./ARCHITECTURE.md) — End-to-end system design, LiveKit + Gemini Live audio pipeline, dual-speed execution paths, and database schema.
-- [**DECISION_LOG_ADR.md**](./DECISION_LOG_ADR.md) — Architectural Decision Records (ADR-001 through ADR-008).
-- [**MEETING_NOTES.md**](./MEETING_NOTES.md) — Kickoff discovery notes, weekly sync logs, and action item tracking.
-- [**RESOURCES_AND_API_CATALOG.md**](./RESOURCES_AND_API_CATALOG.md) — Tool JSONSchemas, external SDK documentation, and developer resources.
-- [**.env.example**](./.env.example) — Configuration and environment variables template.
+- [Implementation roadmap](./docs/IMPLEMENTATION_ROADMAP.md) — phases and completion gates.
+- [Implementation status](./docs/IMPLEMENTATION_STATUS.md) — current code, verification evidence, and open deployment work.
+- [QA and systems-design review](./docs/QA-review.md) — findings, dispositions, and acceptance criteria.
+- [Production rollout checklist](./docs/PRODUCTION_ROLLOUT_CHECKLIST.md) — gated operator procedure; production changes are not implied by local checks.
+- [Neon Auth and tenant data model](./docs/NEON_AUTH_AND_DATA_MODEL_PLAN.md).
+- [Agent policy customization](./docs/AGENT_POLICY_CUSTOMIZATION_PLAN.md).
+- [Google Calendar security](./docs/GOOGLE_CALENDAR_SECURITY_PLAN.md).
+- [Credential broker and KMS](./docs/CREDENTIAL_BROKER.md) and [AWS KMS setup](./docs/AWS_KMS_SETUP.md).
+- [3CX secure integration plan](./docs/3CX_SECURE_INTEGRATION_PLAN.md), [API spike findings](./docs/3CX_API_SPIKE.md), and [adapter implementation specification](./docs/3CX_ADAPTER_IMPLEMENTATION_SPEC.md).
+- [LiveKit reliability plan](./docs/LIVEKIT_RELIABILITY_PLAN.md) and [Next.js migration plan](./docs/NEXTJS_MIGRATION_PLAN.md).
 
 ---
 
 ## High-Level Architecture
 
 ```
-[ Client Mic / Browser ] 
-         ▲ (WebRTC / PCM16 Audio Stream <150ms)
-         ▼
-[ Realtime Voice Layer: LiveKit Agents + Google Gemini Live (Gemini 2.0 Flash) ]
-         ▲ (Tool Invocation JSON)
-         ▼
-[ FastAPI Backend Runtime ]
-   ├── Fast Lane (<500ms): Direct Python API Calls (Google Calendar, CRM)
-   └── Persistent Lane (>2s): Asynchronous Worker Queue (Trigger.dev / Asyncio)
-         │
-         ▼
-[ PostgreSQL Database (Neon) ] -> Task State, Audit Logs & Idempotency Locks
+Browser / Next.js BFF ── authenticated tenant context ── FastAPI
+       │                                              ├── Neon Postgres (RLS)
+       └── LiveKit WebRTC ── LiveKit Agent + Gemini   └── private credential broker
+                                                          ├── Google Calendar
+                                                          └── encrypted 3CX credentials
 ```
+
+The browser-direct Gemini voice path is disabled. The credential broker owns
+OAuth token exchange/decryption and 3CX secret operations; the general API
+receives provider results and display metadata, not decrypted credentials.
+The 3CX PBX event/audio adapter and call-to-LiveKit dispatch are not implemented.
 
 ---
 
-## Target System Acceptance Criteria (SLAs)
+## Acceptance criteria (not yet production-verified)
 
-1. **Conversational Turnaround Latency:** Audio-to-audio latency under **450ms** median.
-2. **Instant Interruption Cut-Off:** User speech interrupts bot playback locally within **<20ms** via client VAD and sends server cancellation.
-3. **Verified Execution Authority:** The voice bot never hallucinates task success; spoken confirmations are strictly conditioned on verified `200 OK` tool outputs.
-4. **Resilience & Idempotency:** All state-modifying actions require client-generated UUID idempotency keys to eliminate duplicate operations on network drops.
+1. **Scoped authority:** Voice tools and backend authorization are derived from the published company capability grants and verified tenant context.
+2. **No cross-tenant access:** Database RLS and application checks prevent one company from reading or changing another company's data.
+3. **Reliable voice lifecycle:** Failed connections remain failed; reconnect, stop, autoplay recovery, transcript deduplication, and one-agent behavior are tested.
+4. **Truthful actions:** The assistant reports success only after the provider confirms the calendar operation.
+5. **Measured latency:** Active-conversation latency and event-loop blocking are measured before setting a production SLA; the earlier sub-450ms target is not yet demonstrated.

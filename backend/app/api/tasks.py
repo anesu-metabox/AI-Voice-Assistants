@@ -3,13 +3,11 @@ Tasks API Router
 Enables querying and cancellation of asynchronous background jobs.
 """
 
-from datetime import datetime, timezone
 import json
 import logging
-from typing import Dict, Optional
 import uuid
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, status
 
 from ..schemas.tools import TaskCancelResponse, TaskStatusResponse
 
@@ -22,59 +20,39 @@ if root_path not in sys.path:
     sys.path.append(root_path)
 
 from db.connection import get_db_pool
+from ..auth_context import verify_session_context
 
 logger = logging.getLogger("voice_bot.api.tasks")
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
-# In-memory mock tasks store for local development
-_mock_tasks: Dict[str, Dict] = {
-    "task_sample_001": {
-        "task_id": "task_sample_001",
-        "title": "Quarterly Operations Report Compilation",
-        "tool_name": "generate_briefing_document",
-        "status": "completed",
-        "output_result": {"document_url": "https://docs.google.com/document/d/sample_briefing_123"},
-        "error_message": None,
-        "created_at": datetime.now(timezone.utc),
-        "updated_at": datetime.now(timezone.utc),
-    }
-}
-
-
 @router.get("/{task_id}/status", response_model=TaskStatusResponse)
-async def get_task_status(task_id: str) -> TaskStatusResponse:
+async def get_task_status(task_id: str, verified_context_header: str | None = Header(default=None, alias="X-Verified-Session-Context")) -> TaskStatusResponse:
     """
     Check the current status of an asynchronous background task.
     """
+    context = verify_session_context(verified_context_header)
+    if context is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authenticated context required")
     try:
         pool = await get_db_pool()
-        async with pool.acquire() as conn:
-            parsed_id = uuid.UUID(task_id) if len(task_id) == 36 else None
-            if parsed_id:
-                row = await conn.fetchrow(
-                    """
-                    SELECT id, title, tool_name, status, output_result, error_message, created_at, updated_at
-                    FROM tasks WHERE id = $1
-                    """,
-                    parsed_id,
-                )
-                if row:
-                    return TaskStatusResponse(
-                        task_id=str(row["id"]),
-                        title=row["title"],
-                        tool_name=row["tool_name"],
-                        status=row["status"],
-                        output_result=json.loads(row["output_result"]) if row["output_result"] else None,
-                        error_message=row["error_message"],
-                        created_at=row["created_at"],
-                        updated_at=row["updated_at"],
-                    )
+        async with pool.acquire() as conn, conn.transaction():
+            await conn.execute("SELECT set_config('app.company_id', $1, true)", context.company_id)
+            parsed_id = uuid.UUID(task_id)
+            row = await conn.fetchrow(
+                """
+                SELECT id, title, tool_name, status, output_result, error_message, created_at, updated_at
+                FROM tasks WHERE id = $1 AND user_id = $2
+                """,
+                parsed_id,
+                uuid.UUID(context.company_id),
+            )
+            if row:
+                return TaskStatusResponse(task_id=str(row["id"]), title=row["title"], tool_name=row["tool_name"], status=row["status"], output_result=json.loads(row["output_result"]) if row["output_result"] else None, error_message=row["error_message"], created_at=row["created_at"], updated_at=row["updated_at"])
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     except Exception as exc:
-        logger.debug("Database check bypassed (%s), checking mock store.", exc)
-
-    if task_id in _mock_tasks:
-        t = _mock_tasks[task_id]
-        return TaskStatusResponse(**t)
+        logger.error("Task lookup failed (error_type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Task service unavailable")
 
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
@@ -83,39 +61,25 @@ async def get_task_status(task_id: str) -> TaskStatusResponse:
 
 
 @router.post("/{task_id}/cancel", response_model=TaskCancelResponse)
-async def cancel_task(task_id: str) -> TaskCancelResponse:
+async def cancel_task(task_id: str, verified_context_header: str | None = Header(default=None, alias="X-Verified-Session-Context")) -> TaskCancelResponse:
     """
     Halt or cancel a pending/running background task.
     """
+    context = verify_session_context(verified_context_header)
+    if context is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authenticated context required")
     try:
         pool = await get_db_pool()
-        async with pool.acquire() as conn:
-            parsed_id = uuid.UUID(task_id) if len(task_id) == 36 else None
-            if parsed_id:
-                result = await conn.execute(
-                    "UPDATE tasks SET status = 'cancelled' WHERE id = $1 AND status IN ('pending', 'running')",
-                    parsed_id,
-                )
-                if result != "UPDATE 0":
-                    return TaskCancelResponse(
-                        task_id=task_id,
-                        cancelled=True,
-                        message="Task successfully cancelled in database.",
-                    )
+        async with pool.acquire() as conn, conn.transaction():
+            await conn.execute("SELECT set_config('app.company_id', $1, true)", context.company_id)
+            parsed_id = uuid.UUID(task_id)
+            result = await conn.execute(
+                "UPDATE tasks SET status = 'cancelled' WHERE id = $1 AND user_id = $2 AND status IN ('pending', 'running')",
+                parsed_id, uuid.UUID(context.company_id),
+            )
+            return TaskCancelResponse(task_id=task_id, cancelled=result != "UPDATE 0", message="Task cancellation processed.")
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     except Exception as exc:
-        logger.debug("Database cancel bypassed (%s), updating mock store.", exc)
-
-    if task_id in _mock_tasks:
-        _mock_tasks[task_id]["status"] = "cancelled"
-        _mock_tasks[task_id]["updated_at"] = datetime.now(timezone.utc)
-        return TaskCancelResponse(
-            task_id=task_id,
-            cancelled=True,
-            message="Task successfully cancelled in mock store.",
-        )
-
-    return TaskCancelResponse(
-        task_id=task_id,
-        cancelled=False,
-        message="Task was not active or could not be found.",
-    )
+        logger.error("Task cancellation failed (error_type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Task service unavailable")

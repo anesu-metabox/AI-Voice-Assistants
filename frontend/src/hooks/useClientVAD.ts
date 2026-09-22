@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback } from "react";
+import { logSafeFailure } from "@/lib/safeLogging";
 
 interface UseClientVADOptions {
   micStream: MediaStream | null;
@@ -61,7 +62,7 @@ export const useClientVAD = ({
           try {
             await audioCtx.resume();
           } catch (err) {
-            console.warn("AudioContext resume deferred in useClientVAD:", err);
+            logSafeFailure("AudioContext resume deferred in useClientVAD", err, "warn");
           }
         }
 
@@ -116,7 +117,7 @@ export const useClientVAD = ({
                 const gainCtx = gainNode.context;
                 if (gainCtx) {
                   if (gainCtx.state === "suspended" && typeof (gainCtx as any).resume === "function") {
-                    (gainCtx as any).resume().catch(console.warn);
+                    (gainCtx as any).resume().catch((error: unknown) => logSafeFailure("AudioContext resume failed", error, "warn"));
                   }
                   if (typeof gainNode.gain.cancelScheduledValues === "function") {
                     gainNode.gain.cancelScheduledValues(gainCtx.currentTime);
@@ -145,7 +146,7 @@ export const useClientVAD = ({
         vadNode.connect(silentGain);
         silentGain.connect(audioCtx.destination);
       } catch (err) {
-        console.warn("Client-side AudioWorklet VAD initialization bypassed or unsupported:", err);
+        logSafeFailure("Client-side AudioWorklet VAD initialization unavailable", err, "warn");
       }
     };
 
@@ -162,7 +163,7 @@ export const useClientVAD = ({
         workletNodeRef.current = null;
       }
       if (audioContextRef.current && audioContextRef.current.state !== "closed") {
-        audioContextRef.current.close().catch(console.error);
+        audioContextRef.current.close().catch((error) => logSafeFailure("AudioContext cleanup failed", error, "warn"));
         audioContextRef.current = null;
       }
     };
