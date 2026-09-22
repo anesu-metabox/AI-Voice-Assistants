@@ -1,5 +1,13 @@
 # Google Calendar OAuth 2.0 & Live Tool Integration Changelog
 
+> **Historical implementation log, not a current deployment or security
+> guide.** This predates tenant-bound OAuth state, broker-isolated token
+> encryption, Neon Auth identity, and the current capability compiler. Do not
+> copy its old `user_id` examples, migration sequence, or environment guidance.
+> For current requirements see [the Google Calendar security plan](docs/GOOGLE_CALENDAR_SECURITY_PLAN.md),
+> [credential broker boundary](docs/CREDENTIAL_BROKER.md), and
+> [implementation status](docs/IMPLEMENTATION_STATUS.md).
+
 This document explains every modification and new component created to integrate **Google Calendar OAuth 2.0 credentials**, token persistence in **Neon Serverless PostgreSQL**, and live calendar tool execution into the **AI Voice Bot** platform.
 
 It outlines what was changed or added, the technical rationale behind each addition, and how each component operates within our low-latency voice pipeline.

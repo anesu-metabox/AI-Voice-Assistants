@@ -20,11 +20,59 @@ describe("FastAPI & Next.js Endpoints Integration Verification", () => {
   it("provides Next proxy routes for dashboard settings and LiveKit", () => {
     for (const route of [
       "src/app/api/assistant-config/route.ts",
+      "src/app/api/assistant-config/runtime/route.ts",
       "src/app/api/company-profile/route.ts",
       "src/app/api/livekit/token/route.ts",
     ]) {
       assert.ok(existsSync(resolve(frontendDir, route)), `${route} must exist`);
     }
+  });
+
+  it("provides a same-origin Neon Auth surface without trusting browser tenant IDs", () => {
+    const authProxy = resolve(frontendDir, "src/app/api/auth/[...path]/route.ts");
+    const signInPage = resolve(frontendDir, "src/app/sign-in/page.tsx");
+    assert.ok(existsSync(authProxy), "Neon Auth BFF route must exist");
+    assert.ok(existsSync(signInPage), "Sign-in page must exist");
+    const proxyContent = readFileSync(authProxy, "utf-8");
+    assert.match(proxyContent, /NEON_AUTH_URL/);
+    assert.match(proxyContent, /set-cookie/);
+    assert.doesNotMatch(proxyContent, /user_id|company_id/);
+    assert.match(proxyContent, /getSetCookie\?\.bind\(response\.headers\)/);
+    const signInContent = readFileSync(signInPage, "utf-8");
+    assert.match(signInContent, /sign-in\/email/);
+    assert.match(signInContent, /sign-up\/email/);
+  });
+
+  it("shows the authenticated Neon Auth identity and terminates the session through its BFF", () => {
+    const appSource = readFileSync(resolve(frontendDir, "src/App.tsx"), "utf-8");
+    assert.match(appSource, /function AccountFooter/);
+    assert.match(appSource, /\/api\/auth\/get-session/);
+    assert.match(appSource, /\/api\/auth\/sign-out/);
+    assert.match(appSource, /window\.location\.assign\("\/sign-in"\)/);
+    assert.doesNotMatch(appSource, /Signed-in company|Authenticated workspace/);
+  });
+
+  it("forwards single-segment Google OAuth paths without throwing in Next", () => {
+    const routePath = resolve(frontendDir, "src/app/auth/google/[path]/route.ts");
+    const content = readFileSync(routePath, "utf-8");
+    assert.match(content, /params:\s*\{\s*path:\s*string\s*\}/);
+    assert.match(content, /\/auth\/google\/\$\{context\.params\.path\}/);
+    assert.doesNotMatch(content, /path\.join/);
+  });
+
+  it("gives idempotent LiveKit session creation a longer timeout and one retry", () => {
+    const routePath = resolve(frontendDir, "src/app/api/livekit/token/route.ts");
+    const content = readFileSync(routePath, "utf-8");
+    assert.match(content, /timeoutMs:\s*30000/);
+    assert.match(content, /retries:\s*1/);
+
+    const proxyPath = resolve(frontendDir, "src/lib/backendProxy.ts");
+    const proxyContent = readFileSync(proxyPath, "utf-8");
+    assert.match(proxyContent, /cache:\s*["']no-store["']/);
+    assert.match(proxyContent, /cache-control["'],\s*["']no-store["']/);
+    assert.match(proxyContent, /incomingUrl\.searchParams\.delete\("user_id"\)/);
+    assert.doesNotMatch(proxyContent, /searchParams\.delete\(["']profile_version["']\)/);
+    assert.match(proxyContent, /const targetUrl = `\$\{BACKEND_URL\}\$\{backendPath\}\$\{incomingUrl\.search\}`/);
   });
 
   it("verifies root .env contains essential FastAPI connection settings", () => {
@@ -55,6 +103,76 @@ describe("FastAPI & Next.js Endpoints Integration Verification", () => {
     assert.ok(content.includes("session_id"), "Must forward session_id to backend");
     assert.ok(content.includes("idempotency_key"), "Must forward idempotency_key to backend");
     assert.ok(content.includes("AbortSignal.timeout(15000)"), "Must enforce a request timeout");
+    assert.doesNotMatch(content, /DEFAULT_USER_ID|00000000-0000-0000-0000-000000000001/);
+    assert.doesNotMatch(content, /user_id\s*:/, "Tool requests must not accept a caller-selected user ID");
+    assert.match(content, /authorization/);
+    assert.match(content, /cookie/);
+  });
+
+  it("keeps frontend identity session-scoped and free of demo tenant data", () => {
+    const sources = [
+      "src/App.tsx",
+      "src/components/sandbox/TestingSandboxPage.tsx",
+      "src/components/auth/GoogleCalendarAuth.tsx",
+      "src/app/api/tools/execute/route.ts",
+    ];
+    for (const sourcePath of sources) {
+      const content = readFileSync(resolve(frontendDir, sourcePath), "utf-8");
+      assert.doesNotMatch(content, /00000000-0000-0000-0000-000000000001/);
+      assert.doesNotMatch(content, /Acme Operations|Marcus Vance|Ava Support|Charlie Sales/);
+    }
+
+    const appSource = readFileSync(resolve(frontendDir, "src/App.tsx"), "utf-8");
+    const sandboxSource = readFileSync(resolve(frontendDir, "src/components/sandbox/TestingSandboxPage.tsx"), "utf-8");
+    const googleSource = readFileSync(resolve(frontendDir, "src/components/auth/GoogleCalendarAuth.tsx"), "utf-8");
+    assert.doesNotMatch(appSource, /(?:company-profile|assistant-config).*user_id=/);
+    assert.doesNotMatch(sandboxSource, /user_id["'=]/);
+    assert.doesNotMatch(googleSource, /user_id["'=]/);
+    assert.match(appSource, /Indian\/Mauritius/);
+    assert.match(googleSource, /email\?/);
+  });
+
+  it("persists the active onboarding flow through authenticated settings proxies", () => {
+    const appSource = readFileSync(resolve(frontendDir, "src/App.tsx"), "utf-8");
+    assert.match(appSource, /PersistedCompanyOnboardingPage/);
+    assert.match(appSource, /PersistedAssistantOnboardingPage/);
+    assert.match(appSource, /fetch\("\/api\/company-profile"/);
+    assert.match(appSource, /fetch\("\/api\/assistant-config"/);
+    assert.match(appSource, /is_deployed: publish/);
+    assert.match(appSource, /Indian\/Mauritius/);
+  });
+
+  it("provides a tenant-scoped user preferences proxy", () => {
+    const routePath = resolve(frontendDir, "src/app/api/user-preferences/route.ts");
+    assert.ok(existsSync(routePath), "User preferences route must exist");
+    const content = readFileSync(routePath, "utf-8");
+    assert.match(content, /proxyBackend/);
+    assert.match(content, /user-preferences/);
+    assert.match(content, /export async function GET/);
+    assert.match(content, /export async function PUT/);
+  });
+
+  it("requires a fresh Neon Auth session for every 3CX credential operation", () => {
+    const route = readFileSync(resolve(frontendDir, "src/app/api/integrations/3cx/route.ts"), "utf-8");
+    assert.match(route, /POST[\s\S]*requireRecentAuth:\s*true/);
+    assert.match(route, /PUT[\s\S]*requireRecentAuth:\s*true/);
+    assert.match(route, /DELETE[\s\S]*requireRecentAuth:\s*true/);
+    const proxy = readFileSync(resolve(frontendDir, "src/lib/backendProxy.ts"), "utf-8");
+    assert.match(proxy, /RECENT_AUTHENTICATION_REQUIRED/);
+    assert.match(proxy, /10 \* 60 \* 1000/);
+    const session = readFileSync(resolve(frontendDir, "src/lib/sessionContext.ts"), "utf-8");
+    assert.match(session, /createdAt/);
+    assert.match(session, /sessionCreatedAt: _sessionCreatedAt/);
+  });
+
+  it("provides a same-origin proxy for bounded 3CX call history", () => {
+    const route = resolve(frontendDir, "src/app/api/integrations/3cx/calls/route.ts");
+    assert.ok(existsSync(route));
+    assert.match(readFileSync(route, "utf-8"), /proxyBackend\(request, ["']\/api\/integrations\/3cx\/calls["']\)/);
+    const appSource = readFileSync(resolve(frontendDir, "src/App.tsx"), "utf-8");
+    const callsPage = appSource.slice(appSource.indexOf("function CallsPage"), appSource.indexOf("function PhoneNumbersPage"));
+    assert.match(callsPage, /\/api\/integrations\/3cx\/calls\?limit=50/);
+    assert.doesNotMatch(callsPage, /(?:c|selected)\.(?:pbx_call_id|claim_token|livekit_room|transcriptText)/);
   });
 
   it("verifies /api/tasks/[taskId] route implementation structure", () => {

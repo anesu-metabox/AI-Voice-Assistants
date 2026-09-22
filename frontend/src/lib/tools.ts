@@ -1,5 +1,6 @@
 import { FunctionDeclaration, Type } from "@google/genai";
 import { isAllowedCalendarTool } from "./assistantPolicy";
+import { logSafeFailure } from "./safeLogging";
 
 export const calendarToolDeclarations: FunctionDeclaration[] = [
   {
@@ -139,10 +140,11 @@ export async function executeBackendTool(
     const data = await res.json();
     return data;
   } catch (err: any) {
-    console.error(`Failed executing tool ${toolName}:`, err);
+    logSafeFailure("Calendar tool request failed", err);
     return {
       status: "error",
-      error_message: err?.message || String(err),
+      error_code: "TOOL_REQUEST_FAILED",
+      error_message: "The calendar action could not be completed. Please try again.",
     };
   }
 }

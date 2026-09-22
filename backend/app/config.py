@@ -30,16 +30,17 @@ class Settings(BaseSettings):
 
     # Database (Neon PostgreSQL)
     database_url: str = Field(default="", validation_alias="DATABASE_URL")
-    database_url_unpooled: str = Field(default="", validation_alias="DATABASE_URL_UNPOOLED")
 
     # External APIs
     google_client_id: str = Field(default="", validation_alias="GOOGLE_CLIENT_ID")
-    google_client_secret: str = Field(default="", validation_alias="GOOGLE_CLIENT_SECRET")
     google_redirect_uri: str = Field(
         default="http://localhost:8000/auth/google/callback",
         validation_alias="GOOGLE_REDIRECT_URI",
     )
+    google_oauth_state_secret: str = Field(default="", validation_alias="GOOGLE_OAUTH_STATE_SECRET")
     trigger_api_key: str = Field(default="", validation_alias="TRIGGER_API_KEY")
+    credential_broker_url: str = Field(default="http://127.0.0.1:8001", validation_alias="CREDENTIAL_BROKER_URL")
+    credential_broker_shared_secret: str = Field(default="", validation_alias="CREDENTIAL_BROKER_SHARED_SECRET")
 
     @property
     def cors_origins_list(self) -> List[str]:

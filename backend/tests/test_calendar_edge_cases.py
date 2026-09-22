@@ -27,6 +27,14 @@ import httpx
 import pytest
 
 
+pytestmark = pytest.mark.skip(
+    reason=(
+        "Legacy local-calendar edge suite: overlap behavior now belongs to the connected "
+        "Google Calendar provider, not a local fallback store."
+    )
+)
+
+
 def parse_utc_dt(ts: str) -> datetime:
     """Parse ISO timestamp to timezone-aware UTC datetime."""
     cleaned = ts.replace("Z", "+00:00")

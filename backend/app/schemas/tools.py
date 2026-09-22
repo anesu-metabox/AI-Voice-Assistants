@@ -7,7 +7,8 @@ Enforces Pillar 2 of the Anti-Divergence Framework (schema confinement).
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Type
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 # ==============================================================================
@@ -56,14 +57,21 @@ class GetCalendarAvailabilityParams(ToolParamsBase):
         le=480,
         description="Minimum duration needed for the meeting slot in minutes (default 30).",
     )
-    timezone: str = Field(
-        default="UTC",
-        description="IANA Timezone string, e.g. 'UTC', 'America/New_York', 'Europe/London'.",
-    )
-    user_id: Optional[str] = Field(
+    timezone: Optional[str] = Field(
         default=None,
-        description="UUID of the authenticated user to check availability for.",
+        description="Optional IANA timezone override. If omitted, use the company's configured timezone.",
     )
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("timezone must be a valid IANA timezone") from exc
+        return value
 
 
 class CalendarAvailabilityResult(ToolResultBase):
@@ -88,6 +96,22 @@ class BookEventParams(ToolParamsBase):
         ...,
         description="Start time in ISO 8601 format, e.g. '2026-09-20T14:00:00Z'.",
     )
+    timezone: Optional[str] = Field(
+        default=None,
+        description="Optional IANA timezone used to interpret a start_time without an explicit UTC offset. If omitted, use the company's configured timezone.",
+    )
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_booking_timezone(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("timezone must be a valid IANA timezone") from exc
+        return value
+
     duration_minutes: int = Field(
         default=30,
         ge=5,
@@ -107,14 +131,6 @@ class BookEventParams(ToolParamsBase):
         default="Google Meet",
         max_length=255,
         description="Meeting location or video conferencing link description.",
-    )
-    user_id: Optional[str] = Field(
-        default=None,
-        description="UUID of the user booking the event.",
-    )
-    session_id: Optional[str] = Field(
-        default=None,
-        description="Optional LiveKit session identifier.",
     )
 
 
@@ -151,10 +167,6 @@ class CancelEventParams(ToolParamsBase):
         default=None,
         description="Cryptographic token issued by the confirmation interceptor.",
     )
-    user_id: Optional[str] = Field(
-        default=None,
-        description="UUID of the user cancelling the event.",
-    )
 
 
 class CancelEventResult(ToolResultBase):
@@ -176,14 +188,20 @@ class ListEventsParams(ToolParamsBase):
         description="End date in YYYY-MM-DD format. Defaults to start_date.",
         pattern=r"^\d{4}-\d{2}-\d{2}(?:T.*)?$",
     )
-    timezone: str = Field(
-        default="UTC",
-        description="IANA timezone string, e.g. 'UTC', 'Africa/Harare'.",
-    )
-    user_id: Optional[str] = Field(
+    timezone: Optional[str] = Field(
         default=None,
-        description="UUID of the authenticated user.",
+        description="Optional IANA timezone override. If omitted, use the company's configured timezone.",
     )
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("timezone must be a valid IANA timezone") from exc
+        return value
 
 
 class ListEventsResult(ToolResultBase):
@@ -326,9 +344,13 @@ class ToolExecutionRequest(BaseModel):
         default_factory=dict,
         description="Named arguments passed to the tool function",
     )
-    user_id: str = Field(
-        default="00000000-0000-0000-0000-000000000001",
-        description="UUID of the authenticated voice user",
+    user_id: Optional[str] = Field(
+        default=None,
+        description="Legacy field rejected for untrusted callers; identity comes from session_context.",
+    )
+    session_context: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Signed internal LiveKit context. Never supplied by Gemini or the browser.",
     )
     session_id: Optional[str] = Field(
         default=None,

@@ -9,6 +9,7 @@ import time
 from typing import Any, Callable, Dict
 
 from fastapi import APIRouter, HTTPException, status
+from fastapi import Header
 from pydantic import ValidationError
 
 from ..schemas.tools import (
@@ -19,14 +20,14 @@ from ..schemas.tools import (
     get_tool_input_schema,
 )
 from ..tools.calendar import get_calendar_availability, book_event, cancel_event, list_events
-from ..tools.contacts import search_contacts
-from ..tools.email import draft_email
-from ..tools.tasks import create_durable_task
 from ..policy import is_active_tool
+from ..auth_context import verify_session_context
+from db.agent_profiles import get_published_agent_profile
 
 # Relative import of DB idempotency engine
 import sys
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 root_path = str(Path(__file__).resolve().parents[3])
 if root_path not in sys.path:
@@ -38,6 +39,7 @@ from db.idempotency import (
     release_idempotency_lock,
 )
 from db.confirmation import consume_confirmation_token, issue_confirmation_token
+from db.settings import get_company_profile
 
 logger = logging.getLogger("voice_bot.api.tools")
 router = APIRouter(prefix="/tools", tags=["tools"])
@@ -48,9 +50,6 @@ TOOL_REGISTRY: Dict[str, Callable[..., Any]] = {
     ToolName.BOOK_EVENT.value: book_event,
     ToolName.CANCEL_EVENT.value: cancel_event,
     ToolName.LIST_EVENTS.value: list_events,
-    ToolName.SEARCH_CONTACTS.value: search_contacts,
-    ToolName.DRAFT_EMAIL.value: draft_email,
-    ToolName.CREATE_DURABLE_TASK.value: create_durable_task,
 }
 
 # High-impact destructive tools requiring explicit confirmation (ANE-03)
@@ -58,12 +57,37 @@ CONFIRMATION_REQUIRED_TOOLS = {
     ToolName.CANCEL_EVENT.value,
 }
 
+
+def is_tool_granted_by_profile(tool_name: str, profile: dict[str, Any] | None) -> bool:
+    """Check a platform tool against one immutable company-profile snapshot."""
+    if profile is None:
+        return False
+    compiled_policy = profile.get("compiled_policy") or {}
+    return tool_name in set(compiled_policy.get("allowedTools", ()))
+
+
+async def resolve_company_timezone(company_id: str, session_timezone: str | None = None) -> str:
+    """Use the signed session timezone, or load the tenant setting for legacy callers."""
+    timezone_name = str(session_timezone or "").strip()
+    if not timezone_name:
+        profile = await get_company_profile(company_id)
+        timezone_name = str(profile.get("timezone") or "").strip()
+    try:
+        ZoneInfo(timezone_name)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError("The company profile has no valid IANA timezone") from exc
+    return timezone_name
+
 @router.get("/schemas")
-async def get_all_tool_schemas() -> Dict[str, Any]:
+async def get_all_tool_schemas(
+    verified_context_header: str | None = Header(default=None, alias="X-Verified-Session-Context"),
+) -> Dict[str, Any]:
     """
     Returns the JSONSchema definitions for all registered tools.
     Used for LLM function calling registration and documentation.
     """
+    if verify_session_context(verified_context_header) is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authenticated context required")
     return {
         tool_name: get_tool_input_schema(tool_name)
         for tool_name in TOOL_REGISTRY.keys()
@@ -72,7 +96,10 @@ async def get_all_tool_schemas() -> Dict[str, Any]:
 
 
 @router.post("/execute", response_model=ToolExecutionResponse)
-async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
+async def execute_tool(
+    request: ToolExecutionRequest,
+    verified_context_header: str | None = Header(default=None, alias="X-Verified-Session-Context"),
+) -> ToolExecutionResponse:
     """
     Execute a registered voice tool with:
     1. Tool existence check
@@ -84,6 +111,19 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
     start_time = time.perf_counter()
     tool_name = request.tool_name
 
+    context = verify_session_context(verified_context_header)
+    if context is None:
+        return ToolExecutionResponse(
+            status="error",
+            error_code="AUTHENTICATED_CONTEXT_REQUIRED",
+            error_message="A verified session context is required.",
+            execution_time_ms=(time.perf_counter() - start_time) * 1000,
+            idempotency_key=request.idempotency_key,
+        )
+    request.user_id = context.company_id
+    request.session_id = context.session_id
+    active_profile: dict[str, Any] | None = None
+
     # 1. Verify tool exists and is enabled by the active assistant policy.
     if tool_name not in TOOL_REGISTRY:
         raise HTTPException(
@@ -94,15 +134,33 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
         return ToolExecutionResponse(
             status="error",
             error_code="POLICY_TOOL_DENIED",
-            error_message=f"Tool '{tool_name}' is not enabled for the calendar-only assistant.",
+            error_message=f"Tool '{tool_name}' is not enabled for the active company assistant policy.",
             execution_time_ms=(time.perf_counter() - start_time) * 1000,
             idempotency_key=request.idempotency_key,
         )
 
+    # New LiveKit sessions carry an immutable profile version in their signed
+    # context. Re-check that grant here; the model and worker tool surface are
+    # not authorization boundaries. Legacy contexts without a snapshot keep
+    # the existing platform allowlist during the migration window.
+    if context.profile_version is not None:
+        active_profile = await get_published_agent_profile(
+            company_id=context.company_id,
+            version=context.profile_version,
+        )
+        if not is_tool_granted_by_profile(tool_name, active_profile):
+            return ToolExecutionResponse(
+                status="error",
+                error_code="POLICY_TOOL_DENIED",
+                error_message=f"Tool '{tool_name}' is not granted by this session's published company profile.",
+                execution_time_ms=(time.perf_counter() - start_time) * 1000,
+                idempotency_key=request.idempotency_key,
+            )
+
     # 2. Strict Pydantic Schema Validation
     try:
         validated_model = validate_tool_params(tool_name, request.parameters)
-        tool_kwargs = validated_model.model_dump()
+        tool_kwargs = validated_model.model_dump(exclude_none=True)
     except ValidationError as val_err:
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         error_hints = [
@@ -110,7 +168,7 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
             for err in val_err.errors()
         ]
         combined_error = "; ".join(error_hints)
-        logger.warning("Tool validation failed for '%s': %s", tool_name, combined_error)
+        logger.warning("Tool validation failed: tool=%s error_count=%d", tool_name, len(error_hints))
         return ToolExecutionResponse(
             status="error",
             error_code="VALIDATION_ERROR",
@@ -120,10 +178,11 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
         )
     except Exception as exc:
         elapsed_ms = (time.perf_counter() - start_time) * 1000
+        logger.warning("Tool schema validation failed: tool=%s error_type=%s", tool_name, type(exc).__name__)
         return ToolExecutionResponse(
             status="error",
             error_code="SCHEMA_ERROR",
-            error_message=str(exc),
+            error_message="The calendar request could not be validated.",
             execution_time_ms=elapsed_ms,
             idempotency_key=request.idempotency_key,
         )
@@ -139,6 +198,26 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
             error_message=f"A client-generated idempotency key is required for {tool_name}.",
             execution_time_ms=(time.perf_counter() - start_time) * 1000,
         )
+
+    if tool_name in (
+        ToolName.GET_CALENDAR_AVAILABILITY.value,
+        ToolName.LIST_EVENTS.value,
+        ToolName.BOOK_EVENT.value,
+    ) and not tool_kwargs.get("timezone"):
+        try:
+            tool_kwargs["timezone"] = await resolve_company_timezone(
+                context.company_id,
+                session_timezone=context.timezone,
+            )
+        except Exception as exc:
+            logger.error("Calendar timezone resolution failed (error_type=%s)", type(exc).__name__)
+            return ToolExecutionResponse(
+                status="error",
+                error_code="COMPANY_TIMEZONE_UNAVAILABLE",
+                error_message="The company's calendar timezone could not be loaded.",
+                execution_time_ms=(time.perf_counter() - start_time) * 1000,
+                idempotency_key=request.idempotency_key,
+            )
 
     # 4. ANE-03 Permission Interceptor for destructive actions.
     if tool_name in CONFIRMATION_REQUIRED_TOOLS:
@@ -159,7 +238,7 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
                 f"Are you sure you want to cancel the event with ID {target_id}? "
                 "Please say yes to confirm or no to cancel."
             )
-            logger.info("ANE-03 Interceptor gated tool '%s'; issued token %s", tool_name, confirmation_token)
+            logger.info("ANE-03 Interceptor gated tool '%s'; issued confirmation token", tool_name)
             return ToolExecutionResponse(
                 status="confirmation_required",
                 data={
@@ -228,7 +307,7 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
         )
         if not confirmed:
             if idempotency_key:
-                await release_idempotency_lock(key=idempotency_key)
+                await release_idempotency_lock(key=idempotency_key, user_id=request.user_id)
             return ToolExecutionResponse(
                 status="error",
                 error_code="INVALID_CONFIRMATION_TOKEN",
@@ -245,12 +324,14 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
         ToolName.LIST_EVENTS.value,
     ):
         tool_kwargs["user_id"] = tool_kwargs.get("user_id") or request.user_id
+        if tool_name == ToolName.GET_CALENDAR_AVAILABILITY.value and active_profile is not None:
+            compiled = active_profile.get("compiled_policy") or {}
+            business_rules = compiled.get("businessRules") or {}
+            business_hours = business_rules.get("business_hours")
+            if isinstance(business_hours, dict):
+                tool_kwargs["business_hours"] = business_hours
         if tool_name == ToolName.BOOK_EVENT.value:
             tool_kwargs["session_id"] = tool_kwargs.get("session_id") or request.session_id
-    elif tool_name == ToolName.CREATE_DURABLE_TASK.value:
-        tool_kwargs["user_id"] = request.user_id
-        tool_kwargs["session_id"] = request.session_id
-
     # 7. Execute Tool Function
     try:
         import inspect
@@ -262,7 +343,7 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
         # Handle structured conflict returned by tools (e.g. slot collision)
         if isinstance(result, dict) and result.get("status") == "conflict":
             if idempotency_key:
-                await release_idempotency_lock(key=idempotency_key)
+                await release_idempotency_lock(key=idempotency_key, user_id=request.user_id)
             msg = result.get("error") or result.get("message") or "Time slot already occupied"
             return ToolExecutionResponse(
                 status="conflict",
@@ -287,7 +368,7 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
 
         # 8. Commit Idempotency Lock on Success
         if idempotency_key:
-            await commit_idempotency_lock(key=idempotency_key, response_payload=result)
+            await commit_idempotency_lock(key=idempotency_key, response_payload=result, user_id=request.user_id)
 
         return ToolExecutionResponse(
             status="success",
@@ -298,16 +379,16 @@ async def execute_tool(request: ToolExecutionRequest) -> ToolExecutionResponse:
 
     except Exception as exc:
         elapsed_ms = (time.perf_counter() - start_time) * 1000
-        logger.exception("Error executing tool '%s': %s", tool_name, exc)
+        logger.error("Tool execution failed: tool=%s error_type=%s", tool_name, type(exc).__name__)
 
         # 9. Release Lock on Error
         if idempotency_key:
-            await release_idempotency_lock(key=idempotency_key)
+            await release_idempotency_lock(key=idempotency_key, user_id=request.user_id)
 
         return ToolExecutionResponse(
             status="error",
             error_code="EXECUTION_ERROR",
-            error_message=str(exc),
+            error_message="The calendar action could not be completed. Please try again.",
             execution_time_ms=elapsed_ms,
             idempotency_key=idempotency_key,
         )

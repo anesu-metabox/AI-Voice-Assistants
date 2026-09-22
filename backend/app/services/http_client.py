@@ -40,6 +40,6 @@ async def close_http_client() -> None:
             await _http_client.aclose()
             logger.info("Shared HTTP client pool closed successfully.")
         except Exception as exc:
-            logger.warning("Error closing shared HTTP client pool: %s", exc)
+            logger.warning("Error closing shared HTTP client pool (error_type=%s)", type(exc).__name__)
         finally:
             _http_client = None

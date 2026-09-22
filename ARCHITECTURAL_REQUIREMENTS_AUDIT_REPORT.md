@@ -1,5 +1,12 @@
 # Architectural Requirements & Working Notes Audit Report
 
+> **Historical audit snapshot (2026-09-18), not current implementation status.**
+> Findings describe an earlier baseline and may have been corrected since this
+> report. Use [docs/QA-review.md](docs/QA-review.md) and
+> [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for current
+> disposition. Any shared demo user IDs or mock-success examples below are
+> historical evidence only and are prohibited in active code.
+
 > **Document Version:** 1.0.0  
 > **Audit Date:** 2026-09-18  
 > **Status:** Critical Architectural Violations Identified  

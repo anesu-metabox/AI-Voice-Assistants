@@ -1,9 +1,18 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Room, RoomEvent, Track, createLocalAudioTrack, type RemoteTrack, type RemoteTrackPublication } from "livekit-client";
+import {
+  Room,
+  RoomEvent,
+  Track,
+  createLocalAudioTrack,
+  type RemoteParticipant,
+  type RemoteTrack,
+  type RemoteTrackPublication,
+} from "livekit-client";
+import { logSafeFailure } from "@/lib/safeLogging";
 
 interface TestingSandboxProps {
   onBack: () => void;
-  userId?: string;
+  profileVersion?: number | null;
 }
 
 interface Message {
@@ -13,7 +22,7 @@ interface Message {
   timestamp: string;
 }
 
-export function TestingSandboxPage({ onBack, userId = "00000000-0000-0000-0000-000000000001" }: TestingSandboxProps) {
+export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSandboxProps) {
   // Session configuration from database
   const [assistantConfig, setAssistantConfig] = useState<{
     assistant_name: string;
@@ -21,18 +30,18 @@ export function TestingSandboxPage({ onBack, userId = "00000000-0000-0000-0000-0
     inbound_greeting: string;
     system_prompt: string;
   }>({
-    assistant_name: "Support Agent – Charlie",
+    assistant_name: "",
     voice_engine: "Aoede",
-    inbound_greeting: "Thank you for calling Acme Operations Support. How can I assist you with your account today?",
-    system_prompt: "You are a warm, polite, and direct support voice agent.",
+    inbound_greeting: "",
+    system_prompt: "",
   });
 
   const [companyProfile, setCompanyProfile] = useState<{
     company_name: string;
     timezone: string;
   }>({
-    company_name: "Acme Operations Inc.",
-    timezone: "America/New_York (EST)",
+    company_name: "",
+    timezone: "Indian/Mauritius",
   });
 
   // Call state
@@ -46,55 +55,115 @@ export function TestingSandboxPage({ onBack, userId = "00000000-0000-0000-0000-0
   const roomRef = useRef<Room | null>(null);
   const localAudioTrackRef = useRef<any>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const assistantAudioTrackRef = useRef<RemoteTrack | null>(null);
+  const assistantParticipantIdentityRef = useRef<string | null>(null);
   const timerRef = useRef<any>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  const connectInFlightRef = useRef<Promise<void> | null>(null);
+  const voiceSessionLockReleaseRef = useRef<(() => void) | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  const transcriptIdsRef = useRef<Set<string>>(new Set());
+  const [roomName, setRoomName] = useState<string | null>(null);
 
   // Auto-scroll transcript
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const cleanupAssistantAudio = useCallback(() => {
+    const element = audioElementRef.current;
+    const track = assistantAudioTrackRef.current;
+    if (element) {
+      element.pause();
+      element.onplay = null;
+      element.onpause = null;
+      element.onended = null;
+      if (track) {
+        try { track.detach(element); } catch {}
+      }
+      element.srcObject = null;
+    }
+    audioElementRef.current = null;
+    assistantAudioTrackRef.current = null;
+  }, []);
+
+  const releaseVoiceSessionLock = useCallback(() => {
+    const release = voiceSessionLockReleaseRef.current;
+    voiceSessionLockReleaseRef.current = null;
+    release?.();
+  }, []);
+
+  const acquireVoiceSessionLock = useCallback(async (): Promise<boolean> => {
+    if (!("locks" in navigator)) return true;
+
+    return new Promise<boolean>((resolve) => {
+      let acquisitionSettled = false;
+      navigator.locks.request(
+        "vocalist-livekit-voice-session",
+        { ifAvailable: true },
+        async (lock) => {
+          if (!lock) {
+            acquisitionSettled = true;
+            resolve(false);
+            return;
+          }
+
+          let releaseLock!: () => void;
+          const holdLock = new Promise<void>((release) => {
+            releaseLock = release;
+          });
+          voiceSessionLockReleaseRef.current = releaseLock;
+          acquisitionSettled = true;
+          resolve(true);
+          await holdLock;
+        },
+      ).catch(() => {
+        if (!acquisitionSettled) resolve(false);
+      });
+    });
+  }, []);
+
   // Load database settings for Assistant and Company
   useEffect(() => {
     async function loadSettings() {
       try {
-        const asstRes = await fetch(`/api/assistant-config?user_id=${userId}`);
+        const asstRes = await fetch("/api/assistant-config", { cache: "no-store" });
         if (asstRes.ok) {
           const json = await asstRes.json();
           if (json.data) {
             setAssistantConfig({
-              assistant_name: json.data.assistant_name || "Support Agent",
+              assistant_name: json.data.assistant_name || "",
               voice_engine: json.data.voice_engine || "Aoede",
-              inbound_greeting: json.data.inbound_greeting || "Hello, how can I help you today?",
+              inbound_greeting: json.data.inbound_greeting || "",
               system_prompt: json.data.system_prompt || "",
             });
           }
         }
       } catch (err) {
-        console.warn("Could not load assistant config from DB:", err);
+        logSafeFailure("Assistant configuration load failed", err, "warn");
       }
 
       try {
-        const compRes = await fetch(`/api/company-profile?user_id=${userId}`);
+        const compRes = await fetch("/api/company-profile", { cache: "no-store" });
         if (compRes.ok) {
           const json = await compRes.json();
           if (json.data) {
             setCompanyProfile({
-              company_name: json.data.company_name || "Your Company",
-              timezone: json.data.timezone || "America/New_York",
+              company_name: json.data.company_name || "",
+              timezone: json.data.timezone || "Indian/Mauritius",
             });
           }
         }
       } catch (err) {
-        console.warn("Could not load company profile from DB:", err);
+        logSafeFailure("Company profile load failed", err, "warn");
       }
     }
     loadSettings();
-  }, [userId]);
+  }, []);
 
   // Call duration timer
   useEffect(() => {
@@ -195,8 +264,22 @@ export function TestingSandboxPage({ onBack, userId = "00000000-0000-0000-0000-0
 
   // Connect to LiveKit Room
   const startSession = useCallback(async () => {
+    if (connectInFlightRef.current || roomRef.current) return;
+
+    const run = (async () => {
     setErrorMessage(null);
     setSessionStatus("connecting");
+    const ownsVoiceSession = await acquireVoiceSessionLock();
+    if (!ownsVoiceSession) {
+      setSessionStatus("disconnected");
+      setErrorMessage("A voice session is already active in another browser tab. End it there before starting a new one.");
+      return;
+    }
+    const sessionId = typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    sessionIdRef.current = sessionId;
+    transcriptIdsRef.current.clear();
 
     const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     setMessages([
@@ -210,12 +293,23 @@ export function TestingSandboxPage({ onBack, userId = "00000000-0000-0000-0000-0
 
     try {
       // 1. Fetch authenticated token from FastAPI backend
-      const res = await fetch(`/api/livekit/token?room_name=sandbox-demo&user_id=${userId}`);
+      const params = new URLSearchParams({ session_id: sessionId });
+      if (profileVersion !== null) params.set("profile_version", String(profileVersion));
+      const res = await fetch(`/api/livekit/token?${params.toString()}`);
       if (!res.ok) {
-        throw new Error(`Failed to obtain LiveKit token: HTTP ${res.status}`);
+        const errorBody = await res.json().catch(() => null) as
+          | { error_message?: string; detail?: string }
+          | null;
+        throw new Error(
+          errorBody?.error_message ||
+          errorBody?.detail ||
+          `Failed to obtain LiveKit token: HTTP ${res.status}`,
+        );
       }
       const data = await res.json();
-      const { token, ws_url } = data;
+      const { token, ws_url, room: resolvedRoom } = data;
+      if (!token || !ws_url || !resolvedRoom) throw new Error("LiveKit token response was incomplete.");
+      setRoomName(resolvedRoom);
 
       // 2. Instantiate LiveKit Room
       const room = new Room({
@@ -224,26 +318,57 @@ export function TestingSandboxPage({ onBack, userId = "00000000-0000-0000-0000-0
       });
       roomRef.current = room;
 
-      // 3. Handle incoming audio track from Gemini Live agent
-      room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, publication: RemoteTrackPublication) => {
-        if (track.kind === Track.Kind.Audio) {
-          const element = track.attach();
-          audioElementRef.current = element;
-          setSessionStatus("speaking");
+      // The agent's custom DataChannel transcript is the only UI source. Still
+      // consume LiveKit's native stream so the SDK does not report an
+      // unhandled lk.transcription stream or leave its reader open.
+      room.registerTextStreamHandler("lk.transcription", (reader) => {
+        void reader.readAll().catch(() => undefined);
+      });
 
-          // Play inbound greeting in transcript
-          setTimeout(() => {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `msg-greet-${Date.now()}`,
-                sender: "assistant",
-                text: assistantConfig.inbound_greeting,
-                timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-              },
-            ]);
-            setSessionStatus("connected");
-          }, 1500);
+      // 3. Handle incoming audio track from Gemini Live agent
+      room.on(RoomEvent.TrackSubscribed, async (
+        track: RemoteTrack,
+        _publication: RemoteTrackPublication,
+        participant: RemoteParticipant,
+      ) => {
+        if (track.kind === Track.Kind.Audio) {
+          const acceptedIdentity = assistantParticipantIdentityRef.current;
+          if (acceptedIdentity && acceptedIdentity !== participant.identity) {
+            console.warn("Ignoring audio from an additional LiveKit assistant participant.");
+            track.detach();
+            return;
+          }
+          if (assistantAudioTrackRef.current === track && audioElementRef.current) {
+            return;
+          }
+
+          assistantParticipantIdentityRef.current = participant.identity;
+          cleanupAssistantAudio();
+          const element = document.createElement("audio");
+          element.autoplay = false;
+          track.attach(element);
+          audioElementRef.current = element;
+          assistantAudioTrackRef.current = track;
+          setSessionStatus("speaking");
+          try {
+            await element.play();
+          } catch (playErr) {
+            logSafeFailure("Assistant audio playback is blocked", playErr, "warn");
+            setErrorMessage("Microphone connected, but browser audio playback is blocked. Click the page to retry audio.");
+          }
+        }
+      });
+
+      room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
+        if (assistantAudioTrackRef.current === track) {
+          cleanupAssistantAudio();
+        }
+      });
+
+      room.on(RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
+        if (assistantParticipantIdentityRef.current === participant.identity) {
+          cleanupAssistantAudio();
+          assistantParticipantIdentityRef.current = null;
         }
       });
 
@@ -252,11 +377,14 @@ export function TestingSandboxPage({ onBack, userId = "00000000-0000-0000-0000-0
         try {
           const str = new TextDecoder().decode(payload);
           const packet = JSON.parse(str);
-          if (packet.type === "transcript") {
+          if (packet.type === "transcript" && packet.text?.trim()) {
+            const messageId = packet.id || packet.message_id || `${packet.role}:${packet.timestamp}:${packet.text}`;
+            if (transcriptIdsRef.current.has(messageId)) return;
+            transcriptIdsRef.current.add(messageId);
             setMessages((prev) => [
               ...prev,
               {
-                id: `msg-${Date.now()}`,
+                id: messageId,
                 sender: packet.role === "assistant" ? "assistant" : "user",
                 text: packet.text,
                 timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -264,11 +392,27 @@ export function TestingSandboxPage({ onBack, userId = "00000000-0000-0000-0000-0
             ]);
           }
         } catch (e) {
-          console.error("Failed to decode incoming LiveKit data packet:", e);
+          logSafeFailure("LiveKit data packet could not be decoded", e, "warn");
         }
       });
 
       room.on(RoomEvent.Disconnected, () => {
+        if (roomRef.current !== room) return;
+        roomRef.current = null;
+        cleanupAssistantAudio();
+        assistantParticipantIdentityRef.current = null;
+        releaseVoiceSessionLock();
+        if (localAudioTrackRef.current) {
+          try { localAudioTrackRef.current.stop(); } catch {}
+          localAudioTrackRef.current = null;
+        }
+        if (audioContextRef.current) {
+          void audioContextRef.current.close().catch(() => undefined);
+          audioContextRef.current = null;
+        }
+        analyserRef.current = null;
+        room.unregisterTextStreamHandler("lk.transcription");
+        setRoomName(null);
         setSessionStatus("disconnected");
       });
 
@@ -299,39 +443,50 @@ export function TestingSandboxPage({ onBack, userId = "00000000-0000-0000-0000-0
           source.connect(analyser);
         }
       } catch (audioErr) {
-        console.warn("Could not attach visualizer audio context:", audioErr);
+        logSafeFailure("Visualizer audio context unavailable", audioErr, "warn");
       }
 
       setSessionStatus("connected");
-
-      // Add inbound greeting transcript turn
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `msg-connect-${Date.now()}`,
-          sender: "assistant",
-          text: assistantConfig.inbound_greeting,
-          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        },
-      ]);
     } catch (err: any) {
-      console.warn("LiveKit Cloud connection exception:", err);
-      // Seamless simulation mode if network or cloud room is blocked
-      setSessionStatus("connected");
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `msg-fallback-${Date.now()}`,
-          sender: "assistant",
-          text: assistantConfig.inbound_greeting,
-          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        },
-      ]);
+      logSafeFailure("LiveKit connection failed", err);
+      const failedRoom = roomRef.current;
+      roomRef.current = null;
+      cleanupAssistantAudio();
+      assistantParticipantIdentityRef.current = null;
+      releaseVoiceSessionLock();
+      try { failedRoom?.disconnect(); } catch {}
+      if (localAudioTrackRef.current) {
+        try { localAudioTrackRef.current.stop(); } catch {}
+        localAudioTrackRef.current = null;
+      }
+      if (audioContextRef.current) {
+        try { await audioContextRef.current.close(); } catch {}
+        audioContextRef.current = null;
+      }
+      analyserRef.current = null;
+      setRoomName(null);
+      setSessionStatus("disconnected");
+      setErrorMessage(err?.message || "Could not connect to the LiveKit voice session.");
     }
-  }, [assistantConfig, userId]);
+    })();
+
+    connectInFlightRef.current = run;
+    try { await run; } finally { connectInFlightRef.current = null; }
+  }, [
+    acquireVoiceSessionLock,
+    assistantConfig.assistant_name,
+    assistantConfig.voice_engine,
+    cleanupAssistantAudio,
+    profileVersion,
+    releaseVoiceSessionLock,
+  ]);
 
   // Disconnect session
   const stopSession = useCallback(() => {
+    if (connectInFlightRef.current) return;
+    cleanupAssistantAudio();
+    assistantParticipantIdentityRef.current = null;
+    releaseVoiceSessionLock();
     if (localAudioTrackRef.current) {
       try {
         localAudioTrackRef.current.stop();
@@ -351,6 +506,9 @@ export function TestingSandboxPage({ onBack, userId = "00000000-0000-0000-0000-0
       audioContextRef.current = null;
     }
     analyserRef.current = null;
+    sessionIdRef.current = null;
+    transcriptIdsRef.current.clear();
+    setRoomName(null);
     setSessionStatus("disconnected");
     setMessages((prev) => [
       ...prev,
@@ -361,7 +519,7 @@ export function TestingSandboxPage({ onBack, userId = "00000000-0000-0000-0000-0
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       },
     ]);
-  }, []);
+  }, [cleanupAssistantAudio, releaseVoiceSessionLock]);
 
   // Toggle Mute
   const toggleMute = () => {
@@ -429,6 +587,7 @@ export function TestingSandboxPage({ onBack, userId = "00000000-0000-0000-0000-0
             <div style={{ fontSize: 12, color: "#64748B", fontFamily: "Inter" }}>
               Live real-time session testing <strong style={{ color: "#3B5BDB" }}>{assistantConfig.assistant_name}</strong> for <strong style={{ color: "#0D1526" }}>{companyProfile.company_name}</strong>
             </div>
+            {profileVersion !== null && <div role="status" style={{ marginTop: 4, fontSize: 11, color: "#92400E" }}>Testing unpublished draft profile version {profileVersion}; this does not publish it.</div>}
           </div>
         </div>
 
@@ -816,7 +975,7 @@ export function TestingSandboxPage({ onBack, userId = "00000000-0000-0000-0000-0
               alignItems: "center",
             }}
           >
-            <span>LiveKit Room: <code>sandbox-demo</code></span>
+            <span>LiveKit Room: <code>{roomName || "not connected"}</code></span>
             <span>Grounding Policy: ADR-008 Enforced</span>
           </div>
         </div>

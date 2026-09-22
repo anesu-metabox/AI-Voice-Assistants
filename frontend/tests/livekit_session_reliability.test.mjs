@@ -10,8 +10,14 @@ const ts = require("typescript");
 const testDir = dirname(fileURLToPath(import.meta.url));
 const runtimePath = resolve(testDir, "../src/lib/livekitSessionRuntime.ts");
 const tokenRoutePath = resolve(testDir, "../src/app/api/livekit-token/route.ts");
+const activeTokenRoutePath = resolve(testDir, "../src/app/api/livekit/token/route.ts");
+const devLauncherPath = resolve(testDir, "../../scripts/dev.ps1");
+const configPreflightPath = resolve(testDir, "../../scripts/check-config.ps1");
 const source = readFileSync(runtimePath, "utf8");
 const tokenRouteSource = readFileSync(tokenRoutePath, "utf8");
+const activeTokenRouteSource = readFileSync(activeTokenRoutePath, "utf8");
+const devLauncherSource = readFileSync(devLauncherPath, "utf8");
+const configPreflightSource = readFileSync(configPreflightPath, "utf8");
 const compiled = ts.transpileModule(source, {
   compilerOptions: {
     module: ts.ModuleKind.CommonJS,
@@ -118,9 +124,40 @@ test("each voice session can be isolated in its own deterministic LiveKit room",
   assert.notEqual(first, second);
 });
 
-test("the token endpoint cannot cache or accept caller-selected session identities", () => {
+test("the legacy unauthenticated token endpoint is disabled", () => {
   assert.match(tokenRouteSource, /export const dynamic = ["']force-dynamic["']/);
-  assert.doesNotMatch(tokenRouteSource, /searchParams|get\(["']room["']\)|get\(["']identity["']\)/);
+  assert.match(tokenRouteSource, /LEGACY_VOICE_PATH_DISABLED/);
+  assert.match(tokenRouteSource, /status:\s*410/);
+  assert.doesNotMatch(tokenRouteSource, /AccessToken|LIVEKIT_API_SECRET|toJwt/);
+});
+
+test("the authenticated backend token proxy remains the active LiveKit route", () => {
+  assert.match(activeTokenRouteSource, /proxyBackend\(request, ["']\/livekit\/token["']/);
+  assert.doesNotMatch(activeTokenRouteSource, /AccessToken|LIVEKIT_API_SECRET|toJwt/);
+});
+
+test("the local launcher scopes LiveKit signing credentials to FastAPI", () => {
+  assert.match(devLauncherSource, /LIVEKIT_API_KEY\s*=\s*\$liveKitApiKey/);
+  assert.match(devLauncherSource, /LIVEKIT_API_SECRET\s*=\s*\$liveKitApiSecret/);
+  assert.match(devLauncherSource, /LIVEKIT_URL\s*=\s*\$liveKitUrl/);
+  assert.match(devLauncherSource, /CREDENTIAL_BROKER_SHARED_SECRET\s*=\s*\$null/);
+  assert.doesNotMatch(
+    devLauncherSource,
+    /\$env:CREDENTIAL_BROKER_SHARED_SECRET\s*=\s*\$(?!null\b)/,
+  );
+
+  const agentStart = devLauncherSource.indexOf("$agent = Start-Process");
+  const agentEnd = devLauncherSource.indexOf("$processes += $agent", agentStart);
+  const agentEnvironment = devLauncherSource.slice(agentStart, agentEnd);
+  assert.match(agentEnvironment, /LIVEKIT_API_KEY\s*=\s*\$liveKitApiKey/);
+  assert.match(agentEnvironment, /LIVEKIT_API_SECRET\s*=\s*\$liveKitApiSecret/);
+  assert.match(agentEnvironment, /GOOGLE_API_KEY\s*=\s*\$googleApiKey/);
+  assert.match(agentEnvironment, /LIVEKIT_SESSION_CONTEXT_SECRET\s*=\s*\$sessionContextSecret/);
+  assert.match(agentEnvironment, /CREDENTIAL_BROKER_SHARED_SECRET\s*=\s*\$null/);
+  assert.match(agentEnvironment, /DATABASE_URL_UNPOOLED\s*=\s*\$null/);
+  assert.match(devLauncherSource, /TRIGGER_API_KEY\s*=\s*\$null/);
+  assert.match(configPreflightSource, /"LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "TRIGGER_API_KEY"/);
+  assert.match(devLauncherSource, /LIVEKIT_SESSION_CONTEXT_SECRET\s*=\s*\$sessionContextSecret/);
 });
 
 test("engine switches tear down every in-progress voice session state", () => {
@@ -141,4 +178,48 @@ test("engine switches tear down every in-progress voice session state", () => {
 test("late callbacks from an invalidated connection generation are rejected", () => {
   assert.equal(isCurrentSessionGeneration(4, 4), true);
   assert.equal(isCurrentSessionGeneration(3, 4), false);
+});
+
+test("each remote audio subscription owns a fresh media element", () => {
+  const source = readFileSync(
+    resolve(testDir, "../src/hooks/useLiveKitSession.ts"),
+    "utf-8",
+  );
+  assert.match(source, /document\.createElement\(["']audio["']\)/);
+  assert.match(source, /track\.attach\(audioElement\)/);
+  assert.match(source, /assistantTrackRef\.current\?\.detach\(previousAudioElement\)/);
+  assert.match(source, /previousAudioElement\.srcObject = null/);
+});
+
+test("the active sandbox accepts only one LiveKit assistant audio source", () => {
+  const source = readFileSync(
+    resolve(testDir, "../src/components/sandbox/TestingSandboxPage.tsx"),
+    "utf-8",
+  );
+  assert.match(source, /assistantParticipantIdentityRef/);
+  assert.match(source, /acceptedIdentity !== participant\.identity/);
+  assert.match(source, /assistantAudioTrackRef\.current === track/);
+  assert.match(source, /cleanupAssistantAudio\(\)/);
+});
+
+test("browser-direct Gemini voice is disabled", () => {
+  const source = readFileSync(
+    resolve(testDir, "../src/app/api/gemini-token/route.ts"),
+    "utf-8",
+  );
+  assert.match(source, /DIRECT_VOICE_DISABLED/);
+  assert.match(source, /status:\s*410/);
+  assert.doesNotMatch(source, /authTokens\.create|ai\.live\.connect/);
+});
+
+test("only one browser tab can own a LiveKit voice session", () => {
+  const source = readFileSync(
+    resolve(testDir, "../src/components/sandbox/TestingSandboxPage.tsx"),
+    "utf-8",
+  );
+  assert.match(source, /navigator\.locks\.request/);
+  assert.match(source, /vocalist-livekit-voice-session/);
+  assert.match(source, /ifAvailable:\s*true/);
+  assert.match(source, /already active in another browser tab/);
+  assert.match(source, /releaseVoiceSessionLock\(\)/);
 });

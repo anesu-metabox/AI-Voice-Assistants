@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Room, RoomEvent, Track } from "livekit-client";
 import { ConnectionStatus, TranscriptMessage, TaskItem } from "@/lib/types";
+import { logSafeFailure } from "@/lib/safeLogging";
 import {
   activateAudioPlayback,
   getLiveKitConnectionStatus,
@@ -44,6 +45,7 @@ export const useLiveKitSession = () => {
   const roomRef = useRef<Room | null>(null);
   const sessionGenerationRef = useRef<number>(0);
   const connectInFlightRef = useRef<number | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
   const intentionalDisconnectRef = useRef<boolean>(false);
   const [micStream, _setMicStream] = useState<MediaStream | null>(null);
   const setMicStream = useCallback((stream: MediaStream | null) => {
@@ -108,7 +110,7 @@ export const useLiveKitSession = () => {
       try {
         if (ctx) {
           if (ctx.state === "suspended" && typeof (ctx as any).resume === "function") {
-            (ctx as any).resume().catch(console.warn);
+            (ctx as any).resume().catch((error: unknown) => logSafeFailure("AudioContext resume failed", error, "warn"));
           }
           if (typeof node.gain.cancelScheduledValues === "function") {
             node.gain.cancelScheduledValues(ctx.currentTime);
@@ -196,7 +198,7 @@ export const useLiveKitSession = () => {
     playbackRetryPendingRef.current = false;
     setMicStream(null);
     if (audioCtxRef.current && audioCtxRef.current.state !== "closed") {
-      audioCtxRef.current.close().catch(console.error);
+      audioCtxRef.current.close().catch((error) => logSafeFailure("AudioContext cleanup failed", error, "warn"));
     }
     audioCtxRef.current = null;
     setAssistantGainNode(null);
@@ -221,12 +223,25 @@ export const useLiveKitSession = () => {
     try {
       setConnectionStatus("connecting");
 
+      const sessionId = typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      sessionIdRef.current = sessionId;
+
       // 1. Fetch access token from Next.js route
-      const res = await fetch("/api/livekit-token");
+      const params = new URLSearchParams({ session_id: sessionId });
+      const res = await fetch(`/api/livekit/token?${params.toString()}`);
       if (!res.ok) {
-        throw new Error("Failed to fetch LiveKit token. Check .env credentials.");
+        const errorBody = await res.json().catch(() => null) as
+          | { error_message?: string; detail?: string }
+          | null;
+        throw new Error(
+          errorBody?.error_message ||
+          errorBody?.detail ||
+          `Failed to obtain LiveKit token: HTTP ${res.status}`,
+        );
       }
-      const { token, wsUrl } = await res.json();
+      const { token, ws_url: wsUrl } = await res.json();
       if (!isCurrentSession()) {
         return;
       }
@@ -313,7 +328,7 @@ export const useLiveKitSession = () => {
             });
           }
         } catch (e) {
-          console.error("Failed to parse LiveKit DataPacket:", e);
+          logSafeFailure("LiveKit data packet could not be parsed", e, "warn");
         }
       });
 
@@ -321,11 +336,17 @@ export const useLiveKitSession = () => {
       room.on(RoomEvent.TrackSubscribed, async (track: Track) => {
         if (!isCurrentSession(room)) return;
         if (track.kind === Track.Kind.Audio) {
-          const audioElement = track.attach();
+          // LiveKit may return a previously-created element from track.attach().
+          // A media element can only ever be bound to one Web Audio source node,
+          // so every subscription owns a fresh element instead of reusing one.
+          const audioElement = document.createElement("audio");
+          track.attach(audioElement);
           audioElement.autoplay = true;
           const previousAudioElement = assistantAudioElementRef.current;
           if (previousAudioElement && previousAudioElement !== audioElement) {
             previousAudioElement.pause();
+            assistantTrackRef.current?.detach(previousAudioElement);
+            previousAudioElement.srcObject = null;
           }
           assistantAudioElementRef.current = audioElement;
           assistantTrackRef.current = track;
@@ -341,7 +362,7 @@ export const useLiveKitSession = () => {
             try {
               await audioCtx.resume();
             } catch (err) {
-              console.warn("AudioContext resume deferred until user gesture:", err);
+              logSafeFailure("AudioContext resume deferred until user gesture", err, "warn");
             }
           }
           if (!isCurrentSession(room) || assistantTrackRef.current !== track) {
@@ -350,12 +371,9 @@ export const useLiveKitSession = () => {
             return;
           }
 
-          let source = assistantSourceNodeRef.current;
-          if (!source || previousAudioElement !== audioElement) {
-            source?.disconnect();
-            source = audioCtx.createMediaElementSource(audioElement);
-            assistantSourceNodeRef.current = source;
-          }
+          assistantSourceNodeRef.current?.disconnect();
+          const source = audioCtx.createMediaElementSource(audioElement);
+          assistantSourceNodeRef.current = source;
           const gainNode = audioCtx.createGain();
           const analyser = audioCtx.createAnalyser();
 
@@ -385,7 +403,7 @@ export const useLiveKitSession = () => {
             try {
               if (ctx) {
                 if (ctx.state === "suspended" && typeof (ctx as any).resume === "function") {
-                  (ctx as any).resume().catch(console.warn);
+                  (ctx as any).resume().catch((error: unknown) => logSafeFailure("AudioContext resume failed", error, "warn"));
                 }
                 if (typeof gainNode.gain.cancelScheduledValues === "function") {
                   gainNode.gain.cancelScheduledValues(ctx.currentTime);
@@ -427,9 +445,7 @@ export const useLiveKitSession = () => {
             return;
           }
           if (!activated) {
-            console.warn(
-              "Assistant audio is ready but browser playback is blocked. Waiting for a user gesture to retry.",
-            );
+            console.warn("Assistant audio playback is blocked. Waiting for a user gesture to retry.");
           }
           // Initial track subscription is silent; isBotSpeaking remains false
         }
@@ -477,7 +493,7 @@ export const useLiveKitSession = () => {
           try {
             if (ctx) {
               if (ctx.state === "suspended" && typeof (ctx as any).resume === "function") {
-                (ctx as any).resume().catch(console.warn);
+                (ctx as any).resume().catch((error: unknown) => logSafeFailure("AudioContext resume failed", error, "warn"));
               }
               if (typeof node.gain.cancelScheduledValues === "function") {
                 node.gain.cancelScheduledValues(ctx.currentTime);
@@ -525,7 +541,7 @@ export const useLiveKitSession = () => {
       if (!isCurrentSessionGeneration(sessionGeneration, sessionGenerationRef.current)) {
         return;
       }
-      console.error("LiveKit room connection error:", err);
+      logSafeFailure("LiveKit room connection failed", err);
       const failedRoom = roomRef.current;
       roomRef.current = null;
       intentionalDisconnectRef.current = true;
@@ -543,6 +559,7 @@ export const useLiveKitSession = () => {
 
   const disconnect = useCallback(() => {
     intentionalDisconnectRef.current = true;
+    sessionIdRef.current = null;
     sessionGenerationRef.current += 1;
     connectInFlightRef.current = null;
     const room = roomRef.current;

@@ -1,0 +1,25 @@
+"""Canonical inventory of tables governed by tenant RLS and runtime grants."""
+
+TENANT_TABLES = frozenset({
+    "companies",
+    "company_memberships",
+    "agent_profile_versions",
+    "google_integrations",
+    "threecx_integrations",
+    "voice_sessions",
+    "company_profiles",
+    "assistant_configs",
+    "user_preferences",
+    "tasks",
+    "idempotency_records",
+    "confirmation_tokens",
+    "calendar_events",
+    "oauth_tokens",
+    "livekit_sessions",
+    "oauth_states",
+    "integration_audit_events",
+    "threecx_call_sessions",
+    "threecx_event_inbox",
+    "credential_broker_nonces",
+    "integration_action_limits",
+})

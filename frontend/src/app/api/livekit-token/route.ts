@@ -1,41 +1,14 @@
 import { NextResponse } from "next/server";
-import { AccessToken } from "livekit-server-sdk";
-import { createLiveKitRoomName } from "@/lib/livekitSessionRuntime";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const sessionId = crypto.randomUUID();
-  const room = createLiveKitRoomName(sessionId);
-  const identity = `user-${sessionId}`;
-
-  const apiKey = process.env.LIVEKIT_API_KEY;
-  const apiSecret = process.env.LIVEKIT_API_SECRET;
-  const wsUrl = process.env.LIVEKIT_URL;
-
-  if (!apiKey || !apiSecret || !wsUrl) {
-    return NextResponse.json(
-      { error: "LiveKit server credentials are not configured in environment." },
-      { status: 500 }
-    );
-  }
-
-  const at = new AccessToken(apiKey, apiSecret, {
-    identity: identity,
-    ttl: "1h",
-  });
-
-  at.addGrant({
-    roomJoin: true,
-    room: room,
-    canPublish: true,
-    canSubscribe: true,
-  });
-
-  return NextResponse.json({
-    token: await at.toJwt(),
-    wsUrl: wsUrl,
-    room: room,
-    identity: identity,
-  });
+  return NextResponse.json(
+    {
+      status: "error",
+      error_code: "LEGACY_VOICE_PATH_DISABLED",
+      error_message: "Use the authenticated LiveKit session endpoint.",
+    },
+    { status: 410, headers: { "cache-control": "no-store" } },
+  );
 }

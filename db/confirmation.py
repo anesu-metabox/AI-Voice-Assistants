@@ -33,7 +33,8 @@ async def issue_confirmation_token(
     token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
     pool = await get_db_pool()
-    async with pool.acquire() as conn:
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT set_config('app.company_id', $1, true)", user_id)
         await conn.execute(
             """
             INSERT INTO confirmation_tokens
@@ -59,7 +60,8 @@ async def consume_confirmation_token(
     parameters: dict[str, Any],
 ) -> tuple[bool, str]:
     pool = await get_db_pool()
-    async with pool.acquire() as conn:
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT set_config('app.company_id', $1, true)", user_id)
         row = await conn.fetchrow(
             """
             UPDATE confirmation_tokens

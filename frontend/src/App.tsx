@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { TestingSandboxPage } from "./components/sandbox/TestingSandboxPage";
+import type { CapabilityId } from "./lib/capabilityRegistry";
+import { logSafeFailure } from "./lib/safeLogging";
 
 type Page =
   | "landing"
@@ -97,27 +99,10 @@ function IconCheck() {
   );
 }
 
-function IconArrow() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path d="M3 8h10M9 4l4 4-4 4" stroke="#3B5BDB" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 function IconChevronDown() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
       <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function IconUpload() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <path d="M10 13V7m0 0l-3 3m3-3l3 3" stroke="#3B5BDB" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M3 15a4 4 0 01-.5-7.95A5.5 5.5 0 0113.5 5.5a3.5 3.5 0 013.5 3.5c0 .17-.01.33-.03.5H17a3 3 0 010 6H5.5" stroke="#3B5BDB" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -141,70 +126,11 @@ function IconShield() {
   );
 }
 
-function IconInfo() {
+function EmptyState({ title, text }: { title: string; text: string }) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <circle cx="8" cy="8" r="7" stroke="#3B5BDB" strokeWidth="1.5" />
-      <path d="M8 7v5" stroke="#3B5BDB" strokeWidth="1.5" strokeLinecap="round" />
-      <circle cx="8" cy="5" r="0.75" fill="#3B5BDB" />
-    </svg>
-  );
-}
-
-function IconEye() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <path d="M1 9s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z" stroke="#888" strokeWidth="1.5" />
-      <circle cx="9" cy="9" r="2.5" stroke="#888" strokeWidth="1.5" />
-    </svg>
-  );
-}
-
-function IconGoogle() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <circle cx="10" cy="10" r="9" stroke="#ddd" strokeWidth="1" />
-      <text x="5" y="14" fontSize="12" fill="#555">G</text>
-    </svg>
-  );
-}
-
-function IconMS() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <rect x="3" y="3" width="6" height="6" fill="#F25022" />
-      <rect x="11" y="3" width="6" height="6" fill="#7FBA00" />
-      <rect x="3" y="11" width="6" height="6" fill="#00A4EF" />
-      <rect x="11" y="11" width="6" height="6" fill="#FFB900" />
-    </svg>
-  );
-}
-
-function Toggle({ on }: { on?: boolean }) {
-  return (
-    <div
-      style={{
-        width: 44,
-        height: 24,
-        borderRadius: 12,
-        background: on ? "#3B5BDB" : "#D1D5DB",
-        position: "relative",
-        flexShrink: 0,
-      }}
-    >
-      <div
-        style={{
-          position: "absolute",
-          top: 2,
-          left: on ? 22 : 2,
-          width: 20,
-          height: 20,
-          borderRadius: "50%",
-          background: "white",
-          transition: "left 0.2s",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
-        }}
-      />
+    <div style={{ padding: "28px 20px", textAlign: "center", color: "#7A8BAD" }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: "#374151", marginBottom: 6 }}>{title}</div>
+      <div style={{ fontSize: 13, lineHeight: 1.5 }}>{text}</div>
     </div>
   );
 }
@@ -277,55 +203,86 @@ function Sidebar({ page, setPage }: { page: Page; setPage: (p: Page) => void }) 
         })}
       </nav>
 
-      {/* Account */}
-      <div
-        style={{
-          padding: "14px 12px",
-          borderTop: "1px solid rgba(255,255,255,0.06)",
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-        }}
-      >
-        <div
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: "50%",
-            background: "#3B5BDB",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "white",
-            fontSize: 13,
-            fontWeight: 700,
-            fontFamily: "Inter",
-          }}
-        >
-          A
+      <AccountFooter />
+    </aside>
+  );
+}
+
+function AccountFooter() {
+  const [account, setAccount] = useState<{ name?: string; email?: string } | null>(null);
+  const [signOutError, setSignOutError] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/auth/get-session", { credentials: "include", cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const payload = await response.json();
+        const user = payload?.user || payload?.session?.user;
+        if (active && user) {
+          setAccount({
+            name: typeof user.name === "string" ? user.name : undefined,
+            email: typeof user.email === "string" ? user.email : undefined,
+          });
+        }
+      })
+      .catch(() => { if (active) setAccount(null); });
+    return () => { active = false; };
+  }, []);
+
+  async function signOut() {
+    setBusy(true);
+    setSignOutError(false);
+    try {
+      const response = await fetch("/api/auth/sign-out", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) throw new Error("Sign-out failed");
+      window.location.assign("/sign-in");
+    } catch {
+      setSignOutError(true);
+      setBusy(false);
+    }
+  }
+
+  const accountLabel = account?.name || account?.email || "Account unavailable";
+  const initial = (account?.name || account?.email || "?").trim().charAt(0).toUpperCase();
+  return (
+    <div style={{ padding: "14px 12px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+        <div aria-hidden="true" style={{ width: 32, height: 32, borderRadius: "50%", background: "#3B5BDB", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 13, fontWeight: 700, fontFamily: "Inter", flexShrink: 0 }}>
+          {initial}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ color: "white", fontSize: 12, fontWeight: 600, fontFamily: "Inter", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            Acme Operations
+          <div title={accountLabel} style={{ color: "white", fontSize: 12, fontWeight: 600, fontFamily: "Inter", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {accountLabel}
           </div>
-          <div style={{ color: "#7A8BAD", fontSize: 11, fontFamily: "Inter" }}>Enterprise Admin</div>
+          <div title={account?.email} style={{ color: "#7A8BAD", fontSize: 11, fontFamily: "Inter", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {account?.email || "Email unavailable"}
+          </div>
         </div>
-        <IconChevronDown />
       </div>
-    </aside>
+      <button type="button" onClick={signOut} disabled={busy} style={{ marginTop: 10, width: "100%", padding: "6px 8px", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 6, background: "transparent", color: "#CBD5E1", fontSize: 11, textAlign: "left", cursor: busy ? "default" : "pointer", opacity: busy ? 0.65 : 1 }}>
+        {busy ? "Signing out…" : "Sign out"}
+      </button>
+      {signOutError && <div role="alert" style={{ color: "#FCA5A5", fontSize: 11, marginTop: 6 }}>Could not sign out. Retry.</div>}
+    </div>
   );
 }
 
 function AppHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
-    <div
+    <header
       style={{
         height: 64,
         borderBottom: "1px solid #E8ECF4",
         padding: "0 28px",
         display: "flex",
         alignItems: "center",
-        justifyContent: "space-between",
         background: "white",
       }}
     >
@@ -335,17 +292,7 @@ function AppHeader({ title, subtitle }: { title: string; subtitle: string }) {
         </div>
         <div style={{ fontSize: 12, color: "#7A8BAD", fontFamily: "Inter", marginTop: 1 }}>{subtitle}</div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#22C55E", fontFamily: "Inter", fontWeight: 500 }}>
-          <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#22C55E" }} />
-          Ava Voice Server Live
-        </div>
-        <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#E8ECF4", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#3B5BDB", fontFamily: "Inter" }}>
-          MV
-        </div>
-        <span style={{ fontSize: 13, color: "#0D1526", fontFamily: "Inter", fontWeight: 500 }}>Marcus Vance</span>
-      </div>
-    </div>
+    </header>
   );
 }
 
@@ -389,13 +336,10 @@ function LandingPage({ setPage }: { setPage: (p: Page) => void }) {
             vocalist.ai
           </span>
         </div>
-        {["Platform", "Solutions", "Enterprise", "Pricing", "Docs"].map((l) => (
-          <span key={l} style={{ fontSize: 14, color: "#4B5563", cursor: "pointer" }}>{l}</span>
-        ))}
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 14, color: "#4B5563", cursor: "pointer" }}>Sign In</span>
+        <span onClick={() => window.location.assign("/sign-in")} style={{ fontSize: 14, color: "#4B5563", cursor: "pointer" }}>Sign In</span>
         <button
-          onClick={() => setPage("signup")}
+          onClick={() => window.location.assign("/sign-in")}
           style={{
             background: "#3B5BDB",
             color: "white",
@@ -408,7 +352,7 @@ function LandingPage({ setPage }: { setPage: (p: Page) => void }) {
             fontFamily: "Inter",
           }}
         >
-          Start Free Trial
+          Get Started
         </button>
       </nav>
 
@@ -430,7 +374,7 @@ function LandingPage({ setPage }: { setPage: (p: Page) => void }) {
           }}
         >
           <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#3B5BDB" }} />
-          NEXT-GEN VOICE AI FOR ENTERPRISE SUPPORT &amp; SALES
+          COMPANY-SPECIFIC VOICE ASSISTANTS
         </div>
         <h1
           style={{
@@ -442,15 +386,16 @@ function LandingPage({ setPage }: { setPage: (p: Page) => void }) {
             margin: "0 0 24px",
           }}
         >
-          Human-Like Voice Assistants<br />That Handle Complex<br />Business Calls
+          A Voice Assistant<br />Configured for Your<br />Company
         </h1>
         <p style={{ fontSize: 16, color: "#4B5563", lineHeight: 1.7, marginBottom: 36, maxWidth: 560, margin: "0 auto 36px" }}>
-          Deploy customized, low-latency AI assistants that resolve support tickets, qualify
-          outbound leads, and update your CRM in real time — with zero human intervention.
+          Connect your company&apos;s Google Calendar and configure an assistant for availability,
+          event listing, booking, and cancellation. Your company profile and integration settings
+          stay scoped to your account.
         </p>
         <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
           <button
-            onClick={() => setPage("signup")}
+            onClick={() => window.location.assign("/sign-in")}
             style={{
               background: "#3B5BDB",
               color: "white",
@@ -465,104 +410,39 @@ function LandingPage({ setPage }: { setPage: (p: Page) => void }) {
           >
             Configure Your Assistant
           </button>
-          <button
-            style={{
-              background: "white",
-              color: "#0D1526",
-              border: "1.5px solid #D1D5DB",
-              borderRadius: 8,
-              padding: "12px 28px",
-              fontSize: 14,
-              fontWeight: 500,
-              cursor: "pointer",
-              fontFamily: "Inter",
-            }}
-          >
-            Schedule Enterprise Demo
-          </button>
         </div>
       </div>
 
-      {/* Demo widget */}
-      <div style={{ maxWidth: 900, margin: "48px auto", padding: "0 24px" }}>
-        <div
-          style={{
-            background: "#F9FAFB",
-            border: "1px solid #E8ECF4",
-            borderRadius: 16,
-            padding: 28,
-            display: "flex",
-            gap: 32,
-            flexWrap: "wrap",
-          }}
-        >
-          {/* Call widget */}
-          <div style={{ flex: "1 1 340px", background: "white", borderRadius: 12, padding: 20, border: "1px solid #E8ECF4" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 500, color: "#0D1526" }}>
-                <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#22C55E" }} />
-                Inbound Call #4812 (Active)
-              </div>
-              <span style={{ fontSize: 13, color: "#7A8BAD" }}>02:14</span>
+      {/* Real session entry point — never render simulated call telemetry. */}
+      <section aria-labelledby="real-session-title" style={{ maxWidth: 900, margin: "48px auto", padding: "0 24px" }}>
+        <div style={{ background: "#F9FAFB", border: "1px solid #E8ECF4", borderRadius: 16, padding: 28, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 28, alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#3B5BDB", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
+              Real session testing
             </div>
-            {/* Waveform */}
-            <div style={{ display: "flex", alignItems: "center", gap: 3, height: 60, marginBottom: 16, justifyContent: "center" }}>
-              {[12, 20, 32, 44, 52, 40, 28, 48, 56, 44, 36, 50, 38, 26, 42, 30, 20, 34].map((h, i) => (
-                <div
-                  key={i}
-                  style={{
-                    width: 4,
-                    height: h,
-                    borderRadius: 2,
-                    background: i === 8 ? "#3B5BDB" : `rgba(59,91,219,${0.2 + (h / 60) * 0.5})`,
-                  }}
-                />
-              ))}
-            </div>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, color: "#4B5563" }}>
-              <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="3" y="1" width="4" height="6" rx="2" fill="#3B5BDB" /><path d="M1 6a4 4 0 008 0" stroke="#3B5BDB" strokeWidth="1" strokeLinecap="round" /></svg>
-              </div>
-              User: "I need to upgrade my billing tier and integrate with Salesforce."
-            </div>
+            <h2 id="real-session-title" style={{ fontFamily: "Bricolage Grotesque", fontSize: 22, color: "#0D1526", margin: "0 0 8px" }}>
+              Test your company-configured assistant
+            </h2>
+            <p style={{ fontSize: 13, color: "#4B5563", lineHeight: 1.6, margin: "0 0 18px" }}>
+              Sign in, connect your company&apos;s Google Calendar, and launch a real LiveKit session. This public page never fabricates call status, audio, transcripts, or tool activity.
+            </p>
+            <button
+              onClick={() => window.location.assign("/sign-in")}
+              style={{ background: "#3B5BDB", color: "white", border: "none", borderRadius: 8, padding: "10px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "Inter" }}
+            >
+              Sign in to test
+            </button>
           </div>
-
-          {/* Action log */}
-          <div style={{ flex: "1 1 320px" }}>
-            <div style={{ fontWeight: 700, fontSize: 17, color: "#0D1526", marginBottom: 6, fontFamily: "Bricolage Grotesque" }}>
-              Sub-second Latency &amp; Action execution
-            </div>
-            <div style={{ fontSize: 13, color: "#4B5563", marginBottom: 16, lineHeight: 1.6 }}>
-              Watch Vocalist execute background system triggers mid-call. There's no waiting for 'typing' indicators — it updates directly.
-            </div>
-            {[
-              { icon: "check", text: "Voice Recognition: 99.1% Confidence Score" },
-              { icon: "check", text: "Context Matched: Tier Upgrade Request" },
-              { icon: "arrow", text: "Salesforce API call triggered..." },
-            ].map((item, i) => (
-              <div
-                key={i}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "10px 14px",
-                  background: "white",
-                  border: "1px solid #E8ECF4",
-                  borderRadius: 8,
-                  marginBottom: 8,
-                  fontSize: 13,
-                  color: "#0D1526",
-                }}
-              >
-                {item.icon === "check" ? <IconCheck /> : <IconArrow />}
-                {item.text}
+          <div style={{ background: "white", border: "1px solid #E8ECF4", borderRadius: 12, padding: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#0D1526", marginBottom: 12 }}>Calendar capabilities</div>
+            {["Check availability", "List events", "Book events", "Cancel events"].map((capability) => (
+              <div key={capability} style={{ padding: "9px 0", borderTop: "1px solid #F1F3F8", fontSize: 13, color: "#4B5563" }}>
+                {capability}
               </div>
             ))}
           </div>
         </div>
-      </div>
-
+      </section>
       {/* Footer */}
       <footer style={{ borderTop: "1px solid #E8ECF4", padding: "40px 40px 32px", display: "flex", flexWrap: "wrap", gap: 40 }}>
         <div style={{ flex: "1 1 200px" }}>
@@ -571,191 +451,14 @@ function LandingPage({ setPage }: { setPage: (p: Page) => void }) {
             <span style={{ fontFamily: "Bricolage Grotesque", fontWeight: 700, fontSize: 15, color: "#0D1526" }}>vocalist.ai</span>
           </div>
           <div style={{ fontSize: 12, color: "#7A8BAD", lineHeight: 1.7 }}>
-            High-performance AI Voice Agents built<br />for robust, fast enterprise customer<br />support pipelines.
+            Company-configured voice assistants<br />with tenant-scoped settings and<br />Google Calendar integration.
           </div>
         </div>
-        {[
-          { title: "Product", links: ["Features", "Security", "Voices", "Pricing"] },
-          { title: "Resources", links: ["Documentation", "API Specs", "Status Page", "Privacy"] },
-          { title: "Company", links: ["About", "Blog", "Careers", "Contact"] },
-        ].map((col) => (
-          <div key={col.title} style={{ flex: "0 0 auto" }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#0D1526", marginBottom: 12 }}>{col.title}</div>
-            {col.links.map((l) => (
-              <div key={l} style={{ fontSize: 13, color: "#7A8BAD", marginBottom: 8, cursor: "pointer" }}>{l}</div>
-            ))}
-          </div>
-        ))}
+        <div style={{ flex: "0 0 auto", maxWidth: 340, fontSize: 13, color: "#7A8BAD", lineHeight: 1.6 }}>
+          Voice routing through 3CX is still being validated and is not presented as an active
+          calling service. Configure company integrations from your account.
+        </div>
       </footer>
-    </div>
-  );
-}
-
-// ─── Sign Up ──────────────────────────────────────────────────────────────────
-
-function SignupPage({ setPage }: { setPage: (p: Page) => void }) {
-  return (
-    <div style={{ display: "flex", minHeight: "100vh", fontFamily: "Inter" }}>
-      {/* Left panel */}
-      <div
-        style={{
-          width: "42%",
-          background: "#0D1526",
-          padding: "32px 40px",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 80 }}>
-          <LogoIcon />
-          <span style={{ fontFamily: "Bricolage Grotesque", fontWeight: 700, fontSize: 16, color: "white" }}>vocalist.ai</span>
-        </div>
-        <div style={{ flex: 1 }}>
-          <h2
-            style={{
-              fontFamily: "Bricolage Grotesque",
-              fontWeight: 800,
-              fontSize: 34,
-              color: "white",
-              lineHeight: 1.2,
-              marginBottom: 20,
-            }}
-          >
-            Build and deploy your first voice assistant in 10 minutes.
-          </h2>
-          <p style={{ fontSize: 13, color: "#8899BB", lineHeight: 1.7, marginBottom: 28 }}>
-            Join thousands of operational leaders reducing ticket workloads by handing repeatable workflows to high-fidelity AI.
-          </p>
-          {[
-            "Deploy custom phone lines instantly",
-            "Access SOC2 compliant conversation storage",
-            "Integrate directly with customer data stacks",
-          ].map((f) => (
-            <div key={f} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M3 8l3.5 3.5L13 5" stroke="#22C55E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              <span style={{ fontSize: 13, color: "#8899BB" }}>{f}</span>
-            </div>
-          ))}
-        </div>
-        <div style={{ fontSize: 12, color: "#4B5563" }}>© 2026 Vocalist Inc. All rights reserved.</div>
-      </div>
-
-      {/* Right panel */}
-      <div style={{ flex: 1, padding: "60px 56px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-        <h1 style={{ fontSize: 26, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526", marginBottom: 6 }}>
-          Create Your Account
-        </h1>
-        <p style={{ fontSize: 13, color: "#7A8BAD", marginBottom: 28 }}>No credit card required to start free trial.</p>
-
-        {/* Social buttons */}
-        <button
-          style={{
-            width: "100%",
-            border: "1.5px solid #D1D5DB",
-            borderRadius: 8,
-            padding: "11px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 10,
-            fontSize: 14,
-            fontWeight: 500,
-            background: "white",
-            cursor: "pointer",
-            marginBottom: 10,
-            fontFamily: "Inter",
-          }}
-        >
-          <IconGoogle /> Sign up with Google
-        </button>
-        <button
-          style={{
-            width: "100%",
-            border: "1.5px solid #D1D5DB",
-            borderRadius: 8,
-            padding: "11px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 10,
-            fontSize: 14,
-            fontWeight: 500,
-            background: "white",
-            cursor: "pointer",
-            marginBottom: 20,
-            fontFamily: "Inter",
-          }}
-        >
-          <IconMS /> Sign up with Microsoft
-        </button>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-          <div style={{ flex: 1, height: 1, background: "#E5E7EB" }} />
-          <span style={{ fontSize: 12, color: "#9CA3AF" }}>OR USE EMAIL</span>
-          <div style={{ flex: 1, height: 1, background: "#E5E7EB" }} />
-        </div>
-
-        {/* Form fields */}
-        {[
-          { label: "Full Name", placeholder: "Jane Miller", type: "text" },
-          { label: "Work Email", placeholder: "jane@yourcompany.com", type: "email" },
-          { label: "Password", placeholder: "••••••••••••••", type: "password" },
-        ].map((f) => (
-          <div key={f.label} style={{ marginBottom: 14 }}>
-            <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#374151", marginBottom: 5 }}>
-              {f.label}
-            </label>
-            <div style={{ position: "relative" }}>
-              <input
-                type={f.type}
-                placeholder={f.placeholder}
-                style={{
-                  width: "100%",
-                  border: "1.5px solid #D1D5DB",
-                  borderRadius: 8,
-                  padding: "10px 36px 10px 12px",
-                  fontSize: 14,
-                  fontFamily: "Inter",
-                  outline: "none",
-                  color: "#0D1526",
-                }}
-              />
-              {f.type === "password" && (
-                <div style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)" }}>
-                  <IconEye />
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
-          <input type="checkbox" id="terms" defaultChecked style={{ accentColor: "#3B5BDB" }} />
-          <label htmlFor="terms" style={{ fontSize: 13, color: "#4B5563" }}>
-            I agree to Vocalist's Terms of Service and Privacy Policy.
-          </label>
-        </div>
-
-        <button
-          onClick={() => setPage("onboarding-goals")}
-          style={{
-            width: "100%",
-            background: "#3B5BDB",
-            color: "white",
-            border: "none",
-            borderRadius: 8,
-            padding: "13px",
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: "pointer",
-            fontFamily: "Inter",
-          }}
-        >
-          Create Account &amp; Continue
-        </button>
-      </div>
     </div>
   );
 }
@@ -766,7 +469,7 @@ function OnboardingShell({
   step,
   children,
 }: {
-  step: 1 | 2 | 3;
+  step: 2 | 3;
   children: React.ReactNode;
 }) {
   const steps = ["Account Setup", "Company Details", "AI Configuration"];
@@ -832,485 +535,27 @@ function OnboardingShell({
   );
 }
 
-function GoalsPage({ setPage }: { setPage: (p: Page) => void }) {
-  const [selected, setSelected] = useState<number[]>([0]);
-  const goals = [
-    { icon: "🎧", title: "Automate Support Lines", desc: "Triage tier-1 tickets, process simple returns, verify user metadata." },
-    { icon: "📞", title: "Lead Qualification", desc: "Initiate custom voice pipelines to qualify inbound form fills." },
-    { icon: "📅", title: "Direct Booking", desc: "Schedule dental, salon, or sales meetings natively on calendar sync." },
-    { icon: "👤", title: "Verify User Accounts", desc: "Two-factor calling verification and quick custom profile reviews." },
-    { icon: "⭐", title: "In-Call Surveys", desc: "Capture real feedback over active, seamless, non-intrusive voice runs." },
-    { icon: "👥", title: "Internal Team Ops", desc: "Notify global operations agents with emergency or direct pipeline flags." },
-  ];
-  const toggle = (i: number) => {
-    setSelected((prev) =>
-      prev.includes(i) ? prev.filter((x) => x !== i) : prev.length < 3 ? [...prev, i] : prev
-    );
-  };
-
-  return (
-    <OnboardingShell step={1}>
-      <div style={{ maxWidth: 900, margin: "0 auto" }}>
-        <h2 style={{ textAlign: "center", fontSize: 28, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526", marginBottom: 10 }}>
-          What are your primary goals?
-        </h2>
-        <p style={{ textAlign: "center", fontSize: 14, color: "#7A8BAD", marginBottom: 36 }}>
-          Choose up to three to help customize your assistant profile.
-        </p>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 16,
-            marginBottom: 32,
-          }}
-        >
-          {goals.map((g, i) => {
-            const active = selected.includes(i);
-            return (
-              <div
-                key={i}
-                onClick={() => toggle(i)}
-                style={{
-                  background: "white",
-                  border: `1.5px solid ${active ? "#3B5BDB" : "#E8ECF4"}`,
-                  borderRadius: 12,
-                  padding: 20,
-                  cursor: "pointer",
-                  transition: "border-color 0.15s",
-                }}
-              >
-                <div style={{ fontSize: 28, marginBottom: 12 }}>{g.icon}</div>
-                <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526", marginBottom: 6 }}>
-                  {g.title}
-                </div>
-                <div style={{ fontSize: 13, color: "#7A8BAD", lineHeight: 1.5 }}>{g.desc}</div>
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
-          <button
-            onClick={() => setPage("signup")}
-            style={{
-              border: "1.5px solid #D1D5DB",
-              borderRadius: 8,
-              padding: "10px 24px",
-              fontSize: 14,
-              background: "white",
-              cursor: "pointer",
-              fontFamily: "Inter",
-            }}
-          >
-            Skip for now
-          </button>
-          <button
-            onClick={() => setPage("onboarding-company")}
-            style={{
-              background: "#3B5BDB",
-              color: "white",
-              border: "none",
-              borderRadius: 8,
-              padding: "10px 28px",
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: "pointer",
-              fontFamily: "Inter",
-            }}
-          >
-            Continue to Company Setup
-          </button>
-        </div>
-      </div>
-    </OnboardingShell>
-  );
-}
-
-function CompanySetupOnboardingPage({ setPage }: { setPage: (p: Page) => void }) {
-  return (
-    <OnboardingShell step={2}>
-      <div style={{ maxWidth: 820, margin: "0 auto", display: "flex", gap: 24, alignItems: "flex-start" }}>
-        {/* Form card */}
-        <div style={{ flex: "1 1 500px", background: "white", borderRadius: 12, padding: 28, border: "1px solid #E8ECF4" }}>
-          <h3 style={{ fontSize: 20, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526", marginBottom: 24 }}>
-            Company Profile
-          </h3>
-          {[
-            { label: "Company Name", placeholder: "Acme Operations Inc.", full: true },
-            { label: "Website URL", placeholder: "https://acmeops.com", full: true },
-          ].map((f) => (
-            <div key={f.label} style={{ marginBottom: 16 }}>
-              <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#374151", marginBottom: 5 }}>{f.label}</label>
-              <input
-                type="text"
-                defaultValue={f.placeholder}
-                style={{
-                  width: "100%",
-                  border: "1.5px solid #D1D5DB",
-                  borderRadius: 8,
-                  padding: "10px 12px",
-                  fontSize: 14,
-                  fontFamily: "Inter",
-                  outline: "none",
-                  color: "#0D1526",
-                }}
-              />
-            </div>
-          ))}
-          <div style={{ display: "flex", gap: 14, marginBottom: 16 }}>
-            {[
-              { label: "Company Phone", placeholder: "+1 (555) 019-2834" },
-              { label: "Support Email Address", placeholder: "support@acmeops.com" },
-            ].map((f) => (
-              <div key={f.label} style={{ flex: 1 }}>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#374151", marginBottom: 5 }}>{f.label}</label>
-                <input
-                  type="text"
-                  defaultValue={f.placeholder}
-                  style={{
-                    width: "100%",
-                    border: "1.5px solid #D1D5DB",
-                    borderRadius: 8,
-                    padding: "10px 12px",
-                    fontSize: 14,
-                    fontFamily: "Inter",
-                    outline: "none",
-                    color: "#0D1526",
-                  }}
-                />
-              </div>
-            ))}
-          </div>
-          <div style={{ marginBottom: 28 }}>
-            <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#374151", marginBottom: 5 }}>Default Timezone</label>
-            <div style={{ position: "relative" }}>
-              <select
-                style={{
-                  width: "100%",
-                  border: "1.5px solid #D1D5DB",
-                  borderRadius: 8,
-                  padding: "10px 36px 10px 12px",
-                  fontSize: 14,
-                  fontFamily: "Inter",
-                  appearance: "none",
-                  background: "white",
-                  outline: "none",
-                  color: "#0D1526",
-                }}
-              >
-                <option>America/New_York (EST)</option>
-                <option>America/Los_Angeles (PST)</option>
-                <option>Europe/London (GMT)</option>
-              </select>
-              <div style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
-                <IconChevronDown />
-              </div>
-            </div>
-          </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
-            <button
-              onClick={() => setPage("onboarding-goals")}
-              style={{
-                border: "1.5px solid #D1D5DB",
-                borderRadius: 8,
-                padding: "10px 24px",
-                fontSize: 14,
-                background: "white",
-                cursor: "pointer",
-                fontFamily: "Inter",
-              }}
-            >
-              Back
-            </button>
-            <button
-              onClick={() => setPage("onboarding-ai")}
-              style={{
-                background: "#3B5BDB",
-                color: "white",
-                border: "none",
-                borderRadius: 8,
-                padding: "10px 28px",
-                fontSize: 14,
-                fontWeight: 600,
-                cursor: "pointer",
-                fontFamily: "Inter",
-              }}
-            >
-              Save &amp; Build Assistant
-            </button>
-          </div>
-        </div>
-
-        {/* Context card */}
-        <div
-          style={{
-            flex: "0 0 260px",
-            background: "#EEF2FF",
-            borderRadius: 12,
-            padding: 20,
-            border: "1px solid #C7D2FE",
-          }}
-        >
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#3B5BDB", marginBottom: 10, fontFamily: "Bricolage Grotesque" }}>
-            Setup Context
-          </div>
-          <p style={{ fontSize: 13, color: "#4B5563", lineHeight: 1.6, marginBottom: 14 }}>
-            Your company parameters are used directly by the AI to verify call metadata, determine operational schedules, and calculate routing targets.
-          </p>
-          {["Schedules Automatic Triggers", "Direct CRM Entity Matching"].map((t) => (
-            <div key={t} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <IconInfo />
-              <span style={{ fontSize: 13, color: "#3B5BDB" }}>{t}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </OnboardingShell>
-  );
-}
-
-function AIConfigOnboardingPage({ setPage }: { setPage: (p: Page) => void }) {
-  return (
-    <OnboardingShell step={3}>
-      <div style={{ maxWidth: 1000, margin: "0 auto", display: "flex", gap: 24, alignItems: "flex-start" }}>
-        {/* Main form */}
-        <div style={{ flex: 1 }}>
-          <h3 style={{ fontSize: 22, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526", marginBottom: 24 }}>
-            Configure Your Voice Assistant
-          </h3>
-          {[
-            { label: "Assistant Identifier", value: "Support Agent – Charlie", type: "text" },
-          ].map((f) => (
-            <div key={f.label} style={{ marginBottom: 16 }}>
-              <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#374151", marginBottom: 5 }}>{f.label}</label>
-              <input
-                type={f.type}
-                defaultValue={f.value}
-                style={{
-                  width: "100%",
-                  border: "1.5px solid #D1D5DB",
-                  borderRadius: 8,
-                  padding: "10px 12px",
-                  fontSize: 14,
-                  fontFamily: "Inter",
-                  outline: "none",
-                  color: "#0D1526",
-                }}
-              />
-            </div>
-          ))}
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#374151", marginBottom: 5 }}>AI Voice Engine</label>
-            <div style={{ position: "relative" }}>
-              <select
-                style={{
-                  width: "100%",
-                  border: "1.5px solid #D1D5DB",
-                  borderRadius: 8,
-                  padding: "10px 36px 10px 12px",
-                  fontSize: 14,
-                  fontFamily: "Inter",
-                  appearance: "none",
-                  background: "white",
-                  outline: "none",
-                  color: "#0D1526",
-                }}
-              >
-                <option>Ava (Default Female – Professional, Warm)</option>
-                <option>Charlie (Male – Direct, Confident)</option>
-                <option>Delta (Neutral – Formal)</option>
-              </select>
-              <div style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
-                <IconChevronDown />
-              </div>
-            </div>
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#374151", marginBottom: 5 }}>Inbound Greeting Phrase</label>
-            <input
-              type="text"
-              defaultValue='"Thank you for calling Acme Operations Support. This is Ava, how can I assist you with your account settings today?"'
-              style={{
-                width: "100%",
-                border: "1.5px solid #D1D5DB",
-                borderRadius: 8,
-                padding: "10px 12px",
-                fontSize: 14,
-                fontFamily: "Inter",
-                outline: "none",
-                color: "#0D1526",
-              }}
-            />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#374151", marginBottom: 5 }}>System Instructions (AI Prompt)</label>
-            <textarea
-              defaultValue="You are a support voice agent. Your tone is warm, polite and direct. Resolve return inquiries using the attached knowledge base. Never invent details outside Acme guidelines. If client requests a tier override, trigger salesforce routing."
-              rows={5}
-              style={{
-                width: "100%",
-                border: "1.5px solid #D1D5DB",
-                borderRadius: 8,
-                padding: "10px 12px",
-                fontSize: 14,
-                fontFamily: "Inter",
-                outline: "none",
-                color: "#0D1526",
-                resize: "vertical",
-              }}
-            />
-          </div>
-          <div style={{ marginBottom: 28 }}>
-            <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#374151", marginBottom: 5 }}>Knowledge Base Documents</label>
-            <div
-              style={{
-                border: "1.5px dashed #C7D2FE",
-                borderRadius: 8,
-                padding: "20px",
-                textAlign: "center",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 8,
-                color: "#3B5BDB",
-                fontSize: 14,
-              }}
-            >
-              <IconUpload /> Upload support_policies.pdf or CSV data sheet
-            </div>
-          </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
-            <button
-              onClick={() => setPage("onboarding-company")}
-              style={{
-                border: "1.5px solid #D1D5DB",
-                borderRadius: 8,
-                padding: "10px 24px",
-                fontSize: 14,
-                background: "white",
-                cursor: "pointer",
-                fontFamily: "Inter",
-              }}
-            >
-              Save Draft
-            </button>
-            <button
-              onClick={() => setPage("dashboard")}
-              style={{
-                background: "#3B5BDB",
-                color: "white",
-                border: "none",
-                borderRadius: 8,
-                padding: "10px 28px",
-                fontSize: 14,
-                fontWeight: 600,
-                cursor: "pointer",
-                fontFamily: "Inter",
-              }}
-            >
-              Deploy Assistant to Production
-            </button>
-          </div>
-        </div>
-
-        {/* Sandbox */}
-        <div style={{ flex: "0 0 300px", background: "white", borderRadius: 12, padding: 20, border: "1px solid #E8ECF4" }}>
-          <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526", marginBottom: 6 }}>
-            Interactive Testing Sandbox
-          </div>
-          <p style={{ fontSize: 13, color: "#7A8BAD", lineHeight: 1.5, marginBottom: 16 }}>
-            Review Ava's responses using active web microphone synthesis before going live.
-          </p>
-          <div style={{ border: "1px solid #E8ECF4", borderRadius: 8, padding: 16, marginBottom: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#0D1526" }}>Draft Voice Sandbox</span>
-              <span style={{ fontSize: 11, color: "#22C55E", fontWeight: 600 }}>ACTIVE</span>
-            </div>
-            <div style={{ textAlign: "center", marginBottom: 12 }}>
-              <div
-                style={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: "50%",
-                  background: "#3B5BDB",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  margin: "0 auto 8px",
-                  cursor: "pointer",
-                }}
-              >
-                <IconMic />
-              </div>
-              <div style={{ fontSize: 12, color: "#7A8BAD" }}>Click to begin voice session</div>
-            </div>
-            <div style={{ fontSize: 13, marginBottom: 6 }}>
-              <span style={{ fontWeight: 700, color: "#3B5BDB" }}>AVA: </span>
-              <span style={{ color: "#0D1526" }}>"Hello! This is Ava from Acme Operations. How can I help?"</span>
-            </div>
-            <div style={{ fontSize: 13, color: "#9CA3AF", fontStyle: "italic", marginBottom: 14 }}>
-              <span style={{ fontWeight: 700, color: "#0D1526", fontStyle: "normal" }}>YOU: </span>
-              Waiting for voice output...
-            </div>
-            <button
-              onClick={() => setPage("testing-sandbox")}
-              style={{
-                width: "100%",
-                background: "#3B5BDB",
-                color: "white",
-                border: "none",
-                borderRadius: 8,
-                padding: "8px 12px",
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: "pointer",
-                fontFamily: "Inter",
-              }}
-            >
-              Open Dedicated Voice Sandbox →
-            </button>
-          </div>
-        </div>
-      </div>
-    </OnboardingShell>
-  );
-}
-
-// ─── Dashboard ────────────────────────────────────────────────────────────────
-
 function DashboardPage({ setPage }: { setPage: (p: Page) => void }) {
-  const stats = [
-    { label: "Total Call Count", value: "1,842", sub: "↑ 12.4%", subColor: "#22C55E" },
-    { label: "Avg API Latency", value: "320ms", sub: "Good Quality", subColor: "#3B5BDB" },
-    { label: "Ticket Resolution Rate", value: "94.2%", sub: "↑ 4.1%", subColor: "#22C55E" },
-    { label: "Operational Cost", value: "$368.40", sub: "Estimated Savings", subColor: "#F59E0B" },
-  ];
-
-  const barData = [14, 22, 18, 26, 12, 20, 15, 30, 88, 25, 18, 32, 22, 16];
-
-  const assistants = [
-    { name: "Ava (Support)", calls: "1,241 calls", status: "Active Live", statusColor: "#22C55E" },
-    { name: "Charlie (Lead Gen)", calls: "601 calls", status: "Active Outbound", statusColor: "#3B5BDB" },
-    { name: "Delta (Billing Flow)", calls: "0 calls", status: "Draft Status", statusColor: "#9CA3AF" },
-  ];
+  const stats: Array<{ label: string; value: string; sub: string; subColor: string }> = [];
+  const barData: number[] = [];
+  const assistants: Array<{ name: string; calls: string; status: string; statusColor: string }> = [];
 
   return (
     <AppShell
       page="dashboard"
       setPage={setPage}
-      title="Operational Dashboard"
-      subtitle="Overview of operational trends, active voice server bounds, and target KPIs."
+      title="Company Dashboard"
+      subtitle="Your company profile, configured integrations, and verified voice-session activity."
     >
       {/* Stats row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 20 }}>
-        {stats.map((s) => (
+        {stats.length ? stats.map((s) => (
           <div key={s.label} style={{ background: "white", borderRadius: 12, padding: "18px 20px", border: "1px solid #E8ECF4" }}>
             <div style={{ fontSize: 12, color: "#7A8BAD", marginBottom: 8 }}>{s.label}</div>
             <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526", marginBottom: 4 }}>{s.value}</div>
             <div style={{ fontSize: 12, color: s.subColor, fontWeight: 500 }}>{s.sub}</div>
           </div>
-        ))}
+        )) : <div style={{ gridColumn: "1 / -1", background: "white", borderRadius: 12, border: "1px solid #E8ECF4" }}><EmptyState title="No dashboard metrics yet" text="Metrics will appear after your authenticated assistant handles real sessions." /></div>}
       </div>
 
       {/* Charts row */}
@@ -1319,12 +564,12 @@ function DashboardPage({ setPage }: { setPage: (p: Page) => void }) {
         <div style={{ background: "white", borderRadius: 12, padding: "20px 24px", border: "1px solid #E8ECF4" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
             <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526" }}>
-              Call Stream Volume Trends
+              Voice Session Activity
             </div>
             <div style={{ fontSize: 12, color: "#7A8BAD", border: "1px solid #E8ECF4", borderRadius: 6, padding: "4px 10px" }}>Last 7 Days</div>
           </div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 120, marginBottom: 8 }}>
-            {barData.map((v, i) => (
+            {barData.length ? barData.map((v, i) => (
               <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
                 <div
                   style={{
@@ -1335,7 +580,7 @@ function DashboardPage({ setPage }: { setPage: (p: Page) => void }) {
                   }}
                 />
               </div>
-            ))}
+            )) : <EmptyState title="No call volume data" text="Connect the required voice and telephony services to begin collecting data." />}
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             {barData.map((_, i) => (
@@ -1349,7 +594,7 @@ function DashboardPage({ setPage }: { setPage: (p: Page) => void }) {
           <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526", marginBottom: 16 }}>
             Voice Assistant Status
           </div>
-          {assistants.map((a) => (
+          {assistants.length ? assistants.map((a) => (
             <div
               key={a.name}
               style={{
@@ -1369,7 +614,7 @@ function DashboardPage({ setPage }: { setPage: (p: Page) => void }) {
                 {a.status}
               </div>
             </div>
-          ))}
+          )) : <EmptyState title="No assistants configured" text="Complete onboarding to publish a company-specific assistant." />}
         </div>
       </div>
     </AppShell>
@@ -1380,102 +625,50 @@ function DashboardPage({ setPage }: { setPage: (p: Page) => void }) {
 
 function CallsPage({ setPage }: { setPage: (p: Page) => void }) {
   const [selectedCall, setSelectedCall] = useState(0);
-  const calls = [
-    {
-      date: "Jan 24, 02:14 PM",
-      caller: "+1 (555)\n019-2834",
-      assistant: "Ava Support",
-      duration: "02:14",
-      outcome: "CRM Updated",
-      outcomeColor: "#22C55E",
-      outcomeBg: "#DCFCE7",
-    },
-    {
-      date: "Jan 24, 01:52 PM",
-      caller: "+1 (650)\n441-9034",
-      assistant: "Ava Support",
-      duration: "04:12",
-      outcome: "Transferred",
-      outcomeColor: "#F59E0B",
-      outcomeBg: "#FEF3C7",
-    },
-    {
-      date: "Jan 24, 01:05 PM",
-      caller: "+1 (312)\n662-8177",
-      assistant: "Charlie Sales",
-      duration: "01:30",
-      outcome: "Failed Callback",
-      outcomeColor: "#EF4444",
-      outcomeBg: "#FEE2E2",
-    },
-    {
-      date: "Jan 24, 11:41 AM",
-      caller: "+1 (888)\n293-8472",
-      assistant: "Ava Support",
-      duration: "03:45",
-      outcome: "CRM Updated",
-      outcomeColor: "#22C55E",
-      outcomeBg: "#DCFCE7",
-    },
-  ];
+  const [calls, setCalls] = useState<Array<{
+    did: string;
+    direction: "inbound" | "outbound";
+    state: string;
+    createdAt: string;
+    updatedAt: string;
+    endedAt: string | null;
+  }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/integrations/3cx/calls?limit=50", { credentials: "include", cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Call history could not be loaded");
+        const payload = await response.json();
+        if (active) setCalls(Array.isArray(payload.calls) ? payload.calls : []);
+      })
+      .catch(() => { if (active) setLoadError(true); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+  const selected = calls[selectedCall];
 
   return (
     <AppShell
       page="calls"
       setPage={setPage}
-      title="Calls Stream & Analytics"
-      subtitle="Track live operational logs, review sentiment metrics, and evaluate agent transcript executions."
+      title="Call History"
+      subtitle="Review 3CX session metadata. Caller identity, transcripts, and call analytics are not stored or displayed."
     >
       <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 20, alignItems: "flex-start" }}>
         <div>
-          {/* Search */}
-          <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-            <div
-              style={{
-                flex: 1,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                background: "white",
-                border: "1px solid #E8ECF4",
-                borderRadius: 8,
-                padding: "9px 14px",
-              }}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="#9CA3AF" strokeWidth="1.5" /><path d="M11 11l2.5 2.5" stroke="#9CA3AF" strokeWidth="1.5" strokeLinecap="round" /></svg>
-              <input placeholder="Search calls, transcripts, area codes..." style={{ border: "none", outline: "none", fontSize: 13, flex: 1, fontFamily: "Inter", color: "#7A8BAD", background: "transparent" }} />
-            </div>
-            <button
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                border: "1px solid #E8ECF4",
-                borderRadius: 8,
-                padding: "9px 16px",
-                background: "white",
-                fontSize: 13,
-                cursor: "pointer",
-                fontFamily: "Inter",
-                fontWeight: 500,
-                color: "#374151",
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 3h12M3 7h8M5 11h4" stroke="#374151" strokeWidth="1.5" strokeLinecap="round" /></svg>
-              Filter Options
-            </button>
-          </div>
-
           {/* Table */}
           <div style={{ background: "white", borderRadius: 12, border: "1px solid #E8ECF4", overflow: "hidden" }}>
             <div style={{ padding: "16px 20px", borderBottom: "1px solid #E8ECF4", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526" }}>Operational History Stream</div>
-              <div style={{ fontSize: 12, color: "#7A8BAD" }}>Showing 4 of 1,842 total runs</div>
+              <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526" }}>Company call records</div>
+              <div style={{ fontSize: 12, color: "#7A8BAD" }}>{loading ? "Loading…" : loadError ? "Unavailable" : `${calls.length} sessions`}</div>
             </div>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ background: "#F9FAFB" }}>
-                  {["Date / Time", "Caller Identity", "Assistant", "Duration", "Outcome"].map((h) => (
+                  {["Date / Time", "Configured DID", "Direction", "Duration", "State"].map((h) => (
                     <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontSize: 12, fontWeight: 600, color: "#6B7280", fontFamily: "Inter", whiteSpace: "nowrap" }}>
                       {h}
                     </th>
@@ -1483,7 +676,7 @@ function CallsPage({ setPage }: { setPage: (p: Page) => void }) {
                 </tr>
               </thead>
               <tbody>
-                {calls.map((c, i) => (
+                {calls.length ? calls.map((c, i) => (
                   <tr
                     key={i}
                     onClick={() => setSelectedCall(i)}
@@ -1493,26 +686,26 @@ function CallsPage({ setPage }: { setPage: (p: Page) => void }) {
                       background: selectedCall === i ? "#F5F7FF" : "white",
                     }}
                   >
-                    <td style={{ padding: "12px 16px", fontSize: 13, color: "#374151", whiteSpace: "nowrap" }}>{c.date}</td>
-                    <td style={{ padding: "12px 16px", fontSize: 13, fontWeight: 700, color: "#0D1526", whiteSpace: "pre" }}>{c.caller}</td>
-                    <td style={{ padding: "12px 16px", fontSize: 13, color: "#374151" }}>{c.assistant}</td>
-                    <td style={{ padding: "12px 16px", fontSize: 13, color: "#374151" }}>{c.duration}</td>
+                    <td style={{ padding: "12px 16px", fontSize: 13, color: "#374151", whiteSpace: "nowrap" }}>{new Date(c.createdAt).toLocaleString()}</td>
+                    <td style={{ padding: "12px 16px", fontSize: 13, fontWeight: 700, color: "#0D1526", whiteSpace: "pre" }}>{c.did}</td>
+                    <td style={{ padding: "12px 16px", fontSize: 13, color: "#374151" }}>{c.direction}</td>
+                    <td style={{ padding: "12px 16px", fontSize: 13, color: "#374151" }}>{c.endedAt ? `${Math.max(0, Math.round((Date.parse(c.endedAt) - Date.parse(c.createdAt)) / 1000))} sec` : "—"}</td>
                     <td style={{ padding: "12px 16px" }}>
                       <span
                         style={{
                           fontSize: 12,
                           fontWeight: 600,
-                          color: c.outcomeColor,
-                          background: c.outcomeBg,
+                          color: c.state === "ended" ? "#15803D" : c.state === "failed" ? "#B91C1C" : "#475569",
+                          background: c.state === "ended" ? "#F0FDF4" : c.state === "failed" ? "#FEF2F2" : "#F1F5F9",
                           borderRadius: 6,
                           padding: "3px 10px",
                         }}
                       >
-                        {c.outcome}
+                        {c.state}
                       </span>
                     </td>
                   </tr>
-                ))}
+                )) : <tr><td colSpan={5}><EmptyState title={loading ? "Loading call sessions" : loadError ? "Call history unavailable" : "No call sessions recorded"} text={loadError ? "Confirm your sign-in and retry. Call history is loaded only from your company’s protected 3CX session ledger." : "Call sessions will appear here after the 3CX event adapter is connected. No sample records are displayed."} /></td></tr>}
               </tbody>
             </table>
           </div>
@@ -1521,38 +714,19 @@ function CallsPage({ setPage }: { setPage: (p: Page) => void }) {
         {/* Call detail */}
         <div style={{ background: "white", borderRadius: 12, border: "1px solid #E8ECF4", padding: 20 }}>
           <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526", marginBottom: 4 }}>
-            Inbound Call #4812
+            Call details
           </div>
           <div style={{ fontSize: 12, color: "#7A8BAD", marginBottom: 20 }}>
-            Caller: +1 (555) 019-2834 · 02:14 Active Run
+            {selected ? `${selected.direction} 3CX session · ${selected.state}` : "Select a session to inspect its safe metadata."}
           </div>
-
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: "#7A8BAD", marginBottom: 10 }}>
-            AUTOMATIC ACTIONS EXECUTED
-          </div>
-          {[
-            { icon: "shield", text: "Voice Recognition Confidence: 99.1%" },
-            { icon: "arrow", text: "Salesforce Opportunity Updated" },
-          ].map((a, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", border: "1px solid #E8ECF4", borderRadius: 8, marginBottom: 8, fontSize: 13, color: "#0D1526" }}>
-              {a.icon === "shield" ? <IconShield /> : <IconArrow />}
-              {a.text}
-            </div>
-          ))}
-
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: "#7A8BAD", margin: "16px 0 10px" }}>
-            TRANSCRIPT STREAM
-          </div>
-          {[
-            { speaker: "AVA", text: '"Thank you for calling Acme Support. How can I help you today?"' },
-            { speaker: "USER", text: '"I need to upgrade my billing tier and integrate with Salesforce."' },
-            { speaker: "AVA", text: '"Absolutely. I see your company Acme Operations on the Pro tier. I\'ve initiated the upgrade sequence."' },
-          ].map((line, i) => (
-            <div key={i} style={{ fontSize: 13, marginBottom: 10, lineHeight: 1.5 }}>
-              <span style={{ fontWeight: 700, color: line.speaker === "AVA" ? "#3B5BDB" : "#0D1526" }}>{line.speaker}: </span>
-              <span style={{ color: "#374151" }}>{line.text}</span>
-            </div>
-          ))}
+          {selected ? (
+            <dl style={{ margin: 0, fontSize: 13 }}>
+              <dt style={{ color: "#64748B", marginTop: 14 }}>Configured DID</dt><dd style={{ margin: "3px 0 0", color: "#0D1526" }}>{selected.did}</dd>
+              <dt style={{ color: "#64748B", marginTop: 14 }}>Started</dt><dd style={{ margin: "3px 0 0", color: "#0D1526" }}>{new Date(selected.createdAt).toLocaleString()}</dd>
+              <dt style={{ color: "#64748B", marginTop: 14 }}>Last updated</dt><dd style={{ margin: "3px 0 0", color: "#0D1526" }}>{new Date(selected.updatedAt).toLocaleString()}</dd>
+              <dt style={{ color: "#64748B", marginTop: 14 }}>Transcript</dt><dd style={{ margin: "3px 0 0", color: "#64748B" }}>Not stored</dd>
+            </dl>
+          ) : <EmptyState title="No session selected" text="Caller IDs, PBX call identifiers, LiveKit rooms, claim tokens, and transcripts are not exposed in this view." />}
         </div>
       </div>
     </AppShell>
@@ -1562,183 +736,122 @@ function CallsPage({ setPage }: { setPage: (p: Page) => void }) {
 // ─── Phone Numbers ────────────────────────────────────────────────────────────
 
 function PhoneNumbersPage({ setPage }: { setPage: (p: Page) => void }) {
-  const trunks = [
-    {
-      number: "+1 (800) 555-0192",
-      label: "Inbound Support",
-      tags: ["Voice", "MMS"],
-      route: "Ava Support",
-      status: "Active",
-      statusColor: "#22C55E",
-    },
-    {
-      number: "+1 (415) 888-2943",
-      label: "Outbound Lead Gen",
-      tags: ["Voice"],
-      route: "Charlie Sales",
-      status: "Active",
-      statusColor: "#22C55E",
-    },
-    {
-      number: "+1 (212) 333-8841",
-      label: "Billing Inquiries",
-      tags: ["Voice", "SMS"],
-      route: "Unassigned",
-      status: "Suspended",
-      statusColor: "#EF4444",
-    },
-  ];
+  const [integration, setIntegration] = useState<{
+    configured: boolean;
+    connectionName?: string;
+    pbxHost?: string;
+    routePointDn?: string;
+    dids?: string[];
+    state?: string;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
-  const available = [
-    { number: "+1 (888) 293-8472", desc: "Toll-Free US", price: "$2.00 / mo" },
-    { number: "+1 (650) 441-9034", desc: "San Mateo, CA", price: "$1.50 / mo" },
-    { number: "+1 (312) 662-8177", desc: "Chicago, IL", price: "$1.50 / mo" },
-  ];
+  useEffect(() => {
+    let active = true;
+    fetch("/api/integrations/3cx", { credentials: "include", cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not load the 3CX configuration");
+        const payload = await response.json();
+        if (active) setIntegration(payload);
+      })
+      .catch(() => {
+        if (active) setLoadError(true);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
 
   return (
     <AppShell
       page="phone-numbers"
       setPage={setPage}
-      title="Business Phone Numbers"
-      subtitle="Configure voice channels, rent custom local/toll-free numbers, or port existing trunks."
+      title="3CX Phone Setup"
+      subtitle="Review the phone numbers and route point saved for your company’s 3CX connection."
     >
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 20, alignItems: "flex-start" }}>
-        <div>
-          {/* Trunks */}
-          <div style={{ background: "white", borderRadius: 12, border: "1px solid #E8ECF4", padding: 20, marginBottom: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526" }}>
-                Active Trunks &amp; Inbound Routes
-              </div>
-              <button style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#3B5BDB", background: "none", border: "none", cursor: "pointer", fontFamily: "Inter", fontWeight: 500 }}>
-                ↗ Port Existing Number
-              </button>
-            </div>
-            {trunks.map((t, i) => (
-              <div key={i} style={{ border: "1px solid #E8ECF4", borderRadius: 10, padding: "14px 16px", marginBottom: 10, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-                <div style={{ flex: "0 0 140px" }}>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: "#0D1526", marginBottom: 2 }}>{t.number}</div>
-                  <div style={{ fontSize: 12, color: "#9CA3AF" }}>{t.label}</div>
-                </div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  {t.tags.map((tag) => (
-                    <span key={tag} style={{ fontSize: 11, color: "#3B5BDB", background: "#EEF2FF", borderRadius: 4, padding: "2px 8px", fontWeight: 500 }}>
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 10, color: "#9CA3AF", letterSpacing: "0.06em", marginBottom: 2 }}>ROUTE TARGET</div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "#0D1526" }}>{t.route}</div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: t.statusColor, fontWeight: 500 }}>
-                  <div style={{ width: 7, height: 7, borderRadius: "50%", background: t.statusColor }} />
-                  {t.status}
-                </div>
-                <div style={{ cursor: "pointer", color: "#9CA3AF" }}>
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="3" r="1.25" fill="#9CA3AF" /><circle cx="8" cy="8" r="1.25" fill="#9CA3AF" /><circle cx="8" cy="13" r="1.25" fill="#9CA3AF" /></svg>
-                </div>
-              </div>
-            ))}
+      <section style={{ maxWidth: 1000, background: "white", borderRadius: 12, border: "1px solid #E8ECF4", padding: 24 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap", marginBottom: 20 }}>
+          <div>
+            <h2 style={{ fontSize: 17, fontWeight: 700, color: "#0D1526", margin: "0 0 6px" }}>
+              {loading ? "Loading your 3CX setup…" : loadError ? "Could not load your 3CX setup" : integration?.configured ? integration.connectionName || "3CX connection" : "No 3CX connection configured"}
+            </h2>
+            <p style={{ margin: 0, color: "#64748B", fontSize: 13 }}>
+          {loadError ? "Sign in and try again to view your company’s integration." : integration?.configured ? `${integration.pbxHost || "PBX host unavailable"} · ${integration.state || "status unavailable"}` : "Add your company’s 3CX details from Integrations to list its configured DIDs."}
+            </p>
           </div>
-
-          {/* SIP notice */}
-          <div style={{ background: "#EEF2FF", border: "1px solid #C7D2FE", borderRadius: 10, padding: 16, display: "flex", gap: 12, alignItems: "flex-start" }}>
-            <div style={{ flexShrink: 0 }}>
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" stroke="#3B5BDB" strokeWidth="1.5" /><path d="M10 9v5" stroke="#3B5BDB" strokeWidth="1.5" strokeLinecap="round" /><circle cx="10" cy="6.5" r="1" fill="#3B5BDB" /></svg>
-            </div>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#3B5BDB", marginBottom: 4 }}>SIP Trunking &amp; Porting Notice</div>
-              <div style={{ fontSize: 13, color: "#4B5563", lineHeight: 1.6 }}>
-                Need custom high-concurrency voice lines? You can coordinate directly with your telecom providers to target vocalist.ai's endpoints with sub-100ms handoffs.
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Acquire panel */}
-        <div style={{ background: "white", borderRadius: 12, border: "1px solid #E8ECF4", padding: 20 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526", marginBottom: 6 }}>
-            Acquire Voice Lines
-          </div>
-          <p style={{ fontSize: 13, color: "#7A8BAD", lineHeight: 1.5, marginBottom: 16 }}>
-            Instantly scale operations with local area codes in over 40 countries.
-          </p>
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#374151", marginBottom: 5 }}>Country / Region</label>
-            <div style={{ position: "relative" }}>
-              <select style={{ width: "100%", border: "1.5px solid #D1D5DB", borderRadius: 8, padding: "9px 32px 9px 12px", fontSize: 13, fontFamily: "Inter", appearance: "none", background: "white", outline: "none", color: "#0D1526" }}>
-                <option>United States (+1)</option>
-                <option>United Kingdom (+44)</option>
-                <option>Canada (+1)</option>
-              </select>
-              <div style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
-                <IconChevronDown />
-              </div>
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
-            <div style={{ flex: 1 }}>
-              <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#374151", marginBottom: 5 }}>Area Code</label>
-              <input defaultValue="415" style={{ width: "100%", border: "1.5px solid #D1D5DB", borderRadius: 8, padding: "9px 12px", fontSize: 13, fontFamily: "Inter", outline: "none", color: "#0D1526" }} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#374151", marginBottom: 5 }}>Contains Patterns</label>
-              <input placeholder="e.g. Acme" style={{ width: "100%", border: "1.5px solid #D1D5DB", borderRadius: 8, padding: "9px 12px", fontSize: 13, fontFamily: "Inter", outline: "none", color: "#9CA3AF" }} />
-            </div>
-          </div>
-          <button style={{ width: "100%", background: "#3B5BDB", color: "white", border: "none", borderRadius: 8, padding: "11px", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "Inter", marginBottom: 16 }}>
-            Search Available Numbers
+          <button onClick={() => setPage("integrations")} style={{ background: "#3B5BDB", color: "white", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "Inter" }}>
+            Manage Integrations
           </button>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#0D1526", marginBottom: 10 }}>Available Numbers (3)</div>
-          {available.map((n, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid #F3F4F6" }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#0D1526" }}>{n.number}</div>
-                <div style={{ fontSize: 12, color: "#9CA3AF" }}>{n.desc}</div>
+        </div>
+
+        {integration?.configured && (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>
+              <div style={{ padding: 14, background: "#F8FAFC", borderRadius: 8 }}>
+                <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4 }}>ROUTE POINT</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#0D1526" }}>{integration.routePointDn || "Not set"}</div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 12, color: "#7A8BAD" }}>{n.price}</span>
-                <button style={{ background: "#3B5BDB", color: "white", border: "none", borderRadius: 6, padding: "5px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "Inter" }}>
-                  Rent
-                </button>
+              <div style={{ padding: 14, background: "#F8FAFC", borderRadius: 8 }}>
+                <div style={{ fontSize: 11, color: "#64748B", marginBottom: 4 }}>CONFIGURED DIDs</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#0D1526" }}>{integration.dids?.length || 0}</div>
               </div>
             </div>
-          ))}
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#0D1526", margin: "0 0 10px" }}>Company phone numbers</h3>
+            {loading ? <p style={{ color: "#64748B", fontSize: 13 }}>Loading…</p> : integration.dids?.length ? (
+              <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                {integration.dids.map((did) => <li key={did} style={{ padding: "12px 0", borderTop: "1px solid #E8ECF4", fontSize: 14, color: "#0D1526" }}>{did}</li>)}
+              </ul>
+            ) : <EmptyState title="No DIDs configured" text="Add the phone numbers assigned to this PBX in the 3CX integration settings." />}
+          </>
+        )}
+
+        <div role="note" style={{ marginTop: 20, padding: 14, borderRadius: 8, background: "#FFF7ED", border: "1px solid #FED7AA", color: "#9A3412", fontSize: 13, lineHeight: 1.6 }}>
+          This page reflects saved 3CX settings only. Live inbound/outbound calling and carrier number purchasing are not enabled yet.
         </div>
-      </div>
+      </section>
     </AppShell>
   );
+}
+
+function AuthRedirect() {
+  useEffect(() => {
+    window.location.assign("/sign-in?mode=sign-up");
+  }, []);
+  return <main role="status" style={{ padding: 32 }}>Opening secure account setup…</main>;
 }
 
 // ─── Integrations ─────────────────────────────────────────────────────────────
 
 function GoogleCalendarIntegrationCard() {
   const [connected, setConnected] = useState(false);
+  const [connectedEmail, setConnectedEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const userId = "00000000-0000-0000-0000-000000000001";
-
   const checkStatus = useCallback(async () => {
     try {
-      const res = await fetch(`/auth/google/status?user_id=${userId}`);
+      const res = await fetch("/auth/google/status", { credentials: "include", cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
         setConnected(!!data.connected);
+        setConnectedEmail(data.email || data.google_email || null);
       } else {
         setConnected(false);
+        setConnectedEmail(null);
       }
     } catch {
       setConnected(false);
+      setConnectedEmail(null);
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, []);
 
   useEffect(() => {
     checkStatus();
     const handleMsg = (e: MessageEvent) => {
-      if (e.data?.type === "GOOGLE_AUTH_SUCCESS") {
+      if (e.origin === window.location.origin && e.data?.type === "GOOGLE_AUTH_SUCCESS") {
         checkStatus();
       }
     };
@@ -1753,7 +866,7 @@ function GoogleCalendarIntegrationCard() {
     const left = window.screenX + (window.outerWidth - width) / 2;
     const top = window.screenY + (window.outerHeight - height) / 2;
     const popup = window.open(
-      `/auth/google/login?user_id=${userId}`,
+      "/auth/google/login",
       "GoogleOAuth",
       `width=${width},height=${height},left=${left},top=${top},status=no,menubar=no,toolbar=no`
     );
@@ -1769,10 +882,10 @@ function GoogleCalendarIntegrationCard() {
   const handleDisconnect = async () => {
     setBusy(true);
     try {
-      await fetch(`/auth/google/disconnect?user_id=${userId}`, { method: "POST" });
+      await fetch("/auth/google/disconnect", { method: "POST", credentials: "include" });
       await checkStatus();
     } catch (err) {
-      console.error(err);
+      logSafeFailure("Dashboard action failed", err);
     } finally {
       setBusy(false);
     }
@@ -1791,23 +904,16 @@ function GoogleCalendarIntegrationCard() {
         Google Calendar Sync
       </div>
       <p style={{ fontSize: 13, color: "#7A8BAD", lineHeight: 1.6, marginBottom: 16 }}>
-        Enable voice assistants to cross-reference availability, write new operational bookings, and trigger custom meeting requests during active phone calls.
+        Connect this company&apos;s Google account so the assistant can check availability, list events, book meetings, and cancel them with confirmation.
       </p>
       <div style={{ borderTop: "1px solid #F3F4F6", paddingTop: 14 }}>
         {[
-          { label: "Account Authority", value: connected ? "Connected via Google OAuth" : "No active session" },
-          { label: "Auto-Schedule Handlers", toggle: true, on: connected },
-          { label: "Target Calendar", chip: connected ? '"Primary Calendar"' : '"Not Configured"' },
+          { label: "Connected account", value: connectedEmail || "No Google account connected" },
+          { label: "Calendar", value: "Primary Google Calendar" },
         ].map((row, i) => (
           <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <span style={{ fontSize: 13, color: "#374151" }}>{row.label}</span>
-            {row.toggle ? (
-              <Toggle on={row.on} />
-            ) : row.chip ? (
-              <span style={{ fontSize: 12, color: "#374151", background: "#F3F4F6", borderRadius: 6, padding: "3px 10px" }}>{row.chip}</span>
-            ) : (
-              <span style={{ fontSize: 13, color: "#7A8BAD" }}>{row.value}</span>
-            )}
+            <span style={{ fontSize: 13, color: "#7A8BAD" }}>{row.value}</span>
           </div>
         ))}
       </div>
@@ -1832,54 +938,377 @@ function GoogleCalendarIntegrationCard() {
   );
 }
 
+function ThreeCXIntegrationCard() {
+  const [connectionName, setConnectionName] = useState("");
+  const [pbxUrl, setPbxUrl] = useState("");
+  const [appId, setAppId] = useState("");
+  const [routePointDn, setRoutePointDn] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [dids, setDids] = useState("");
+  const [transferDestinations, setTransferDestinations] = useState("");
+  const [failureAction, setFailureAction] = useState<"" | "disconnect" | "transfer">("");
+  const [failureDestination, setFailureDestination] = useState("");
+  const [status, setStatus] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+
+  const loadStatus = useCallback(async () => {
+    const response = await fetch("/api/integrations/3cx", { credentials: "include", cache: "no-store" });
+    if (!response.ok) throw new Error("Could not load the 3CX connection details");
+    const data = await response.json();
+    setStatus(data);
+    setConnectionName(data.connectionName || "");
+    setPbxUrl(data.pbxHost ? `https://${data.pbxHost}` : "");
+    setAppId(data.appId || "");
+    setRoutePointDn(data.routePointDn || "");
+    setDids(Array.isArray(data.dids) ? data.dids.join(", ") : "");
+    setTransferDestinations(Array.isArray(data.transferDestinations) ? data.transferDestinations.join(", ") : "");
+    setFailureAction(data.failureAction === "disconnect" || data.failureAction === "transfer" ? data.failureAction : "");
+    setFailureDestination(data.failureDestination || "");
+    setClientSecret("");
+  }, []);
+
+  useEffect(() => { loadStatus().catch(() => setStatus({ configured: false, error: "Could not load the 3CX connection details" })); }, [loadStatus]);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const payload = {
+        connection_name: connectionName,
+        pbx_url: pbxUrl,
+        app_id: appId,
+        route_point_dn: routePointDn,
+        client_secret: clientSecret,
+        dids: dids.split(",").map((value) => value.trim()).filter(Boolean),
+        transfer_destinations: transferDestinations.split(",").map((value) => value.trim()).filter(Boolean),
+        failure_action: failureAction,
+        failure_destination: failureAction === "transfer" ? failureDestination : null,
+      };
+      const response = await fetch("/api/integrations/3cx", { method: "PUT", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+      if (!response.ok) {
+        const failure = await response.json().catch(() => null);
+        if (failure?.error_code === "RECENT_AUTHENTICATION_REQUIRED") {
+          throw new Error("For security, sign out and sign in again before testing or saving 3CX credentials.");
+        }
+        if (response.status === 429) throw new Error("Too many 3CX setup attempts. Wait before trying again.");
+        throw new Error(failure?.detail || failure?.error_message || "3CX connection test and save failed");
+      }
+      setClientSecret("");
+      await loadStatus();
+    } catch (error) {
+      setStatus((current: any) => ({ ...(current || {}), error: error instanceof Error ? error.message : "3CX connection failed" }));
+    } finally {
+      setClientSecret("");
+      setBusy(false);
+    }
+  };
+
+  const disconnect = async () => {
+    if (!status?.configured || !window.confirm("Disconnect this company's 3CX integration and remove its stored API key?")) return;
+    setBusy(true);
+    try {
+      const response = await fetch("/api/integrations/3cx", { method: "DELETE", credentials: "include" });
+      if (!response.ok) {
+        const failure = await response.json().catch(() => null);
+        if (failure?.error_code === "RECENT_AUTHENTICATION_REQUIRED") {
+          throw new Error("For security, sign out and sign in again before disconnecting 3CX.");
+        }
+        throw new Error(failure?.detail || failure?.error_message || "3CX could not be disconnected");
+      }
+      setStatus({ configured: false, state: "unconfigured" });
+      setConnectionName("");
+      setPbxUrl("");
+      setAppId("");
+      setRoutePointDn("");
+      setDids("");
+      setTransferDestinations("");
+      setFailureAction("");
+      setFailureDestination("");
+      setClientSecret("");
+    } catch (error) {
+      setStatus((current: any) => ({ ...(current || {}), error: error instanceof Error ? error.message : "3CX could not be disconnected" }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ background: "white", borderRadius: 12, border: "1px solid #E8ECF4", padding: 24, marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 17, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526" }}>3CX PBX</div>
+          <p style={{ fontSize: 13, color: "#7A8BAD", margin: "6px 0 0" }}>Store and validate this company’s own 3CX connection. Live call routing is still being implemented.</p>
+        </div>
+        <span style={{ fontSize: 12, color: status?.state === "active" ? "#16A34A" : "#6B7280" }}>{status?.state || "Not configured"}</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {[{ label: "Connection name", value: connectionName, set: setConnectionName, secret: false }, { label: "PBX HTTPS URL", value: pbxUrl, set: setPbxUrl, secret: false }, { label: "3CX Service Principal client ID", value: appId, set: setAppId, secret: false }, { label: "Programmable Extension / Route Point DN", value: routePointDn, set: setRoutePointDn, secret: false }, { label: "3CX client secret (write-only)", value: clientSecret, set: setClientSecret, secret: true }, { label: "Inbound DIDs (comma-separated)", value: dids, set: setDids, secret: false }, { label: "Transfer destinations (comma-separated)", value: transferDestinations, set: setTransferDestinations, secret: false }].map((field) => (
+          <label key={field.label} style={{ fontSize: 12, color: "#374151" }}>
+            {field.label}
+            <input value={field.value} onChange={(event) => field.set(event.target.value)} type={field.secret ? "password" : "text"} autoComplete={field.secret ? "new-password" : "off"} spellCheck={false} style={{ width: "100%", marginTop: 5, border: "1px solid #D1D5DB", borderRadius: 7, padding: "8px 10px", fontSize: 13 }} />
+          </label>
+        ))}
+      </div>
+      <label style={{ display: "block", marginTop: 12, fontSize: 12, color: "#374151" }}>
+        If the assistant cannot handle a live call
+        <select value={failureAction} onChange={(event) => { const value = event.target.value as "" | "disconnect" | "transfer"; setFailureAction(value); if (value !== "transfer") setFailureDestination(""); }} style={{ display: "block", width: "100%", marginTop: 5, border: "1px solid #D1D5DB", borderRadius: 7, padding: "8px 10px", fontSize: 13 }}>
+          <option value="">Choose an explicit fallback</option>
+          <option value="disconnect">Disconnect the caller</option>
+          <option value="transfer">Transfer to an approved destination</option>
+        </select>
+      </label>
+      {failureAction === "transfer" && (
+        <label style={{ display: "block", marginTop: 10, fontSize: 12, color: "#374151" }}>
+          Approved fallback destination
+          <select value={failureDestination} onChange={(event) => setFailureDestination(event.target.value)} style={{ display: "block", width: "100%", marginTop: 5, border: "1px solid #D1D5DB", borderRadius: 7, padding: "8px 10px", fontSize: 13 }}>
+            <option value="">Choose a configured transfer destination</option>
+            {transferDestinations.split(",").map((value) => value.trim()).filter(Boolean).map((destination) => <option key={destination} value={destination}>{destination}</option>)}
+          </select>
+          <span style={{ display: "block", marginTop: 4, color: "#7A8BAD" }}>The fallback must also appear in the approved transfer destinations above.</span>
+        </label>
+      )}
+      {status?.error && <div style={{ color: "#DC2626", fontSize: 12, marginTop: 10 }}>{status.error}</div>}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14 }}>
+        <span style={{ color: "#7A8BAD", fontSize: 12 }}>Re-authenticate before changes. The client ID and Route Point DN are separate; the client secret is write-only and cleared after submission.</span>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          {status?.configured && <button type="button" onClick={disconnect} disabled={busy} style={{ background: "white", color: "#B91C1C", border: "1px solid #FCA5A5", borderRadius: 7, padding: "9px 12px", fontWeight: 600, opacity: busy ? 0.6 : 1 }}>{busy ? "Working…" : "Disconnect"}</button>}
+          <button onClick={save} disabled={busy || !clientSecret || !appId || !pbxUrl || !routePointDn || !failureAction || (failureAction === "transfer" && (!failureDestination || !transferDestinations.split(",").map((value) => value.trim()).includes(failureDestination)))} style={{ background: "#3B5BDB", color: "white", border: 0, borderRadius: 7, padding: "9px 16px", fontWeight: 600, opacity: busy ? 0.6 : 1 }}>{busy ? "Testing & saving..." : "Test & save 3CX"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type OnboardingCompanyDraft = {
+  company_name: string;
+  website_url: string;
+  company_phone: string;
+  support_email: string;
+  timezone: string;
+};
+
+type OnboardingAssistantDraft = {
+  assistant_name: string;
+  voice_engine: string;
+  inbound_greeting: string;
+  system_prompt: string;
+  knowledge_base_notes: string;
+  tone: "professional" | "friendly" | "warm" | "concise";
+  business_hours: Record<string, string>;
+  escalation_rules: string[];
+  faq_entries: FAQEntry[];
+  capabilities: CapabilityFlags;
+};
+
+type FAQEntry = { question: string; answer: string };
+const BUSINESS_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
+const EMPTY_ASSISTANT_DRAFT: OnboardingAssistantDraft = {
+  assistant_name: "", voice_engine: "Aoede", inbound_greeting: "", system_prompt: "",
+  knowledge_base_notes: "", tone: "friendly", business_hours: {}, escalation_rules: [],
+  faq_entries: [], capabilities: { company_receptionist: false, company_faq: false, google_calendar: true },
+};
+
+const inputStyle = {
+  width: "100%", border: "1.5px solid #D1D5DB", borderRadius: 8,
+  padding: "10px 12px", fontSize: 14, fontFamily: "Inter",
+  outline: "none", color: "#0D1526",
+} as const;
+
+type CapabilityFlags = Pick<Record<CapabilityId, boolean>, "company_receptionist" | "company_faq" | "google_calendar">;
+const DEFAULT_CAPABILITY_FLAGS: CapabilityFlags = {
+  company_receptionist: false,
+  company_faq: false,
+  google_calendar: true,
+};
+
+function readCapabilityFlags(raw: unknown): CapabilityFlags {
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_CAPABILITY_FLAGS };
+  const values = raw as Record<string, unknown>;
+  const enabled = (key: keyof CapabilityFlags) => {
+    const value = values[key];
+    if (value && typeof value === "object" && "enabled" in value) {
+      return Boolean((value as { enabled?: unknown }).enabled);
+    }
+    return typeof value === "boolean" ? value : DEFAULT_CAPABILITY_FLAGS[key];
+  };
+  return {
+    company_receptionist: enabled("company_receptionist"),
+    company_faq: enabled("company_faq"),
+    google_calendar: enabled("google_calendar"),
+  };
+}
+
+function writeCapabilityFlags(flags: CapabilityFlags) {
+  return Object.fromEntries(
+    Object.entries(flags).map(([name, enabled]) => [name, { enabled }]),
+  );
+}
+
+function CapabilityChoices({
+  value,
+  onChange,
+}: {
+  value: CapabilityFlags;
+  onChange: (key: keyof CapabilityFlags, enabled: boolean) => void;
+}) {
+  const options: { id: keyof CapabilityFlags; label: string; description: string }[] = [
+    { id: "company_receptionist", label: "Company receptionist", description: "Greet callers and guide company-related requests using your approved profile." },
+    { id: "company_faq", label: "Company FAQs", description: "Answer company questions only from your profile and approved reference notes." },
+    { id: "google_calendar", label: "Google Calendar", description: "Check availability, list events, book, and cancel with confirmation." },
+  ];
+  return <div style={{ border: "1px solid #E2E8F0", borderRadius: 9, padding: 14, marginBottom: 18, background: "#FAFBFF" }}>
+    <div style={{ fontSize: 13, fontWeight: 700, color: "#1E293B", marginBottom: 9 }}>Enabled company capabilities</div>
+    {options.map((option) => <label key={option.id} style={{ display: "flex", gap: 9, alignItems: "flex-start", padding: "7px 0", cursor: "pointer" }}>
+      <input type="checkbox" checked={value[option.id]} onChange={(event) => onChange(option.id, event.target.checked)} style={{ marginTop: 2 }} />
+      <span><span style={{ display: "block", fontSize: 13, color: "#334155", fontWeight: 600 }}>{option.label}</span><span style={{ display: "block", fontSize: 11, color: "#64748B", lineHeight: 1.45 }}>{option.description}</span></span>
+    </label>)}
+    <div style={{ fontSize: 11, color: "#64748B", marginTop: 5 }}>Lead qualification and live 3CX call transfer are not available yet. The model cannot enable tools by itself.</div>
+  </div>;
+}
+
+function CompanyOperatingFields({
+  tone, onToneChange, businessHours, onBusinessHoursChange,
+  escalationRules, onEscalationRulesChange, faqEntries, onFaqEntriesChange, showFaq,
+}: {
+  tone: OnboardingAssistantDraft["tone"];
+  onToneChange: (tone: OnboardingAssistantDraft["tone"]) => void;
+  businessHours: Record<string, string>;
+  onBusinessHoursChange: (hours: Record<string, string>) => void;
+  escalationRules: string[];
+  onEscalationRulesChange: (rules: string[]) => void;
+  faqEntries: FAQEntry[];
+  onFaqEntriesChange: (entries: FAQEntry[]) => void;
+  showFaq: boolean;
+}) {
+  return <section aria-label="Company operating profile" style={{ borderTop: "1px solid #E2E8F0", paddingTop: 18, marginTop: 18, marginBottom: 18 }}>
+    <h4 style={{ margin: "0 0 5px", fontSize: 14, color: "#1E293B" }}>Company operating profile</h4>
+    <p style={{ margin: "0 0 14px", fontSize: 11, color: "#64748B" }}>These company facts and preferences are tenant data. They cannot grant tools or override platform safeguards.</p>
+    <label style={{ display: "block", marginBottom: 14, fontSize: 13, color: "#374151" }}>Response tone<select value={tone} onChange={(event) => onToneChange(event.target.value as OnboardingAssistantDraft["tone"])} style={inputStyle}><option value="professional">Professional</option><option value="friendly">Friendly</option><option value="warm">Warm</option><option value="concise">Concise</option></select></label>
+    <fieldset style={{ border: 0, padding: 0, margin: "0 0 14px" }}><legend style={{ fontSize: 13, color: "#374151", marginBottom: 8 }}>Business hours (company timezone)</legend>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>{BUSINESS_DAYS.map((day) => <label key={day} style={{ fontSize: 11, color: "#64748B", textTransform: "capitalize" }}>{day}<input value={businessHours[day] || ""} onChange={(event) => onBusinessHoursChange({ ...businessHours, [day]: event.target.value })} placeholder="Closed or 09:00–17:00" style={{ ...inputStyle, marginTop: 3 }} /></label>)}</div>
+    </fieldset>
+    <label style={{ display: "block", marginBottom: 14, fontSize: 13, color: "#374151" }}>Escalation guidance<textarea rows={3} value={escalationRules.join("\n")} onChange={(event) => onEscalationRulesChange(event.target.value.split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 10))} placeholder="One company-specific escalation preference per line" style={{ ...inputStyle, resize: "vertical" }} /><span style={{ display: "block", fontSize: 11, color: "#64748B" }}>Guidance only; automated transfer is not available yet.</span></label>
+    {showFaq && <div style={{ marginTop: 14 }}><div style={{ fontSize: 13, color: "#374151", marginBottom: 8 }}>Approved FAQs</div>
+      {faqEntries.map((entry, index) => <div key={index} style={{ border: "1px solid #E2E8F0", borderRadius: 8, padding: 10, marginBottom: 8 }}>
+        <label style={{ display: "block", fontSize: 11, color: "#64748B" }}>Question<input maxLength={240} value={entry.question} onChange={(event) => onFaqEntriesChange(faqEntries.map((item, i) => i === index ? { ...item, question: event.target.value } : item))} style={{ ...inputStyle, margin: "3px 0 8px" }} /></label>
+        <label style={{ display: "block", fontSize: 11, color: "#64748B" }}>Approved answer<textarea maxLength={1200} rows={2} value={entry.answer} onChange={(event) => onFaqEntriesChange(faqEntries.map((item, i) => i === index ? { ...item, answer: event.target.value } : item))} style={{ ...inputStyle, marginTop: 3, resize: "vertical" }} /></label>
+        <button type="button" onClick={() => onFaqEntriesChange(faqEntries.filter((_, i) => i !== index))} style={{ border: 0, background: "transparent", color: "#B91C1C", padding: "6px 0 0", cursor: "pointer" }}>Remove FAQ</button>
+      </div>)}
+      <button type="button" disabled={faqEntries.length >= 20} onClick={() => onFaqEntriesChange([...faqEntries, { question: "", answer: "" }])} style={{ border: "1px solid #CBD5E1", borderRadius: 6, background: "white", padding: "7px 10px", cursor: "pointer" }}>Add FAQ</button>
+      <p style={{ fontSize: 11, color: "#64748B" }}>Only answers from this approved list and company reference notes may be used for company FAQs.</p>
+    </div>}
+  </section>;
+}
+
+function PersistedCompanyOnboardingPage({ setPage }: { setPage: (p: Page) => void }) {
+  const [draft, setDraft] = useState<OnboardingCompanyDraft>({ company_name: "", website_url: "", company_phone: "", support_email: "", timezone: "Indian/Mauritius" });
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    fetch("/api/company-profile", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) return;
+      const payload = await response.json();
+      if (payload.data) setDraft((current) => ({ ...current, ...payload.data }));
+    }).catch(() => setMessage("Unable to load the company profile."));
+  }, []);
+
+  async function saveCompany() {
+    setBusy(true); setMessage("");
+    try {
+      const response = await fetch("/api/company-profile", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(draft) });
+      if (!response.ok) throw new Error("Company profile could not be saved.");
+      setPage("onboarding-ai");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Company profile could not be saved."); }
+    finally { setBusy(false); }
+  }
+
+  const update = (key: keyof OnboardingCompanyDraft, value: string) => setDraft((current) => ({ ...current, [key]: value }));
+  return <OnboardingShell step={2}>
+    <div style={{ maxWidth: 720, margin: "0 auto", background: "white", borderRadius: 12, padding: 28, border: "1px solid #E8ECF4" }}>
+      <h3 style={{ fontSize: 20, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526", marginBottom: 8 }}>Company Profile</h3>
+      <p style={{ color: "#64748B", fontSize: 13, marginBottom: 22 }}>This information is stored in your authenticated company workspace and becomes context for the assistant.</p>
+      {message && <p role="alert" style={{ color: "#B91C1C", fontSize: 13 }}>{message}</p>}
+      <label style={{ display: "block", marginBottom: 14, fontSize: 13, color: "#374151" }}>Company name<input required value={draft.company_name} onChange={(e) => update("company_name", e.target.value)} placeholder="Your company name" style={inputStyle} /></label>
+      <label style={{ display: "block", marginBottom: 14, fontSize: 13, color: "#374151" }}>Website URL<input value={draft.website_url} onChange={(e) => update("website_url", e.target.value)} placeholder="https://your-company.example" style={inputStyle} /></label>
+      <div style={{ display: "flex", gap: 14, marginBottom: 14 }}>
+        <label style={{ flex: 1, fontSize: 13, color: "#374151" }}>Company phone<input value={draft.company_phone} onChange={(e) => update("company_phone", e.target.value)} placeholder="+230 ..." style={inputStyle} /></label>
+        <label style={{ flex: 1, fontSize: 13, color: "#374151" }}>Support email<input type="email" value={draft.support_email} onChange={(e) => update("support_email", e.target.value)} placeholder="support@your-company.example" style={inputStyle} /></label>
+      </div>
+      <label style={{ display: "block", marginBottom: 24, fontSize: 13, color: "#374151" }}>Default timezone<select value={draft.timezone} onChange={(e) => update("timezone", e.target.value)} style={inputStyle}><option value="Indian/Mauritius">Indian/Mauritius (UTC+04:00)</option><option value="UTC">UTC</option><option value="America/New_York">America/New_York</option><option value="Europe/London">Europe/London</option></select></label>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}><button type="button" disabled={busy || !draft.company_name.trim()} onClick={saveCompany} style={{ padding: "10px 24px", borderRadius: 8, border: 0, background: busy ? "#93C5FD" : "#3B5BDB", color: "white", fontWeight: 600 }}>{busy ? "Saving…" : "Save & continue"}</button></div>
+    </div>
+  </OnboardingShell>;
+}
+
+function PersistedAssistantOnboardingPage({ setPage }: { setPage: (p: Page) => void }) {
+  const [draft, setDraft] = useState<OnboardingAssistantDraft>({ ...EMPTY_ASSISTANT_DRAFT, capabilities: { ...DEFAULT_CAPABILITY_FLAGS } });
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    fetch("/api/assistant-config", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) return;
+      const payload = await response.json();
+      if (payload.data) setDraft((current) => ({ ...current, ...payload.data, capabilities: readCapabilityFlags(payload.data.capabilities) }));
+    }).catch(() => setMessage("Unable to load the assistant draft."));
+  }, []);
+  async function saveAssistant(publish: boolean) {
+    setBusy(true); setMessage("");
+    try {
+      if (publish) {
+        const validation = await fetch("/api/assistant-config/validate", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ...draft, is_deployed: false }),
+        });
+        const validationResult = await validation.json().catch(() => null);
+        if (!validation.ok || validationResult?.status !== "valid") {
+          throw new Error(validationResult?.detail || "Assistant profile validation failed. Review the configuration before publishing.");
+        }
+      }
+      const response = await fetch("/api/assistant-config", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...draft, capabilities: writeCapabilityFlags(draft.capabilities), is_deployed: publish }) });
+      if (!response.ok) throw new Error("Assistant configuration could not be saved.");
+      setPage(publish ? "dashboard" : "assistant-config");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Assistant configuration could not be saved."); }
+    finally { setBusy(false); }
+  }
+  const update = (key: keyof OnboardingAssistantDraft, value: string) => setDraft((current) => ({ ...current, [key]: value }));
+  const updateCapability = (key: keyof CapabilityFlags, enabled: boolean) => setDraft((current) => ({ ...current, capabilities: { ...current.capabilities, [key]: enabled } }));
+  return <OnboardingShell step={3}>
+    <div style={{ maxWidth: 720, margin: "0 auto", background: "white", borderRadius: 12, padding: 28, border: "1px solid #E8ECF4" }}>
+      <h3 style={{ fontSize: 20, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526", marginBottom: 8 }}>Configure your assistant</h3>
+      <p style={{ color: "#64748B", fontSize: 13, marginBottom: 22 }}>Choose the company workflows this assistant may handle. The platform still enforces tenant security, confirmations, and the exact tool grants for the published profile.</p>
+      {message && <p role="alert" style={{ color: "#B91C1C", fontSize: 13 }}>{message}</p>}
+      <label style={{ display: "block", marginBottom: 14, fontSize: 13, color: "#374151" }}>Assistant name<input required value={draft.assistant_name} onChange={(e) => update("assistant_name", e.target.value)} placeholder="Your calendar assistant" style={inputStyle} /></label>
+      <label style={{ display: "block", marginBottom: 14, fontSize: 13, color: "#374151" }}>Voice<select value={draft.voice_engine} onChange={(e) => update("voice_engine", e.target.value)} style={inputStyle}><option>Aoede</option><option>Puck</option><option>Charon</option><option>Kore</option><option>Fenrir</option></select></label>
+      <label style={{ display: "block", marginBottom: 14, fontSize: 13, color: "#374151" }}>Greeting<input maxLength={500} value={draft.inbound_greeting} onChange={(e) => update("inbound_greeting", e.target.value)} placeholder="How can I help with your calendar?" style={inputStyle} /></label>
+      <CapabilityChoices value={draft.capabilities} onChange={updateCapability} />
+      <CompanyOperatingFields
+        tone={draft.tone} onToneChange={(tone) => setDraft((current) => ({ ...current, tone }))}
+        businessHours={draft.business_hours} onBusinessHoursChange={(business_hours) => setDraft((current) => ({ ...current, business_hours }))}
+        escalationRules={draft.escalation_rules} onEscalationRulesChange={(escalation_rules) => setDraft((current) => ({ ...current, escalation_rules }))}
+        faqEntries={draft.faq_entries} onFaqEntriesChange={(faq_entries) => setDraft((current) => ({ ...current, faq_entries }))}
+        showFaq={draft.capabilities.company_faq}
+      />
+      <label style={{ display: "block", marginBottom: 14, fontSize: 13, color: "#374151" }}>Company instructions<textarea rows={5} value={draft.system_prompt} onChange={(e) => update("system_prompt", e.target.value)} placeholder="Describe your services, tone, hours, and operating preferences. These instructions cannot add authority beyond selected capabilities." style={{ ...inputStyle, resize: "vertical" }} /></label>
+      <label style={{ display: "block", marginBottom: 24, fontSize: 13, color: "#374151" }}>Approved company reference notes<textarea rows={3} value={draft.knowledge_base_notes} onChange={(e) => update("knowledge_base_notes", e.target.value)} placeholder="Optional facts and answers for the company FAQ capability." style={{ ...inputStyle, resize: "vertical" }} /></label>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><button type="button" onClick={() => setPage("onboarding-company")} style={{ padding: "10px 20px", borderRadius: 8, border: "1px solid #D1D5DB", background: "white" }}>Back</button><div style={{ display: "flex", gap: 10 }}><button type="button" disabled={busy || !draft.assistant_name.trim()} onClick={() => saveAssistant(false)} style={{ padding: "10px 18px", borderRadius: 8, border: "1px solid #3B5BDB", background: "white", color: "#3B5BDB", fontWeight: 600 }}>Save draft</button><button type="button" disabled={busy || !draft.assistant_name.trim()} onClick={() => saveAssistant(true)} style={{ padding: "10px 18px", borderRadius: 8, border: 0, background: busy ? "#93C5FD" : "#3B5BDB", color: "white", fontWeight: 600 }}>{busy ? "Saving…" : "Publish assistant"}</button></div></div>
+    </div>
+  </OnboardingShell>;
+}
+
 function IntegrationsPage({ setPage }: { setPage: (p: Page) => void }) {
   return (
     <AppShell
       page="integrations"
       setPage={setPage}
       title="Integrations & Workspace Apps"
-      subtitle="Connect core enterprise communication stacks to synchronize schedules, contacts, and automated payloads."
+      subtitle="Connect this company’s Google Calendar and configure its optional 3CX integration."
     >
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 720px)", gap: 16, marginBottom: 16 }}>
         <GoogleCalendarIntegrationCard />
-
-        {/* Google Contacts */}
-        <div style={{ background: "white", borderRadius: 12, border: "1px solid #E8ECF4", padding: 24 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 8, background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>👥</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#22C55E", fontWeight: 500 }}>
-              <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#22C55E" }} /> Connected
-            </div>
-          </div>
-          <div style={{ fontSize: 17, fontWeight: 700, fontFamily: "Bricolage Grotesque", color: "#0D1526", marginBottom: 8 }}>
-            Google Contacts Index
-          </div>
-          <p style={{ fontSize: 13, color: "#7A8BAD", lineHeight: 1.6, marginBottom: 16 }}>
-            Equip your voice channels to lookup inbound dialer identities, greet VIP accounts by name, and execute instant contact enrichment triggers.
-          </p>
-          <div style={{ borderTop: "1px solid #F3F4F6", paddingTop: 14 }}>
-            {[
-              { label: "Account Authority", value: "operations@acmeops.com" },
-              { label: "Sync Directory Direction", chip: "Two-Way Sync (Bi-directional)" },
-              { label: "Auto-Create Contacts", toggle: true, on: true },
-            ].map((row, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <span style={{ fontSize: 13, color: "#374151" }}>{row.label}</span>
-                {row.toggle ? (
-                  <Toggle on={row.on} />
-                ) : row.chip ? (
-                  <span style={{ fontSize: 12, color: "#374151", background: "#F3F4F6", borderRadius: 6, padding: "3px 10px" }}>{row.chip}</span>
-                ) : (
-                  <span style={{ fontSize: 13, color: "#7A8BAD" }}>{row.value}</span>
-                )}
-              </div>
-            ))}
-          </div>
-          <button style={{ width: "100%", border: "1.5px solid #FCA5A5", borderRadius: 8, padding: "10px", fontSize: 13, fontWeight: 600, color: "#EF4444", background: "white", cursor: "pointer", fontFamily: "Inter", marginTop: 4 }}>
-            Disconnect Google Contacts
-          </button>
-        </div>
       </div>
+
+      <ThreeCXIntegrationCard />
 
       {/* Security notice */}
       <div style={{ background: "white", borderRadius: 12, border: "1px solid #E8ECF4", padding: 20, display: "flex", gap: 14, alignItems: "flex-start" }}>
@@ -1891,7 +1320,7 @@ function IntegrationsPage({ setPage }: { setPage: (p: Page) => void }) {
             Data Isolation &amp; Security Protocols
           </div>
           <div style={{ fontSize: 13, color: "#7A8BAD", lineHeight: 1.7 }}>
-            All OAuth 2.0 access tokens granted by Google are fully isolated and securely hashed in Vocalist's vault. Inbound data fields are restricted purely to read calendar bounds and write approved event payload objects. We strictly conform to HIPAA &amp; SOC2 security architecture to keep customer information confidential.
+            Google credentials are encrypted before persistence and are never returned to the browser. Calendar operations use the authenticated company&apos;s connected account. Production KMS and workload-role provisioning remain release gates; no HIPAA or SOC 2 certification is claimed here.
           </div>
         </div>
       </div>
@@ -1902,18 +1331,18 @@ function IntegrationsPage({ setPage }: { setPage: (p: Page) => void }) {
 // ─── Company Setup (app screen) ───────────────────────────────────────────────
 
 function CompanySetupPage({ setPage }: { setPage: (p: Page) => void }) {
-  const [companyName, setCompanyName] = useState("Acme Operations Inc.");
-  const [websiteUrl, setWebsiteUrl] = useState("https://acmeops.com");
-  const [companyPhone, setCompanyPhone] = useState("+1 (555) 019-2834");
-  const [supportEmail, setSupportEmail] = useState("support@acmeops.com");
-  const [timezone, setTimezone] = useState("America/New_York (EST)");
+  const [companyName, setCompanyName] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState("");
+  const [companyPhone, setCompanyPhone] = useState("");
+  const [supportEmail, setSupportEmail] = useState("");
+  const [timezone, setTimezone] = useState("Indian/Mauritius");
   const [isSaving, setIsSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
   useEffect(() => {
     async function loadCompany() {
       try {
-        const res = await fetch("/api/company-profile?user_id=00000000-0000-0000-0000-000000000001");
+        const res = await fetch("/api/company-profile", { cache: "no-store" });
         if (res.ok) {
           const json = await res.json();
           if (json.data) {
@@ -1925,7 +1354,7 @@ function CompanySetupPage({ setPage }: { setPage: (p: Page) => void }) {
           }
         }
       } catch (e) {
-        console.error("Failed to load company profile:", e);
+        logSafeFailure("Company profile load failed", e, "warn");
       }
     }
     loadCompany();
@@ -1939,7 +1368,6 @@ function CompanySetupPage({ setPage }: { setPage: (p: Page) => void }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_id: "00000000-0000-0000-0000-000000000001",
           company_name: companyName,
           website_url: websiteUrl,
           company_phone: companyPhone,
@@ -1996,7 +1424,7 @@ function CompanySetupPage({ setPage }: { setPage: (p: Page) => void }) {
             <input
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
-              placeholder="e.g. Acme Operations Inc."
+              placeholder="Your company name"
               style={{ width: "100%", border: "1.5px solid #D1D5DB", borderRadius: 8, padding: "10px 12px", fontSize: 14, fontFamily: "Inter", outline: "none", color: "#0D1526" }}
             />
           </div>
@@ -2008,7 +1436,7 @@ function CompanySetupPage({ setPage }: { setPage: (p: Page) => void }) {
             <input
               value={websiteUrl}
               onChange={(e) => setWebsiteUrl(e.target.value)}
-              placeholder="e.g. https://acmeops.com"
+              placeholder="https://your-company.example"
               style={{ width: "100%", border: "1.5px solid #D1D5DB", borderRadius: 8, padding: "10px 12px", fontSize: 14, fontFamily: "Inter", outline: "none", color: "#0D1526" }}
             />
           </div>
@@ -2021,7 +1449,7 @@ function CompanySetupPage({ setPage }: { setPage: (p: Page) => void }) {
               <input
                 value={companyPhone}
                 onChange={(e) => setCompanyPhone(e.target.value)}
-                placeholder="+1 (555) 019-2834"
+              placeholder="+230 ..."
                 style={{ width: "100%", border: "1.5px solid #D1D5DB", borderRadius: 8, padding: "10px 12px", fontSize: 14, fontFamily: "Inter", outline: "none", color: "#0D1526" }}
               />
             </div>
@@ -2032,7 +1460,7 @@ function CompanySetupPage({ setPage }: { setPage: (p: Page) => void }) {
               <input
                 value={supportEmail}
                 onChange={(e) => setSupportEmail(e.target.value)}
-                placeholder="support@acmeops.com"
+              placeholder="support@your-company.example"
                 style={{ width: "100%", border: "1.5px solid #D1D5DB", borderRadius: 8, padding: "10px 12px", fontSize: 14, fontFamily: "Inter", outline: "none", color: "#0D1526" }}
               />
             </div>
@@ -2048,10 +1476,11 @@ function CompanySetupPage({ setPage }: { setPage: (p: Page) => void }) {
                 onChange={(e) => setTimezone(e.target.value)}
                 style={{ width: "100%", border: "1.5px solid #D1D5DB", borderRadius: 8, padding: "10px 36px 10px 12px", fontSize: 14, fontFamily: "Inter", appearance: "none", background: "white", outline: "none", color: "#0D1526" }}
               >
-                <option value="America/New_York (EST)">America/New_York (EST)</option>
-                <option value="America/Los_Angeles (PST)">America/Los_Angeles (PST)</option>
-                <option value="America/Chicago (CST)">America/Chicago (CST)</option>
-                <option value="Europe/London (GMT)">Europe/London (GMT)</option>
+                <option value="Indian/Mauritius">Mauritius — Indian/Mauritius (UTC+04:00)</option>
+                <option value="America/New_York">Eastern Time — America/New_York</option>
+                <option value="America/Los_Angeles">Pacific Time — America/Los_Angeles</option>
+                <option value="America/Chicago">Central Time — America/Chicago</option>
+                <option value="Europe/London">London — Europe/London</option>
                 <option value="UTC">UTC</option>
               </select>
               <div style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
@@ -2093,9 +1522,9 @@ function CompanySetupPage({ setPage }: { setPage: (p: Page) => void }) {
             Setup Context
           </div>
           <p style={{ fontSize: 13, color: "#4B5563", lineHeight: 1.6, marginBottom: 14 }}>
-            Your company parameters are used directly by Gemini Live to introduce your organization, schedule automatic workflows, and contextualize customer responses.
+            Company details provide bounded context for your assistant. They do not grant new tools or change platform security rules.
           </p>
-          {["Persistent Neon Database Storage", "Automatic Voice Prompt Sync", "Direct CRM Entity Matching"].map((t) => (
+          {["Company-specific assistant profile", "Google Calendar connection is company-scoped", "3CX call handling is not active yet"].map((t) => (
             <div key={t} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <IconCheck />
               <span style={{ fontSize: 13, color: "#3B5BDB", fontWeight: 500 }}>{t}</span>
@@ -2109,23 +1538,40 @@ function CompanySetupPage({ setPage }: { setPage: (p: Page) => void }) {
 
 // ─── Assistant Config (app screen) ───────────────────────────────────────────
 
-function AssistantConfigPage({ setPage }: { setPage: (p: Page) => void }) {
-  const [assistantName, setAssistantName] = useState("Support Agent – Charlie");
+function AssistantConfigPage({ setPage, onTestDraft }: { setPage: (p: Page) => void; onTestDraft: (version: number) => void }) {
+  const [assistantName, setAssistantName] = useState("");
   const [voiceEngine, setVoiceEngine] = useState("Aoede");
-  const [inboundGreeting, setInboundGreeting] = useState(
-    'Thank you for calling Acme Operations Support. This is Ava, how can I assist you with your account settings today?'
-  );
-  const [systemPrompt, setSystemPrompt] = useState(
-    'You are a support voice agent. Your tone is warm, polite and direct. Resolve return inquiries using the attached knowledge base. Never invent details outside Acme guidelines. If client requests a tier override, trigger salesforce routing.'
-  );
-  const [knowledgeBaseNotes, setKnowledgeBaseNotes] = useState("support_policies.pdf (Standard SLA & Return Policies)");
+  const [inboundGreeting, setInboundGreeting] = useState("");
+  const [systemPrompt, setSystemPrompt] = useState("");
+  const [knowledgeBaseNotes, setKnowledgeBaseNotes] = useState("");
+  const [tone, setTone] = useState<OnboardingAssistantDraft["tone"]>("friendly");
+  const [businessHours, setBusinessHours] = useState<Record<string, string>>({});
+  const [escalationRules, setEscalationRules] = useState<string[]>([]);
+  const [faqEntries, setFaqEntries] = useState<FAQEntry[]>([]);
+  const [capabilities, setCapabilities] = useState<CapabilityFlags>({ ...DEFAULT_CAPABILITY_FLAGS });
   const [isSaving, setIsSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [publishedVersion, setPublishedVersion] = useState<number | null>(null);
+  const [profileStatus, setProfileStatus] = useState<"loading" | "ready" | "error">("loading");
+
+  const refreshPublishedProfile = useCallback(async () => {
+    try {
+      const response = await fetch("/api/assistant-config/versions", { cache: "no-store" });
+      if (!response.ok) throw new Error("Profile versions unavailable");
+      const payload = await response.json();
+      const versions = Array.isArray(payload.data) ? payload.data : [];
+      const current = versions.find((item: { lifecycle_state?: string }) => item.lifecycle_state === "published");
+      setPublishedVersion(typeof current?.version === "number" ? current.version : null);
+      setProfileStatus("ready");
+    } catch {
+      setProfileStatus("error");
+    }
+  }, []);
 
   useEffect(() => {
     async function loadAssistant() {
       try {
-        const res = await fetch("/api/assistant-config?user_id=00000000-0000-0000-0000-000000000001");
+        const res = await fetch("/api/assistant-config", { cache: "no-store" });
         if (res.ok) {
           const json = await res.json();
           if (json.data) {
@@ -2134,45 +1580,72 @@ function AssistantConfigPage({ setPage }: { setPage: (p: Page) => void }) {
             if (json.data.inbound_greeting) setInboundGreeting(json.data.inbound_greeting);
             if (json.data.system_prompt) setSystemPrompt(json.data.system_prompt);
             if (json.data.knowledge_base_notes) setKnowledgeBaseNotes(json.data.knowledge_base_notes);
+            if (["professional", "friendly", "warm", "concise"].includes(json.data.tone)) setTone(json.data.tone);
+            setBusinessHours(json.data.business_hours || {});
+            setEscalationRules(json.data.escalation_rules || []);
+            setFaqEntries(json.data.faq_entries || []);
+            setCapabilities(readCapabilityFlags(json.data.capabilities));
           }
         }
       } catch (e) {
-        console.error("Failed to load assistant configuration:", e);
+        logSafeFailure("Assistant configuration load failed", e, "warn");
       }
     }
     loadAssistant();
-  }, []);
+    refreshPublishedProfile();
+  }, [refreshPublishedProfile]);
 
-  const handleSave = async (deploy = false) => {
+  const handleSave = async (deploy = false): Promise<number | null> => {
     setIsSaving(true);
     setStatusMessage(null);
     try {
+      const config = {
+        assistant_name: assistantName,
+        voice_engine: voiceEngine,
+        inbound_greeting: inboundGreeting,
+        system_prompt: systemPrompt,
+        knowledge_base_notes: knowledgeBaseNotes,
+        tone,
+        business_hours: businessHours,
+        escalation_rules: escalationRules,
+        faq_entries: faqEntries,
+        capabilities: writeCapabilityFlags(capabilities),
+      };
+      if (deploy) {
+        const validation = await fetch("/api/assistant-config/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...config, is_deployed: false }),
+        });
+        const validationResult = await validation.json().catch(() => null);
+        if (!validation.ok || validationResult?.status !== "valid") {
+          throw new Error(validationResult?.detail || "Assistant profile validation failed. Review the configuration before publishing.");
+        }
+      }
       const res = await fetch("/api/assistant-config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: "00000000-0000-0000-0000-000000000001",
-          assistant_name: assistantName,
-          voice_engine: voiceEngine,
-          inbound_greeting: inboundGreeting,
-          system_prompt: systemPrompt,
-          knowledge_base_notes: knowledgeBaseNotes,
-        }),
+        body: JSON.stringify({ ...config, is_deployed: deploy }),
       });
       if (res.ok) {
+        const saved = await res.json().catch(() => null);
+        if (deploy) await refreshPublishedProfile();
         setStatusMessage({
-          text: deploy ? "Assistant deployed to production and saved to DB!" : "Draft saved to database successfully!",
+          text: deploy ? "Assistant profile published. New sessions will use this version." : "Assistant draft saved.",
           type: "success",
         });
         setTimeout(() => setStatusMessage(null), 4000);
+        return Number.isInteger(saved?.data?.profile_version) ? saved.data.profile_version : null;
       } else {
-        setStatusMessage({ text: "Failed to save assistant configuration.", type: "error" });
+        const error = await res.json().catch(() => null);
+        setStatusMessage({ text: error?.detail || "Failed to save assistant configuration.", type: "error" });
       }
     } catch (e) {
-      setStatusMessage({ text: "Network error saving assistant config.", type: "error" });
+      setStatusMessage({ text: e instanceof Error ? e.message : "Network error saving assistant config.", type: "error" });
     } finally {
       setIsSaving(false);
     }
+    return null;
   };
 
   return (
@@ -2204,13 +1677,14 @@ function AssistantConfigPage({ setPage }: { setPage: (p: Page) => void }) {
             )}
           </div>
 
-          <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 16 }}>
             <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#374151", marginBottom: 5 }}>
               Assistant Identifier
             </label>
             <input
               value={assistantName}
               onChange={(e) => setAssistantName(e.target.value)}
+              placeholder="Name this assistant for your company"
               style={{ width: "100%", border: "1.5px solid #D1D5DB", borderRadius: 8, padding: "10px 12px", fontSize: 14, fontFamily: "Inter", outline: "none", color: "#0D1526" }}
             />
           </div>
@@ -2242,8 +1716,10 @@ function AssistantConfigPage({ setPage }: { setPage: (p: Page) => void }) {
               Inbound Greeting Phrase
             </label>
             <input
+              maxLength={500}
               value={inboundGreeting}
               onChange={(e) => setInboundGreeting(e.target.value)}
+              placeholder="Write the greeting your callers should hear"
               style={{ width: "100%", border: "1.5px solid #D1D5DB", borderRadius: 8, padding: "10px 12px", fontSize: 14, fontFamily: "Inter", outline: "none", color: "#0D1526" }}
             />
           </div>
@@ -2256,20 +1732,42 @@ function AssistantConfigPage({ setPage }: { setPage: (p: Page) => void }) {
               rows={5}
               value={systemPrompt}
               onChange={(e) => setSystemPrompt(e.target.value)}
+              placeholder="Describe your company, services, tone, and approved operating rules. Platform security and tool permissions remain enforced."
               style={{ width: "100%", border: "1.5px solid #D1D5DB", borderRadius: 8, padding: "10px 12px", fontSize: 14, fontFamily: "Inter", outline: "none", color: "#0D1526", resize: "vertical" }}
             />
-          </div>
+      </div>
 
-          <div style={{ marginBottom: 24 }}>
+      <CapabilityChoices
+        value={capabilities}
+        onChange={(key, enabled) => setCapabilities((current) => ({ ...current, [key]: enabled }))}
+      />
+
+      <CompanyOperatingFields
+        tone={tone} onToneChange={setTone}
+        businessHours={businessHours} onBusinessHoursChange={setBusinessHours}
+        escalationRules={escalationRules} onEscalationRulesChange={setEscalationRules}
+        faqEntries={faqEntries} onFaqEntriesChange={setFaqEntries}
+        showFaq={capabilities.company_faq}
+      />
+
+      <div style={{ marginBottom: 24 }}>
             <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#374151", marginBottom: 5 }}>
-              Knowledge Base Documents
+              Approved company reference notes
             </label>
-            <div style={{ border: "1.5px dashed #C7D2FE", borderRadius: 8, padding: "16px", textAlign: "center", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: "#3B5BDB", fontSize: 13, background: "#F8FAFF" }}>
-              <IconUpload /> {knowledgeBaseNotes || "Upload support_policies.pdf or CSV data sheet"}
-            </div>
+            <textarea rows={4} maxLength={16000} value={knowledgeBaseNotes} onChange={(event) => setKnowledgeBaseNotes(event.target.value)} placeholder="Enter company facts and approved answers. File upload is not available yet." style={{ ...inputStyle, resize: "vertical" }} />
           </div>
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
+            <button
+              onClick={async () => {
+                const version = await handleSave(false);
+                if (version !== null) onTestDraft(version);
+              }}
+              disabled={isSaving}
+              style={{ border: "1.5px solid #3B5BDB", borderRadius: 8, padding: "10px 18px", fontSize: 14, background: "white", color: "#3B5BDB", cursor: isSaving ? "not-allowed" : "pointer", fontFamily: "Inter" }}
+            >
+              {isSaving ? "Saving…" : "Save & test draft"}
+            </button>
             <button
               onClick={() => handleSave(false)}
               disabled={isSaving}
@@ -2282,7 +1780,7 @@ function AssistantConfigPage({ setPage }: { setPage: (p: Page) => void }) {
               disabled={isSaving}
               style={{ background: "#3B5BDB", color: "white", border: "none", borderRadius: 8, padding: "10px 28px", fontSize: 14, fontWeight: 600, cursor: isSaving ? "not-allowed" : "pointer", fontFamily: "Inter", boxShadow: "0 2px 8px rgba(59, 91, 219, 0.25)" }}
             >
-              Deploy Assistant to Production
+              Publish Assistant Profile
             </button>
           </div>
         </div>
@@ -2315,11 +1813,10 @@ function AssistantConfigPage({ setPage }: { setPage: (p: Page) => void }) {
 
           <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "12px 14px", border: "1px solid #E2E8F0", marginBottom: 20 }}>
             <div style={{ fontSize: 11, color: "#64748B", fontWeight: 600, textTransform: "uppercase", marginBottom: 4 }}>
-              Persistence Status
+              Published Profile
             </div>
-            <div style={{ fontSize: 12, color: "#166534", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22C55E" }} />
-              Connected to Neon Database
+            <div style={{ fontSize: 12, color: profileStatus === "error" ? "#B91C1C" : "#374151", fontWeight: 600 }}>
+              {profileStatus === "loading" ? "Checking publish status…" : profileStatus === "error" ? "Publish status unavailable" : publishedVersion === null ? "No profile published" : `Version ${publishedVersion} · used by new sessions`}
             </div>
           </div>
 
@@ -2357,20 +1854,39 @@ function AssistantConfigPage({ setPage }: { setPage: (p: Page) => void }) {
 
 export default function App() {
   const [page, setPage] = useState<Page>("landing");
+  const [previewProfileVersion, setPreviewProfileVersion] = useState<number | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/company-profile", { cache: "no-store" })
+      .then(async (response) => {
+        if (!active || !response.ok) return;
+        const payload = await response.json();
+        const companyName = String(payload?.data?.company_name || "").trim();
+        setPage(companyName ? "dashboard" : "onboarding-goals");
+      })
+      .catch(() => {
+        // An unauthenticated visitor stays on the public landing surface.
+      });
+    return () => { active = false; };
+  }, []);
 
   const render = () => {
     switch (page) {
       case "landing": return <LandingPage setPage={setPage} />;
-      case "signup": return <SignupPage setPage={setPage} />;
-      case "onboarding-goals": return <GoalsPage setPage={setPage} />;
-      case "onboarding-company": return <CompanySetupOnboardingPage setPage={setPage} />;
-      case "onboarding-ai": return <AIConfigOnboardingPage setPage={setPage} />;
+      case "signup": return <AuthRedirect />;
+      case "onboarding-goals": return <PersistedCompanyOnboardingPage setPage={setPage} />;
+      case "onboarding-company": return <PersistedCompanyOnboardingPage setPage={setPage} />;
+      case "onboarding-ai": return <PersistedAssistantOnboardingPage setPage={setPage} />;
       case "dashboard": return <DashboardPage setPage={setPage} />;
       case "calls": return <CallsPage setPage={setPage} />;
       case "phone-numbers": return <PhoneNumbersPage setPage={setPage} />;
       case "integrations": return <IntegrationsPage setPage={setPage} />;
       case "company-setup": return <CompanySetupPage setPage={setPage} />;
-      case "assistant-config": return <AssistantConfigPage setPage={setPage} />;
+      case "assistant-config": return <AssistantConfigPage
+        setPage={setPage}
+        onTestDraft={(version) => { setPreviewProfileVersion(version); setPage("testing-sandbox"); }}
+      />;
       case "testing-sandbox": return (
         <AppShell
           page="assistant-config"
@@ -2378,7 +1894,10 @@ export default function App() {
           title="Interactive Voice Testing Sandbox"
           subtitle="Real-time conversational testing with Gemini Live"
         >
-          <TestingSandboxPage onBack={() => setPage("assistant-config")} />
+          <TestingSandboxPage
+            profileVersion={previewProfileVersion}
+            onBack={() => { setPreviewProfileVersion(null); setPage("assistant-config"); }}
+          />
         </AppShell>
       );
     }

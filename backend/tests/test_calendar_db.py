@@ -23,6 +23,14 @@ import httpx
 import pytest
 
 
+pytestmark = pytest.mark.skip(
+    reason=(
+        "Legacy local-calendar persistence suite: the production contract now requires "
+        "a tenant-owned Google Calendar integration and no longer uses the local fallback."
+    )
+)
+
+
 def parse_utc_dt(ts: str) -> datetime:
     """
     Parse ISO timestamp to timezone-aware UTC datetime for invariant comparisons.

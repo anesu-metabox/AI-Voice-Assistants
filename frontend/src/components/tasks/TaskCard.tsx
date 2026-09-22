@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { CheckCircle2, Clock, AlertTriangle, XCircle, Key, Ban, Loader2 } from "lucide-react";
 import { TaskItem, TaskStatus } from "@/lib/types";
+import { logSafeFailure } from "@/lib/safeLogging";
 
 interface TaskCardProps {
   task: TaskItem;
@@ -33,7 +34,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onCancel }) => {
         }
       }
     } catch (err) {
-      console.error("Failed to cancel task:", err);
+      logSafeFailure("Task cancellation failed", err);
     } finally {
       setCancelling(false);
     }

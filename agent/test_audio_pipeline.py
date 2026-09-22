@@ -8,10 +8,30 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 
 from agent import agent
+from livekit.agents import StopResponse
+from livekit.agents.llm import ChatMessage
 from livekit.agents.voice.transcription._speaking_rate import SpeakingRateDetector
 
 
 class TestAgentPrewarmAndPipeline(unittest.TestCase):
+    def test_pre_response_scope_gate_speaks_redirect_and_stops_model(self):
+        class FakeAgent:
+            _calendar_context_active = False
+            session_context = type("Context", (), {"session_id": "session-test"})()
+            company_capabilities = {"google_calendar": {"enabled": True}}
+            company_scope_context = {}
+            _redirect_response = agent.CALENDAR_REDIRECT_RESPONSE
+            session = MagicMock()
+
+        fake = FakeAgent()
+        message = ChatMessage(role="user", content=["Tell me a joke"])
+        with self.assertRaises(StopResponse):
+            asyncio.run(agent.VoiceBotAgent.on_user_turn_completed(fake, MagicMock(), message))
+        fake.session.say.assert_called_once_with(
+            agent.CALENDAR_REDIRECT_RESPONSE,
+            allow_interruptions=True,
+        )
+
     def test_prewarm_initializes_fft_and_userdata(self):
         """Verify R3: prewarm initializes numpy.fft, windowing, and sets userdata without blocking."""
         mock_proc = MagicMock()

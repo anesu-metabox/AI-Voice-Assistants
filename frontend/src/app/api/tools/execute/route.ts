@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logSafeFailure } from "@/lib/safeLogging";
 import { isAllowedCalendarTool } from "@/lib/assistantPolicy";
+import { contextHeader, getVerifiedRequestContext } from "@/lib/sessionContext";
+import { isSameOriginMutation } from "@/lib/backendProxy";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://127.0.0.1:8000";
-const DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000001";
 
 export async function POST(req: NextRequest) {
   try {
+    if (!isSameOriginMutation(req)) {
+      return NextResponse.json({ status: "error", error_code: "CSRF_REJECTED", error_message: "Cross-origin mutation rejected." }, { status: 403 });
+    }
     const body = await req.json();
-    const { tool_name, parameters = {}, user_id, session_id, idempotency_key } = body;
+    const { tool_name, parameters = {}, session_id, idempotency_key } = body;
 
     if (!tool_name) {
       return NextResponse.json(
@@ -30,17 +35,31 @@ export async function POST(req: NextRequest) {
     const payload = {
       tool_name,
       parameters,
-      user_id: user_id || DEFAULT_USER_ID,
       session_id: session_id || null,
       idempotency_key: idempotency_key || null,
     };
 
+    // Forward the authenticated browser context to FastAPI. Tenant identity is
+    // resolved by the backend from the session; it must never come from the
+    // request body or from model-generated tool arguments.
+    const context = await getVerifiedRequestContext(req);
+    if (!context) {
+      return NextResponse.json(
+        { status: "error", error_code: "AUTHENTICATION_REQUIRED", error_message: "Sign in is required." },
+        { status: 401 },
+      );
+    }
+    // The incoming Neon Auth cookie is verified server-side and represented to
+    // FastAPI by the signed tenant context; raw cookie or authorization headers
+    // are never trusted by the backend.
+    const forwardedHeaders = new Headers();
+    forwardedHeaders.set("x-verified-session-context", contextHeader(context));
+    forwardedHeaders.set("content-type", "application/json");
+
     const targetUrl = `${BACKEND_URL.replace(/\/+$/, "")}/tools/execute`;
     const backendRes = await fetch(targetUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: forwardedHeaders,
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(15000),
     });
@@ -52,18 +71,19 @@ export async function POST(req: NextRequest) {
     } catch {
       responseData = {
         status: backendRes.ok ? "success" : "error",
-        error_message: responseText || `Backend responded with HTTP status ${backendRes.status}`,
+        error_code: "INVALID_BACKEND_RESPONSE",
+        error_message: "The backend returned an unreadable response.",
       };
     }
 
     return NextResponse.json(responseData, { status: backendRes.status });
   } catch (err: any) {
-    console.error("Error proxying tool execution to backend:", err);
+    logSafeFailure("Tool execution proxy failed", err);
     return NextResponse.json(
       {
         status: "error",
         error_code: "BACKEND_PROXY_ERROR",
-        error_message: `Backend proxy failure: ${err?.message || String(err)}`,
+        error_message: "The backend service is unavailable. Please try again.",
       },
       { status: 502 }
     );
