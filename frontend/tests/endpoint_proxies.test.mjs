@@ -35,12 +35,21 @@ describe("FastAPI & Next.js Endpoints Integration Verification", () => {
     assert.ok(existsSync(signInPage), "Sign-in page must exist");
     const proxyContent = readFileSync(authProxy, "utf-8");
     assert.match(proxyContent, /NEON_AUTH_URL/);
+    assert.match(proxyContent, /isSameOriginMutation/);
     assert.match(proxyContent, /set-cookie/);
     assert.doesNotMatch(proxyContent, /user_id|company_id/);
     assert.match(proxyContent, /getSetCookie\?\.bind\(response\.headers\)/);
     const signInContent = readFileSync(signInPage, "utf-8");
     assert.match(signInContent, /sign-in\/email/);
     assert.match(signInContent, /sign-up\/email/);
+  });
+
+  it("checks mutation origins against the configured public app origin behind a reverse proxy", () => {
+    const proxyContent = readFileSync(resolve(frontendDir, "src/lib/backendProxy.ts"), "utf-8");
+    assert.match(proxyContent, /process\.env\.APP_ORIGIN/);
+    assert.match(proxyContent, /normalizeOrigin\(request\.headers\.get\("origin"\)\)/);
+    assert.match(proxyContent, /origin === expectedOrigin/);
+    assert.match(readFileSync(resolve(rootDir, ".env.example"), "utf-8"), /APP_ORIGIN=http:\/\/localhost:3000/);
   });
 
   it("shows the authenticated Neon Auth identity and terminates the session through its BFF", () => {

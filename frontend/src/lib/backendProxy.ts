@@ -13,8 +13,31 @@ type ProxyBackendOptions = {
 
 export function isSameOriginMutation(request: Request): boolean {
   if (["GET", "HEAD", "OPTIONS"].includes(request.method)) return true;
-  const origin = request.headers.get("origin");
-  return Boolean(origin && origin === new URL(request.url).origin);
+  const origin = normalizeOrigin(request.headers.get("origin"));
+  const configuredAppOrigin = process.env.APP_ORIGIN?.trim();
+  const expectedOrigin = configuredAppOrigin
+    ? normalizeOrigin(configuredAppOrigin)
+    : new URL(request.url).origin;
+  return Boolean(origin && expectedOrigin && origin === expectedOrigin);
+}
+
+function normalizeOrigin(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (
+      !["http:", "https:"].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash ||
+      value !== url.origin
+    ) return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
 }
 
 export async function proxyBackend(

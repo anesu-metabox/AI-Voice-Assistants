@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isSameOriginMutation } from "@/lib/backendProxy";
 import { logSafeFailure } from "@/lib/safeLogging";
 
 const AUTH_URL = (process.env.NEON_AUTH_URL || process.env.NEON_AUTH_BASE_URL || "").replace(/\/+$/, "");
@@ -7,11 +8,8 @@ type RouteContext = { params: Promise<{ path: string[] }> };
 async function forward(request: Request, context: RouteContext) {
   const { path } = await context.params;
   if (!AUTH_URL) return NextResponse.json({ error: "Neon Auth is not configured." }, { status: 503 });
-  if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
-    const origin = request.headers.get("origin");
-    if (!origin || origin !== new URL(request.url).origin) {
-      return NextResponse.json({ error: "Cross-origin mutation rejected." }, { status: 403 });
-    }
+  if (!isSameOriginMutation(request)) {
+    return NextResponse.json({ error: "Cross-origin mutation rejected." }, { status: 403 });
   }
   const incoming = new URL(request.url);
   const target = `${AUTH_URL}/${path.join("/")}${incoming.search}`;
