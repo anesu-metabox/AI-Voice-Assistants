@@ -55,8 +55,9 @@ describe("FastAPI & Next.js Endpoints Integration Verification", () => {
   it("forwards single-segment Google OAuth paths without throwing in Next", () => {
     const routePath = resolve(frontendDir, "src/app/auth/google/[path]/route.ts");
     const content = readFileSync(routePath, "utf-8");
-    assert.match(content, /params:\s*\{\s*path:\s*string\s*\}/);
-    assert.match(content, /\/auth\/google\/\$\{context\.params\.path\}/);
+    assert.match(content, /params:\s*Promise<\{\s*path:\s*string\s*\}>/);
+    assert.match(content, /const \{ path \} = await context\.params/);
+    assert.match(content, /\/auth\/google\/\$\{path\}/);
     assert.doesNotMatch(content, /path\.join/);
   });
 

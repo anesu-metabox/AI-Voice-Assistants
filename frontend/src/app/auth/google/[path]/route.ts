@@ -1,9 +1,10 @@
 import { proxyBackend } from "@/lib/backendProxy";
 
-type RouteContext = { params: { path: string } };
+type RouteContext = { params: Promise<{ path: string }> };
 
 async function forward(request: Request, context: RouteContext) {
-  return proxyBackend(request, `/auth/google/${context.params.path}`, {
+  const { path } = await context.params;
+  return proxyBackend(request, `/auth/google/${path}`, {
     timeoutMs: 30000,
     retries: 1,
   });

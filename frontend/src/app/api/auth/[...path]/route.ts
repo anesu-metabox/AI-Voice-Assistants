@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { logSafeFailure } from "@/lib/safeLogging";
 
 const AUTH_URL = (process.env.NEON_AUTH_URL || process.env.NEON_AUTH_BASE_URL || "").replace(/\/+$/, "");
-type RouteContext = { params: { path: string[] } };
+type RouteContext = { params: Promise<{ path: string[] }> };
 
 async function forward(request: Request, context: RouteContext) {
+  const { path } = await context.params;
   if (!AUTH_URL) return NextResponse.json({ error: "Neon Auth is not configured." }, { status: 503 });
   if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
     const origin = request.headers.get("origin");
@@ -13,7 +14,7 @@ async function forward(request: Request, context: RouteContext) {
     }
   }
   const incoming = new URL(request.url);
-  const target = `${AUTH_URL}/${context.params.path.join("/")}${incoming.search}`;
+  const target = `${AUTH_URL}/${path.join("/")}${incoming.search}`;
   const headers = new Headers();
   for (const name of ["accept", "content-type", "cookie", "user-agent"]) {
     const value = request.headers.get(name);
