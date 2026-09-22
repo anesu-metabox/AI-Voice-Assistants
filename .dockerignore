@@ -26,8 +26,13 @@ logs
 *.log
 .runtime
 
-# Frontend and unrelated local tooling are not part of the Python image
-frontend
+# Frontend sources are excluded except for the canonical policy consumed by
+# both the API and the LiveKit worker.
+frontend/**
+!frontend/
+!frontend/src/
+!frontend/src/lib/
+!frontend/src/lib/assistantPolicy.json
 live-api-web-console
 node_modules
 **/node_modules

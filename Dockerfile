@@ -18,6 +18,7 @@ RUN python -m pip install --upgrade pip \
 COPY backend/ ./backend/
 COPY agent/ ./agent/
 COPY db/ ./db/
+COPY frontend/src/lib/assistantPolicy.json ./frontend/src/lib/assistantPolicy.json
 
 # Use a non-root runtime identity. Railway overrides this default command for
 # the credential broker and LiveKit worker services.
