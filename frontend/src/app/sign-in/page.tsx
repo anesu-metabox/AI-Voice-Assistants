@@ -21,7 +21,8 @@ export default function SignInPage() {
     event.preventDefault(); setBusy(true); setError("");
     try {
       const endpoint = mode === "sign-in" ? "sign-in/email" : "sign-up/email";
-      const response = await fetch(`/api/auth/${endpoint}`, { method: "POST", headers: { "content-type": "application/json" }, credentials: "include", body: JSON.stringify({ email, password, name: email.split("@")[0] }) });
+      const callbackURL = new URL("/", window.location.origin).toString();
+      const response = await fetch(`/api/auth/${endpoint}`, { method: "POST", headers: { "content-type": "application/json" }, credentials: "include", body: JSON.stringify({ email, password, name: email.split("@")[0], callbackURL }) });
       if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(payload.message || payload.error || "Authentication failed."); }
       router.push("/"); router.refresh();
     } catch (err) { setError(err instanceof Error ? err.message : "Authentication failed."); }
@@ -31,7 +32,8 @@ export default function SignInPage() {
   async function googleSignIn() {
     setBusy(true); setError("");
     try {
-      const response = await fetch("/api/auth/sign-in/social", { method: "POST", headers: { "content-type": "application/json" }, credentials: "include", body: JSON.stringify({ provider: "google", callbackURL: window.location.origin }) });
+      const callbackURL = new URL("/", window.location.origin).toString();
+      const response = await fetch("/api/auth/sign-in/social", { method: "POST", headers: { "content-type": "application/json" }, credentials: "include", body: JSON.stringify({ provider: "google", callbackURL }) });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.url) throw new Error(payload.message || "Google sign-in is unavailable.");
       window.location.assign(payload.url);

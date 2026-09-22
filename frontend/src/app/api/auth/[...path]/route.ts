@@ -14,7 +14,7 @@ async function forward(request: Request, context: RouteContext) {
   const incoming = new URL(request.url);
   const target = `${AUTH_URL}/${path.join("/")}${incoming.search}`;
   const headers = new Headers();
-  for (const name of ["accept", "content-type", "cookie", "user-agent"]) {
+  for (const name of ["accept", "content-type", "cookie", "user-agent", "origin"]) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }

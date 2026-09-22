@@ -36,12 +36,15 @@ describe("FastAPI & Next.js Endpoints Integration Verification", () => {
     const proxyContent = readFileSync(authProxy, "utf-8");
     assert.match(proxyContent, /NEON_AUTH_URL/);
     assert.match(proxyContent, /isSameOriginMutation/);
+    assert.match(proxyContent, /"origin"/);
     assert.match(proxyContent, /set-cookie/);
     assert.doesNotMatch(proxyContent, /user_id|company_id/);
     assert.match(proxyContent, /getSetCookie\?\.bind\(response\.headers\)/);
     const signInContent = readFileSync(signInPage, "utf-8");
     assert.match(signInContent, /sign-in\/email/);
     assert.match(signInContent, /sign-up\/email/);
+    assert.match(signInContent, /new URL\("\/", window\.location\.origin\)\.toString\(\)/);
+    assert.match(signInContent, /callbackURL/);
   });
 
   it("checks mutation origins against the configured public app origin behind a reverse proxy", () => {
