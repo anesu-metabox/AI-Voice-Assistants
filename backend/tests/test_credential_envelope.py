@@ -44,3 +44,13 @@ def test_decryption_rejects_different_tenant(monkeypatch):
     ciphertext, metadata = envelope.encrypt_secret("secret-value", **_identity())
     with pytest.raises(ValueError, match="context mismatch"):
         envelope.decrypt_secret(ciphertext, metadata, **{**_identity(), "company_id": "tenant-2"})
+
+
+def test_envelope_supports_unpadded_base64_key(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "production")
+    unpadded_key = base64.urlsafe_b64encode(b"k" * 32).decode().rstrip("=")
+    assert len(unpadded_key) == 43
+    monkeypatch.setenv("CREDENTIAL_ENCRYPTION_KEY", unpadded_key)
+    ciphertext, metadata = envelope.encrypt_secret("unpadded-secret", **_identity())
+    assert envelope.decrypt_secret(ciphertext, metadata, **_identity()) == "unpadded-secret"
+

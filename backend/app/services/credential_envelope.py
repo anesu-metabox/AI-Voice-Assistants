@@ -22,7 +22,8 @@ def _b64(value: bytes) -> str:
 
 
 def _unb64(value: str) -> bytes:
-    return base64.urlsafe_b64decode(value.encode("ascii"))
+    padded = value + "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(padded.encode("ascii"))
 
 
 def _master_key(name: str = "CREDENTIAL_ENCRYPTION_KEY") -> bytes:

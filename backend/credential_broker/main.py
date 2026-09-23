@@ -239,7 +239,7 @@ async def google_oauth_complete(payload: dict = Depends(verify_broker_request)):
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("OAuth completion failed in credential broker (%s)", type(exc).__name__)
+        logger.error("OAuth completion failed in credential broker (%s: %s)", type(exc).__name__, exc)
         raise HTTPException(status_code=502, detail="Google account connection failed") from exc
 
 
