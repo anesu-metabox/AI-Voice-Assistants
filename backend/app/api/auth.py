@@ -118,8 +118,6 @@ async def google_callback(
         )
         if not connection.get("connected"):
             raise RuntimeError("Credential broker did not confirm Google account storage")
-    except HTTPException:
-        raise
     except Exception as exc:
         logger.error("Failed to exchange OAuth code for tokens (error_type=%s)", type(exc).__name__)
         return HTMLResponse(

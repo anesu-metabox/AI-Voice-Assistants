@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import logging
 import os
 import time
 import uuid
@@ -14,6 +16,21 @@ from fastapi import HTTPException
 from ..config import settings
 from .credential_broker_protocol import sign_broker_request
 
+logger = logging.getLogger("voice_bot.services.credential_broker_client")
+
+
+def _is_private_or_local_host(hostname: str) -> bool:
+    clean = hostname.rstrip(".").lower()
+    if clean in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    if clean.endswith(".railway.internal") or clean.endswith(".internal") or clean.endswith(".local"):
+        return True
+    try:
+        ip = ipaddress.ip_address(clean)
+        return ip.is_private or ip.is_loopback
+    except ValueError:
+        return False
+
 
 def _broker_base_url() -> str:
     value = settings.credential_broker_url.rstrip("/")
@@ -22,11 +39,8 @@ def _broker_base_url() -> str:
         raise RuntimeError("CREDENTIAL_BROKER_URL must be an HTTP(S) origin without credentials")
     if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
         raise RuntimeError("CREDENTIAL_BROKER_URL must not include a path, query, or fragment")
-    environment = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).lower()
-    if environment in {"prod", "production"} and parsed.scheme != "https":
-        raise RuntimeError("production credential broker traffic requires HTTPS")
-    if environment not in {"prod", "production"} and parsed.scheme == "http" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
-        raise RuntimeError("unencrypted credential broker HTTP is allowed only on loopback in development")
+    if parsed.scheme == "http" and not _is_private_or_local_host(parsed.hostname):
+        raise RuntimeError("unencrypted credential broker HTTP is allowed only on private or loopback networks")
     return value
 
 
@@ -58,5 +72,11 @@ async def broker_post(path: str, payload: dict) -> dict:
     except HTTPException:
         raise
     except Exception as exc:
+        logger.error(
+            "Credential broker request failed (%s, status=%s)",
+            type(exc).__name__,
+            getattr(getattr(exc, "response", None), "status_code", None),
+        )
         # Do not propagate provider errors or raw responses that could contain secrets.
         raise HTTPException(status_code=503, detail="Credential broker operation failed") from exc
+

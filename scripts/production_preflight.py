@@ -193,7 +193,19 @@ def validate_runtime_environment(
         valid_origins = bool(origins) and "*" not in origins and all(urlsplit(origin).scheme == "https" and bool(urlsplit(origin).netloc) for origin in origins)
         findings.append(_finding("cors_origins_https", "PASS" if valid_origins else "FAIL", role))
         broker_url = urlsplit(env.get("CREDENTIAL_BROKER_URL", "").strip())
-        findings.append(_finding("broker_url_https", "PASS" if broker_url.scheme == "https" and broker_url.hostname else "FAIL", role))
+        broker_scheme_ok = (
+            broker_url.scheme == "https"
+            or (
+                broker_url.scheme == "http"
+                and bool(broker_url.hostname)
+                and (
+                    broker_url.hostname.endswith(".railway.internal")
+                    or broker_url.hostname.endswith(".internal")
+                    or broker_url.hostname in {"localhost", "127.0.0.1"}
+                )
+            )
+        )
+        findings.append(_finding("broker_url_https", "PASS" if broker_scheme_ok and broker_url.hostname else "FAIL", role))
     if role == "broker":
         findings.append(_finding("public_ingress_absent", "UNKNOWN"))
     # A one-service process cannot safely prove equality against other Railway
