@@ -1,0 +1,22 @@
+# ==============================================================================
+# AI VOICE BOT — Repository CODEOWNERS (ADR-009 Gatekeeper Protocol)
+# ==============================================================================
+# All PRs require review and approval from Anesu Mupesa (@anesu-metabox).
+# ==============================================================================
+
+# Default rule: Anesu reviews all changes across the repository
+* @anesu-metabox
+
+# Critical Core Infrastructure & Database (Strict Gatekeeper Rule)
+/backend/ @anesu-metabox
+/agent/ @anesu-metabox
+/db/ @anesu-metabox
+/.github/ @anesu-metabox
+/config/ @anesu-metabox
+Dockerfile @anesu-metabox
+
+# Web Frontend Track (Vayen UI/UX with Anesu Gatekeeper Sign-off)
+/frontend/ @anesu-metabox
+
+# Mobile Track (Elihu Native Mobile with Anesu Gatekeeper Sign-off)
+/mobile/ @anesu-metabox

@@ -17,29 +17,29 @@
 
 ---
 
-## 2. Collaborator 1 — Backend & Integrations Lead
-**Core Focus:** FastAPI backend development, external tool integrations, direct execution speed, background worker queues, and external API error handling.
+## 2. Elihu Joseph — Mobile App & Integrations Lead
+**Core Focus:** Native mobile application (`mobile/`), React Native / Expo, LiveKit Mobile WebRTC audio streaming, mobile audio session handling, and client integration with FastAPI endpoints.
 
 | Deliverable ID | Deliverable Description | Target Due Date | Status | Verification & Acceptance Criteria |
 | :--- | :--- | :--- | :--- | :--- |
-| **COL1-01** | FastAPI Service & Dynamic Tool Dispatcher | 2026-09-21 | [In Progress] | FastAPI app running with `/tools/execute` endpoint, Pydantic argument validation, and structured JSON output. |
-| **COL1-02** | Google Calendar & Contact Direct Tools | 2026-09-27 | [Pending] | Working Python functions for `search_contacts`, `get_calendar_availability`, and `create_calendar_event` with unit tests passing. |
-| **COL1-03** | Asynchronous Background Worker Service | 2026-10-04 | [Pending] | Background worker capable of picking up queued tasks from PostgreSQL and updating `status: 'completed'`. |
-| **COL1-04** | Task Status & Explicit Cancellation API | 2026-10-09 | [Pending] | Endpoints `/tasks/{id}/status` and `/tasks/{id}/cancel` allowing the voice bot to check status or halt pending jobs. |
-| **COL1-05** | Multi-Source Document & Briefing Worker | 2026-10-15 | [Pending] | Background job that queries documents/CRM, compiles a briefing document, and returns a verified storage URL. |
+| **MOB-01** | Expo App Scaffolding & Native Audio Permissions | 2026-09-26 | [Pending] | Clean Expo project in `mobile/` with TypeScript, `app.json` permissions for mic/audio on iOS/Android. |
+| **MOB-02** | LiveKit Mobile WebRTC Voice Streaming Bridge | 2026-09-30 | [Pending] | Bi-directional streaming voice loop over `@livekit/react-native` connecting to Gemini Live via LiveKit room. |
+| **MOB-03** | Mobile Voice Visualizer & Audio Controls | 2026-10-05 | [Pending] | Native 60fps waveform ring, push-to-talk, hands-free toggle, and native interruption muting. |
+| **MOB-04** | Streaming Transcript & Task Card Deck | 2026-10-10 | [Pending] | Touch-optimized streaming transcript feed and task cards with swipe gestures. |
+| **MOB-05** | Mobile Latency Benchmark & Physical Device QA | 2026-10-15 | [Pending] | Verified sub-450ms turnaround latency tested on physical iOS and Android devices without jitter. |
 
 ---
 
-## 3. Collaborator 2 — Real-Time Voice & Frontend UX Lead
-**Core Focus:** Audio streaming pipelines, WebRTC / WebSockets, client-side Voice Activity Detection (VAD), interruption responsiveness, and interactive web interface.
+## 3. Vayen — Frontend & UI/UX Lead
+**Core Focus:** Web frontend application polish (`frontend/`), Next.js 15, Tailwind CSS design system, 60fps Canvas audio visualizer, responsive layouts, and real-time task decks.
 
 | Deliverable ID | Deliverable Description | Target Due Date | Status | Verification & Acceptance Criteria |
 | :--- | :--- | :--- | :--- | :--- |
-| **COL2-01** | Realtime Voice Streaming Spike (LiveKit + Gemini Live) | 2026-09-20 | [In Progress] | Working agent runner connecting to LiveKit Cloud using `livekit-plugins-google` and Gemini 2.0 Flash, streaming audio bidirectionally. |
-| **COL2-02** | Client-Side VAD & Instant Playback Mute | 2026-09-25 | [Pending] | Interruption test: User speaking immediately silences the bot's speaker playback in under 50ms. |
-| **COL2-03** | Next.js Interactive Dashboard & Audio Visualizer | 2026-10-02 | [Pending] | Clean UI with push-to-talk / hands-free mode, dynamic audio visualizer ring, and connection status pill. |
-| **COL2-04** | Live Transcript & Task Status Card Deck | 2026-10-08 | [Pending] | Streamed speech-to-text appears in real-time alongside cards displaying active task executions. |
-| **COL2-05** | Audio Jitter & Latency Optimization Polish | 2026-10-16 | [Pending] | Measured audio turnaround latency under 450ms without packet drops, clicks, or robotic distortion. |
+| **WEB-01** | Architecture Audit & Component Modularization | 2026-09-26 | [Pending] | Decompose monolithic `App.tsx` into modular components under `frontend/src/components/`. |
+| **WEB-02** | Executive Visual Polish & Design System | 2026-09-30 | [Pending] | Unified Tailwind palette, dark/light aesthetics, glassmorphism cards, and Framer Motion micro-interactions. |
+| **WEB-03** | Canvas 60fps Audio Visualizer Ring Elevation | 2026-10-04 | [Pending] | Smooth glow transitions, reactive audio frequencies, and seamless idle-to-active visual states. |
+| **WEB-04** | Responsive Layouts (Mobile, Tablet, Desktop) | 2026-10-08 | [Pending] | Crisp, touch-friendly responsive interface verified down to 375px mobile viewport. |
+| **WEB-05** | Real-Time Telemetry & CI Verification | 2026-10-12 | [Pending] | Clean `npm run typecheck`, zero warnings, live latency display, and approved PR into `develop`. |
 
 ---
 
