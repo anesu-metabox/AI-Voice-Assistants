@@ -50,7 +50,9 @@ $knownKeys = @(
     "DATABASE_URL", "DATABASE_URL_UNPOOLED", "LIVEKIT_URL", "LIVEKIT_API_KEY",
     "LIVEKIT_API_SECRET", "GOOGLE_API_KEY", "GOOGLE_CLIENT_SECRET", "LIVEKIT_SESSION_CONTEXT_SECRET",
     "GOOGLE_OAUTH_STATE_SECRET", "CREDENTIAL_ENCRYPTION_KEY", "CREDENTIAL_KEY_PROVIDER",
-    "CREDENTIAL_KMS_KEY_ID", "AWS_REGION", "AWS_DEFAULT_REGION",
+    "CREDENTIAL_ENCRYPTION_KEY_VERSION", "CREDENTIAL_ENCRYPTION_PREVIOUS_KEY",
+    "CREDENTIAL_ENCRYPTION_PREVIOUS_KEY_VERSION", "CREDENTIAL_KMS_KEY_ID",
+    "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
     "RUNTIME_DB_ROLE", "RUNTIME_DB_PASSWORD", "APP_ENV", "NEON_AUTH_URL", "NEON_AUTH_BASE_URL",
     "CREDENTIAL_BROKER_URL", "CREDENTIAL_BROKER_SHARED_SECRET"
 )
@@ -76,7 +78,7 @@ if ($isProduction) {
         # Broker-only keys must come from its own service environment (or its
         # dedicated local env file), never the general API's root environment.
         $requiredRoot = @("DATABASE_URL", "APP_ENV", "RUNTIME_DB_ROLE", "CREDENTIAL_BROKER_SHARED_SECRET")
-        $requiredBroker = @("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "CREDENTIAL_KEY_PROVIDER", "CREDENTIAL_KMS_KEY_ID")
+        $requiredBroker = @("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "CREDENTIAL_ENCRYPTION_KEY")
     } else {
         $requiredRoot += @("APP_ENV", "RUNTIME_DB_ROLE", "CREDENTIAL_BROKER_SHARED_SECRET", "CREDENTIAL_BROKER_URL")
         $IncludeExternalAuth = $true
@@ -98,14 +100,8 @@ if ($isProduction) {
     }
     if ($CredentialBroker) {
         $missing += @($requiredBroker | Where-Object { [string]::IsNullOrWhiteSpace($brokerEnv[$_]) })
-        if ([string]::IsNullOrWhiteSpace($brokerEnv["CREDENTIAL_KEY_PROVIDER"]) -or $brokerEnv["CREDENTIAL_KEY_PROVIDER"].ToLowerInvariant() -ne "aws-kms") {
-            $missing += "CREDENTIAL_KEY_PROVIDER=aws-kms (credential broker environment)"
-        }
-        if ([string]::IsNullOrWhiteSpace($brokerEnv["AWS_REGION"]) -and [string]::IsNullOrWhiteSpace($brokerEnv["AWS_DEFAULT_REGION"])) {
-            $missing += "AWS_REGION (credential broker environment)"
-        }
-        if (-not [string]::IsNullOrWhiteSpace($brokerEnv["CREDENTIAL_ENCRYPTION_KEY"])) {
-            $missing += "remove CREDENTIAL_ENCRYPTION_KEY from production credential-broker configuration"
+        if (-not [string]::IsNullOrWhiteSpace($brokerEnv["CREDENTIAL_KMS_KEY_ID"]) -or -not [string]::IsNullOrWhiteSpace($brokerEnv["AWS_ACCESS_KEY_ID"]) -or -not [string]::IsNullOrWhiteSpace($brokerEnv["AWS_SECRET_ACCESS_KEY"])) {
+            $missing += "remove AWS KMS configuration from the credential broker; deployment is Railway-only"
         }
     }
 }
@@ -136,7 +132,7 @@ if ($isProduction) {
     }
     $agentForbidden = @(
         "DATABASE_URL", "DATABASE_URL_UNPOOLED", "GOOGLE_CLIENT_SECRET", "GOOGLE_OAUTH_STATE_SECRET",
-        "CREDENTIAL_BROKER_SHARED_SECRET", "CREDENTIAL_ENCRYPTION_KEY", "CREDENTIAL_KMS_KEY_ID",
+        "CREDENTIAL_BROKER_SHARED_SECRET", "CREDENTIAL_ENCRYPTION_KEY", "CREDENTIAL_ENCRYPTION_PREVIOUS_KEY", "CREDENTIAL_KMS_KEY_ID",
         "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "RUNTIME_DB_PASSWORD"
     )
     foreach ($key in $agentForbidden) {

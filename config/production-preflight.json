@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "expectedProject": {
+    "id": "68794698-90e7-4940-ab8d-ad13336c33d7",
+    "name": "AI Voice Bot Development",
+    "environment": "production"
+  },
+  "expectedRepository": "anesu-metabox/AI-Voice-Assistants",
+  "requireOneReleaseCommit": true,
+  "requireOneSourceBranch": true,
+  "services": {
+    "AI Voice Bot": {
+      "role": "frontend",
+      "required": ["APP_ORIGIN", "BACKEND_URL", "LIVEKIT_SESSION_CONTEXT_SECRET"],
+      "oneOf": [["NEON_AUTH_URL", "NEON_AUTH_BASE_URL"]],
+      "forbidden": [
+        "DATABASE_URL", "DATABASE_URL_UNPOOLED", "RUNTIME_DB_PASSWORD",
+        "GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_CLIENT_SECRET",
+        "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "CREDENTIAL_BROKER_SHARED_SECRET",
+        "GOOGLE_OAUTH_STATE_SECRET", "CREDENTIAL_ENCRYPTION_KEY", "CREDENTIAL_KMS_KEY_ID",
+        "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"
+      ],
+      "publicDomain": true,
+      "privateEndpoint": false
+    },
+    "Voice API": {
+      "role": "api",
+      "required": [
+        "APP_ENV", "DATABASE_URL", "RUNTIME_DB_ROLE", "NEON_BRANCH", "LIVEKIT_URL",
+        "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "LIVEKIT_SESSION_CONTEXT_SECRET",
+        "GOOGLE_OAUTH_STATE_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_REDIRECT_URI",
+        "CREDENTIAL_BROKER_URL", "CREDENTIAL_BROKER_SHARED_SECRET", "CORS_ORIGINS"
+      ],
+      "oneOf": [],
+      "forbidden": [
+        "DATABASE_URL_UNPOOLED", "RUNTIME_DB_PASSWORD", "GOOGLE_CLIENT_SECRET",
+        "CREDENTIAL_KEY_PROVIDER", "CREDENTIAL_KMS_KEY_ID", "CREDENTIAL_ENCRYPTION_KEY",
+        "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"
+      ],
+      "publicDomain": true,
+      "privateEndpoint": true
+    },
+    "Credential Broker": {
+      "role": "broker",
+      "required": [
+        "APP_ENV", "DATABASE_URL", "RUNTIME_DB_ROLE", "NEON_BRANCH", "CREDENTIAL_BROKER_SHARED_SECRET",
+        "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI",
+        "CREDENTIAL_ENCRYPTION_KEY"
+      ],
+      "oneOf": [],
+      "forbidden": [
+        "DATABASE_URL_UNPOOLED", "RUNTIME_DB_PASSWORD", "CREDENTIAL_KMS_KEY_ID",
+        "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"
+      ],
+      "publicDomain": false,
+      "privateEndpoint": true
+    },
+    "LiveKit Worker": {
+      "role": "worker",
+      "required": [
+        "APP_ENV", "BACKEND_URL", "GOOGLE_API_KEY", "LIVEKIT_AGENT_NAME", "LIVEKIT_URL",
+        "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "LIVEKIT_SESSION_CONTEXT_SECRET"
+      ],
+      "oneOf": [],
+      "forbidden": [
+        "DATABASE_URL", "DATABASE_URL_UNPOOLED", "RUNTIME_DB_ROLE", "RUNTIME_DB_PASSWORD",
+        "GOOGLE_CLIENT_SECRET", "GOOGLE_OAUTH_STATE_SECRET", "CREDENTIAL_BROKER_SHARED_SECRET",
+        "CREDENTIAL_ENCRYPTION_KEY", "CREDENTIAL_ENCRYPTION_PREVIOUS_KEY",
+        "CREDENTIAL_KEY_PROVIDER", "CREDENTIAL_KMS_KEY_ID",
+        "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"
+      ],
+      "publicDomain": false,
+      "privateEndpoint": true
+    }
+  }
+}

@@ -1853,25 +1853,71 @@ function AssistantConfigPage({ setPage, onTestDraft }: { setPage: (p: Page) => v
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
+  const [loading, setLoading] = useState(true);
   const [page, setPage] = useState<Page>("landing");
   const [previewProfileVersion, setPreviewProfileVersion] = useState<number | null>(null);
 
   useEffect(() => {
     let active = true;
-    fetch("/api/company-profile", { cache: "no-store" })
-      .then(async (response) => {
-        if (!active || !response.ok) return;
-        const payload = await response.json();
-        const companyName = String(payload?.data?.company_name || "").trim();
-        setPage(companyName ? "dashboard" : "onboarding-goals");
+    const search = typeof window !== "undefined" ? window.location.search : "";
+    fetch(`/api/auth/get-session${search}`, { credentials: "include", cache: "no-store" })
+      .then(async (sessionResponse) => {
+        if (!sessionResponse.ok) {
+          if (active) { setPage("landing"); setLoading(false); }
+          return;
+        }
+        const sessionPayload = await sessionResponse.json();
+        const user = sessionPayload?.user || sessionPayload?.session?.user;
+        if (!active) return;
+        if (!user) {
+          setPage("landing");
+          setLoading(false);
+          return;
+        }
+
+        if (typeof window !== "undefined" && window.location.search.includes("neon_auth_session_verifier")) {
+          window.history.replaceState({}, "", window.location.pathname);
+        }
+
+        // An authenticated user should never remain on the public landing page
+        // while their company profile is loading or temporarily unavailable.
+        setPage("onboarding-goals");
+        try {
+          const profileResponse = await fetch("/api/company-profile", { credentials: "include", cache: "no-store" });
+          if (!active) return;
+          if (profileResponse.ok) {
+            const profilePayload = await profileResponse.json();
+            const companyName = String(profilePayload?.data?.company_name || "").trim();
+            setPage(companyName ? "dashboard" : "onboarding-goals");
+          } else {
+            setPage("onboarding-goals");
+          }
+        } catch {
+          if (active) setPage("onboarding-goals");
+        } finally {
+          if (active) setLoading(false);
+        }
       })
       .catch(() => {
-        // An unauthenticated visitor stays on the public landing surface.
+        if (active) {
+          setPage("landing");
+          setLoading(false);
+        }
       });
     return () => { active = false; };
   }, []);
 
   const render = () => {
+    if (loading) {
+      return (
+        <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#090d16", color: "#94a3b8", fontFamily: "Inter" }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ width: 36, height: 36, border: "3px solid rgba(255,255,255,0.1)", borderTopColor: "#3B5BDB", borderRadius: "50%", margin: "0 auto 16px", animation: "spin 1s linear infinite" }} />
+            <p style={{ fontSize: 13, letterSpacing: "0.02em" }}>Connecting to your workspace…</p>
+          </div>
+        </div>
+      );
+    }
     switch (page) {
       case "landing": return <LandingPage setPage={setPage} />;
       case "signup": return <AuthRedirect />;

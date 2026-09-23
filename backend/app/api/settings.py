@@ -18,9 +18,9 @@ from ..config import settings
 from db.settings import (
     get_assistant_config,
     get_company_profile,
-    save_assistant_config,
     save_company_profile,
 )
+from db.assistant_configuration import save_assistant_configuration
 from db.livekit_sessions import SessionProfileConflict, get_or_create_session
 from db.companies import ensure_company
 from db.agent_profiles import (
@@ -28,7 +28,6 @@ from db.agent_profiles import (
     get_agent_profile_version,
     get_published_agent_profile,
     list_agent_profile_versions,
-    save_agent_profile_version,
     transition_agent_profile,
 )
 from ..capabilities import CapabilityValidationError, compile_company_policy
@@ -215,18 +214,15 @@ async def update_assistant_config(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Assistant configuration contains unsupported or invalid settings.",
             ) from exc
-        updated = await save_assistant_config(
-            user_id=context.company_id,
+        updated, saved_profile = await save_assistant_configuration(
+            company_id=context.company_id,
+            created_by=context.company_id,
             assistant_name=payload.assistant_name,
             voice_engine=payload.voice_engine,
             inbound_greeting=payload.inbound_greeting,
             system_prompt=payload.system_prompt,
             knowledge_base_notes=payload.knowledge_base_notes,
             is_deployed=payload.is_deployed,
-        )
-        saved_profile = await save_agent_profile_version(
-            company_id=context.company_id,
-            created_by=context.company_id,
             profile={
                 "assistant_name": payload.assistant_name,
                 "voice_engine": payload.voice_engine,

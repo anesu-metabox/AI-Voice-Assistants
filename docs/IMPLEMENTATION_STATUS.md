@@ -2,6 +2,17 @@
 
 This file is the handoff status for collaborators implementing the platform roadmap.
 
+## Current deployment decision (2026-09-23)
+
+- Railway is the only deployment platform in scope; AWS KMS/workload identity
+  is not a current prerequisite. The private credential broker uses
+  tenant-bound AES-GCM with `CREDENTIAL_ENCRYPTION_KEY` supplied as a Railway
+  service secret. Keep it out of the frontend, general API, and LiveKit worker.
+- The older AWS/KMS entries later in this history record the prior design and
+  are superseded for the current Railway rollout by
+  [CREDENTIAL_BROKER.md](CREDENTIAL_BROKER.md) and
+  [PRODUCTION_ROLLOUT_CHECKLIST.md](PRODUCTION_ROLLOUT_CHECKLIST.md).
+
 ## Completed in the current working tree
 
 - Next.js dashboard is the active frontend surface.

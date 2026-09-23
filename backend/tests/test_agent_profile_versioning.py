@@ -69,3 +69,6 @@ async def test_profile_version_allocation_is_serialized_per_company(monkeypatch)
     lock_index = next(i for i, query in enumerate(connection.statements) if "pg_advisory_xact_lock" in query)
     allocation_index = next(i for i, query in enumerate(connection.statements) if "MAX(version)" in query)
     assert lock_index < allocation_index
+    insert_query = next(query for query in connection.statements if "INSERT INTO agent_profile_versions" in query)
+    assert "$3::text" in insert_query
+    assert "CASE WHEN $3::text = 'published'" in insert_query

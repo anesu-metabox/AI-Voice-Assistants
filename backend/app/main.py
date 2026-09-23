@@ -74,12 +74,27 @@ async def lifespan(app: FastAPI):
         pass
 
 
+is_production = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower() in {"prod", "production"}
+
 app = FastAPI(
     title="AI Voice Bot Backend Runtime",
     version="1.0.0",
     description="Low-latency tool dispatcher and durable state ledger for AI Voice Assistant",
     lifespan=lifespan,
+    docs_url=None if is_production else "/docs",
+    redoc_url=None if is_production else "/redoc",
+    openapi_url=None if is_production else "/openapi.json",
 )
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
 
 
 @app.exception_handler(RequestValidationError)
@@ -131,8 +146,15 @@ from fastapi.responses import Response
 @app.get("/", tags=["system"])
 async def root():
     """
-    Root status endpoint displaying backend service health, documentation, and API routes.
+    Root status endpoint displaying backend service health.
     """
+    if is_production:
+        return {
+            "status": "online",
+            "service": "AI Voice Bot FastAPI Backend",
+            "version": "1.0.0",
+            "health": "/health",
+        }
     return {
         "status": "online",
         "service": "AI Voice Bot FastAPI Backend",

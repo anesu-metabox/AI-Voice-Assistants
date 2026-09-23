@@ -166,6 +166,32 @@ async def save_assistant_config(
     """
     user_uuid = _parse_user_uuid(user_id)
     pool = await get_db_pool()
+    async with pool.acquire() as conn, conn.transaction():
+        await conn.execute("SELECT set_config('app.company_id', $1, true)", str(user_uuid))
+        return await save_assistant_config_on_connection(
+            conn,
+            user_uuid=user_uuid,
+            assistant_name=assistant_name,
+            voice_engine=voice_engine,
+            inbound_greeting=inbound_greeting,
+            system_prompt=system_prompt,
+            knowledge_base_notes=knowledge_base_notes,
+            is_deployed=is_deployed,
+        )
+
+
+async def save_assistant_config_on_connection(
+    conn: Any,
+    *,
+    user_uuid: uuid.UUID,
+    assistant_name: str,
+    voice_engine: str,
+    inbound_greeting: str,
+    system_prompt: str,
+    knowledge_base_notes: Optional[str],
+    is_deployed: bool,
+) -> Dict[str, Any]:
+    """Upsert the compatibility settings row using the caller's transaction."""
     query = """
     INSERT INTO assistant_configs (
         user_id, assistant_name, voice_engine, inbound_greeting, system_prompt, knowledge_base_notes, is_deployed
@@ -180,26 +206,24 @@ async def save_assistant_config(
         updated_at = NOW()
     RETURNING id, user_id, assistant_name, voice_engine, inbound_greeting, system_prompt, knowledge_base_notes, is_deployed, updated_at;
     """
-    async with pool.acquire() as conn, conn.transaction():
-        await conn.execute("SELECT set_config('app.company_id', $1, true)", str(user_uuid))
-        row = await conn.fetchrow(
-            query,
-            user_uuid,
-            assistant_name,
-            voice_engine,
-            inbound_greeting,
-            system_prompt,
-            knowledge_base_notes,
-            is_deployed,
-        )
-        return {
-            "id": str(row["id"]),
-            "user_id": str(row["user_id"]),
-            "assistant_name": row["assistant_name"],
-            "voice_engine": row["voice_engine"],
-            "inbound_greeting": row["inbound_greeting"],
-            "system_prompt": row["system_prompt"],
-            "knowledge_base_notes": row["knowledge_base_notes"],
-            "is_deployed": row["is_deployed"],
-            "updated_at": row["updated_at"].isoformat(),
-        }
+    row = await conn.fetchrow(
+        query,
+        user_uuid,
+        assistant_name,
+        voice_engine,
+        inbound_greeting,
+        system_prompt,
+        knowledge_base_notes,
+        is_deployed,
+    )
+    return {
+        "id": str(row["id"]),
+        "user_id": str(row["user_id"]),
+        "assistant_name": row["assistant_name"],
+        "voice_engine": row["voice_engine"],
+        "inbound_greeting": row["inbound_greeting"],
+        "system_prompt": row["system_prompt"],
+        "knowledge_base_notes": row["knowledge_base_notes"],
+        "is_deployed": row["is_deployed"],
+        "updated_at": row["updated_at"].isoformat(),
+    }

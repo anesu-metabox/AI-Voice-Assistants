@@ -1,0 +1,102 @@
+{
+  "projectId": "68794698-90e7-4940-ab8d-ad13336c33d7",
+  "projectName": "AI Voice Bot Development",
+  "environmentId": "450622b1-13cc-4c7f-801e-6137ee10c331",
+  "environmentName": "production",
+  "services": [
+    {
+      "id": "2afd622e-2f8d-4112-80fe-29b6585db9b7",
+      "name": "AI Voice Bot",
+      "deploymentStatus": "SUCCESS",
+      "commitSha": "3b980ebce990d483974d8afcc44f5800f435077f",
+      "repository": "anesu-metabox/AI-Voice-Assistants",
+      "branch": "develop",
+      "variableNames": [
+        "APP_ORIGIN",
+        "BACKEND_URL",
+        "GOOGLE_CLIENT_ID",
+        "LIVEKIT_SESSION_CONTEXT_SECRET",
+        "LIVEKIT_URL",
+        "NEON_AUTH_URL",
+        "NODE_ENV"
+      ],
+      "hasPublicDomain": true,
+      "privateEndpoint": true
+    },
+    {
+      "id": "6d1ce38c-68ad-4023-a367-79668491853c",
+      "name": "LiveKit Worker",
+      "deploymentStatus": "SUCCESS",
+      "commitSha": "3b980ebce990d483974d8afcc44f5800f435077f",
+      "repository": "anesu-metabox/AI-Voice-Assistants",
+      "branch": "develop",
+      "variableNames": [
+        "APP_ENV",
+        "BACKEND_URL",
+        "GOOGLE_API_KEY",
+        "LIVEKIT_AGENT_NAME",
+        "LIVEKIT_API_KEY",
+        "LIVEKIT_API_SECRET",
+        "LIVEKIT_SESSION_CONTEXT_MAX_AGE_SECONDS",
+        "LIVEKIT_SESSION_CONTEXT_SECRET",
+        "LIVEKIT_URL"
+      ],
+      "hasPublicDomain": false,
+      "privateEndpoint": true
+    },
+    {
+      "id": "717089be-9765-4976-936b-01c7c20c660c",
+      "name": "Credential Broker",
+      "deploymentStatus": "SUCCESS",
+      "commitSha": "3b980ebce990d483974d8afcc44f5800f435077f",
+      "repository": "anesu-metabox/AI-Voice-Assistants",
+      "branch": "develop",
+      "variableNames": [
+        "APP_ENV",
+        "CREDENTIAL_BROKER_SHARED_SECRET",
+        "CREDENTIAL_ENCRYPTION_KEY",
+        "CREDENTIAL_ENCRYPTION_KEY_VERSION",
+        "CREDENTIAL_KEY_PROVIDER",
+        "DATABASE_URL",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_REDIRECT_URI",
+        "NEON_BRANCH",
+        "PORT",
+        "RUNTIME_DB_ROLE"
+      ],
+      "hasPublicDomain": false,
+      "privateEndpoint": true
+    },
+    {
+      "id": "a7f61a96-6b55-466d-9110-840b2d85e5ae",
+      "name": "Voice API",
+      "deploymentStatus": "SUCCESS",
+      "commitSha": "3b980ebce990d483974d8afcc44f5800f435077f",
+      "repository": "anesu-metabox/AI-Voice-Assistants",
+      "branch": "develop",
+      "variableNames": [
+        "APP_ENV",
+        "BACKEND_URL",
+        "CORS_ORIGINS",
+        "CREDENTIAL_BROKER_SHARED_SECRET",
+        "CREDENTIAL_BROKER_URL",
+        "DATABASE_URL",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_OAUTH_STATE_SECRET",
+        "GOOGLE_REDIRECT_URI",
+        "LIVEKIT_API_KEY",
+        "LIVEKIT_API_SECRET",
+        "LIVEKIT_SESSION_CONTEXT_MAX_AGE_SECONDS",
+        "LIVEKIT_SESSION_CONTEXT_SECRET",
+        "LIVEKIT_URL",
+        "NEON_BRANCH",
+        "PORT",
+        "RUNTIME_DB_ROLE",
+        "TRIGGER_API_KEY"
+      ],
+      "hasPublicDomain": true,
+      "privateEndpoint": true
+    }
+  ]
+}

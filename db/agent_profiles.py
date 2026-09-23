@@ -29,33 +29,57 @@ async def save_agent_profile_version(
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute("SELECT set_config('app.company_id', $1, true)", company_id)
-            # Version numbers are company-local. Serialize writers for this company
-            # before reading MAX(version), otherwise simultaneous saves can choose
-            # the same version and one will fail the unique constraint.
-            await conn.execute(
-                "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-                company_id,
+            return await save_agent_profile_version_on_connection(
+                conn,
+                company_uuid=company_uuid,
+                company_id=company_id,
+                created_by=created_by,
+                profile=profile,
+                compiled_policy=compiled_policy,
+                published=published,
             )
-            version = await conn.fetchval(
-                "SELECT COALESCE(MAX(version), 0) + 1 FROM agent_profile_versions WHERE company_id = $1",
-                company_uuid,
-            )
-            if published:
-                await conn.execute(
-                    "UPDATE agent_profile_versions SET lifecycle_state='superseded' WHERE company_id=$1 AND lifecycle_state='published'",
-                    company_uuid,
-                )
-            row = await conn.fetchrow(
-                """INSERT INTO agent_profile_versions
-                   (company_id, version, lifecycle_state, profile, compiled_policy,
-                    policy_version, created_by, published_at)
-                   VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,CASE WHEN $3='published' THEN NOW() END)
-                   RETURNING company_id, version, lifecycle_state, policy_version, created_at, published_at""",
-                company_uuid, version, "published" if published else "draft",
-                json.dumps(profile), json.dumps(compiled_policy),
-                compiled_policy.get("platformPolicyVersion"), created_by,
-            )
-            return dict(row)
+
+
+async def save_agent_profile_version_on_connection(
+    conn: Any,
+    *,
+    company_uuid: uuid.UUID,
+    company_id: str,
+    created_by: str,
+    profile: dict[str, Any],
+    compiled_policy: dict[str, Any],
+    published: bool,
+) -> dict[str, Any]:
+    """Create a profile version inside the caller's transaction and connection."""
+    # Version numbers are company-local. Serialize writers for this company
+    # before reading MAX(version), otherwise simultaneous saves can choose
+    # the same version and one will fail the unique constraint.
+    await conn.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        company_id,
+    )
+    version = await conn.fetchval(
+        "SELECT COALESCE(MAX(version), 0) + 1 FROM agent_profile_versions WHERE company_id = $1",
+        company_uuid,
+    )
+    lifecycle_state = "published" if published else "draft"
+    if published:
+        await conn.execute(
+            "UPDATE agent_profile_versions SET lifecycle_state='superseded' WHERE company_id=$1 AND lifecycle_state='published'",
+            company_uuid,
+        )
+    row = await conn.fetchrow(
+        """INSERT INTO agent_profile_versions
+           (company_id, version, lifecycle_state, profile, compiled_policy,
+            policy_version, created_by, published_at)
+           VALUES ($1,$2,$3::text,$4::jsonb,$5::jsonb,$6,$7,
+                   CASE WHEN $3::text = 'published' THEN NOW() ELSE NULL END)
+           RETURNING company_id, version, lifecycle_state, policy_version, created_at, published_at""",
+        company_uuid, version, lifecycle_state,
+        json.dumps(profile), json.dumps(compiled_policy),
+        compiled_policy.get("platformPolicyVersion"), created_by,
+    )
+    return dict(row)
 
 
 async def list_agent_profile_versions(*, company_id: str) -> list[dict[str, Any]]:

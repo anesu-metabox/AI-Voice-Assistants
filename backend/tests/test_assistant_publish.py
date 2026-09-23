@@ -16,19 +16,18 @@ async def test_assistant_save_preserves_requested_publish_state(monkeypatch, pub
     async def ensure_company(*args, **kwargs):
         return None
 
-    async def save_config(**kwargs):
+    async def save_configuration(**kwargs):
         recorded["is_deployed"] = kwargs["is_deployed"]
-        return {"assistant_name": kwargs["assistant_name"], "is_deployed": kwargs["is_deployed"]}
-
-    async def save_profile_version(**kwargs):
-        recorded["published"] = kwargs["published"]
+        recorded["published"] = kwargs["is_deployed"]
         recorded["profile"] = kwargs["profile"]
-        return {"version": 1}
+        return (
+            {"assistant_name": kwargs["assistant_name"], "is_deployed": kwargs["is_deployed"]},
+            {"version": 1},
+        )
 
     monkeypatch.setattr(settings_api, "verify_session_context", lambda _header: SimpleNamespace(company_id=company_id, auth_subject="auth-user-1"))
     monkeypatch.setattr(settings_api, "ensure_company", ensure_company)
-    monkeypatch.setattr(settings_api, "save_assistant_config", save_config)
-    monkeypatch.setattr(settings_api, "save_agent_profile_version", save_profile_version)
+    monkeypatch.setattr(settings_api, "save_assistant_configuration", save_configuration)
 
     payload = settings_api.AssistantConfigRequest(
         assistant_name="Company Calendar Assistant",

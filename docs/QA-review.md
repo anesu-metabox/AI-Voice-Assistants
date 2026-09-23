@@ -4,6 +4,99 @@
 
 This document is the handoff for QA, security, and systems-design collaborators. It records the risks found in the current implementation and the controls that must be verified before multi-company use.
 
+## Current live-application audit and continuation handoff — 23 September 2026
+
+This section supersedes older status statements below wherever they conflict. It combines a read-only source review, independent QA and architecture reviews, and a names-only Railway configuration inspection. No application code or Railway variables were changed. Existing local edits were preserved. Secret values and customer profile contents were not inspected.
+
+### Executive assessment
+
+The current system is not merely client-side mockup code: it has a Next.js same-origin backend-for-frontend, Neon Auth session verification, signed tenant context to FastAPI, company/profile persistence, capability compilation, versioned agent profiles, RLS migrations, and a separate credential broker. However, the deployed setup is not yet demonstrated as a coherent, production-safe release. Most urgently, assistant profile saves are failing in production; onboarding completion can be inferred too early; deployment revisions are split; and the production database role, migrations, cookie flags, and credential encryption provider have not all been verified against live state.
+
+### Confirmed live failure: assistant profile save returns 500
+
+Railway logs for 23 September 2026 show:
+
+- `GET /assistant-config` succeeded repeatedly; `POST /assistant-config/validate` succeeded on the later attempts.
+- Three `POST /assistant-config` requests returned HTTP 500 at approximately 08:15, 08:16, and 08:17 UTC.
+- The Voice API logged `Failed to save assistant config (error_type=AmbiguousParameterError)` for those failures. The API maps unexpected exceptions to the generic “Assistant configuration service is unavailable” message in `backend/app/api/settings.py` around lines 252–256.
+- The corresponding frontend proxy requests reached Railway and returned HTTP 500. Therefore this observed save failure is not explained by the Next.js route being absent, a failed sign-in, or a missing backend connection. It is a backend persistence-path failure.
+
+The precise SQL statement is **not proven**: the production handler logs only the exception class and suppresses the traceback/SQL. A strong first query to isolate is the versioned-profile insert in `db/agent_profiles.py` around lines 49–56, particularly the reused `$3` lifecycle-state parameter in its `CASE` expression. This is a hypothesis for the next engineer to reproduce against an isolated database branch, not a confirmed root cause. The legacy `assistant_configs` save occurs first (`backend/app/api/settings.py` around lines 218–226), then the versioned profile save follows (around lines 227 onward); they are separate repository transactions. If the second step fails, the endpoint reports failure even though the first representation may already have persisted. This creates a confirmed partial-save/inconsistent-state risk.
+
+**Next action:** reproduce both draft-save and publish requests on an isolated migrated Neon branch, identify the failing statement without recording request bodies or secrets, fix the parameter typing/query, make the two writes atomic (or provide explicit recovery semantics), and add a real database-backed regression test. Do not diagnose this from the generic UI message alone.
+
+### Deployment and Railway configuration findings
+
+Railway's production service configuration currently shows:
+
+| Service | Source | Commit | Finding |
+| --- | --- | --- | --- |
+| AI Voice Bot (Next.js) | `main` | `3b980eb` | Browser-facing frontend. |
+| Voice API | `develop` | `6deef3f` | Public HTTPS domain and FastAPI process. |
+| Credential Broker | `develop` | `6deef3f` | Private service endpoint; no public domain shown. |
+| LiveKit Worker | `develop` | `6deef3f` | Separate worker process. |
+| Next.js with Neon | unrelated `neondatabase-labs/neon-railway-nextjs` sample | `c4c5e28` | Extra public Railway service, not the repository's frontend; confirm its intended purpose and remove/disable only with owner approval. |
+
+This split across `main` and `develop` is verified, but a specific frontend/backend contract mismatch has not been proven. It does mean the running application is not pinned to one reviewed release and complicates diagnosis/rollback. Reconcile and deploy a reviewed compatible commit set before calling the whole stack one release.
+
+Railway variable **names only** were inspected. Absence from one service is not automatically a defect: the Google Calendar OAuth client secret belongs in the credential broker, not the browser or general API; migration-only unpooled DSNs and privileged credentials should not be in runtime services; worker/API/frontend secrets should be scoped to their use. However:
+
+- The frontend service has names for `DATABASE_URL`, `GEMINI_API_KEY`, `GOOGLE_CLIENT_ID`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET`; none of these names is referenced under `frontend/src` in the current source. The browser-direct Gemini route returns 410 and the UI requests LiveKit tokens through the backend proxy. These frontend variables appear redundant and expand secret exposure; validate against the exact deployed frontend commit before removing them.
+- The broker variable-name inventory includes `CREDENTIAL_ENCRYPTION_KEY` and `CREDENTIAL_KEY_PROVIDER`, but does not show `CREDENTIAL_KMS_KEY_ID`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. The actual values and any out-of-band workload identity were not inspected. This does not prove what provider value the broker is using; it does mean KMS readiness is unverified and the environment-key variable name is inconsistent with the production policy. The code rejects the `env` provider when `APP_ENV` is production (`backend/app/services/credential_envelope.py`); the rollout checklist requires AWS KMS workload identity and broker-only KMS permission (`docs/PRODUCTION_ROLLOUT_CHECKLIST.md`, lines 18–27). Confirm via the production preflight without printing values. Do not switch to static AWS access keys.
+- Core variable names exist in the expected service scopes: Neon Auth URL on Next.js; database and signed-context settings on API/broker as appropriate; LiveKit settings on API/worker; Google client secret on the broker. Names alone do not prove values are non-empty, correct, rotated, or equal across services.
+
+Thus, “many missing variables” needs a service-by-service matrix, not one global checklist. Some omissions are intentional security boundaries; wrong or empty values for a required service input will break that service. The current evidence cannot certify the values.
+
+### Persistence, onboarding, and Google account behavior
+
+- Company information is persisted through the authenticated `/company-profile` API into `company_profiles`; the assistant save path writes legacy `assistant_configs` and a structured/versioned `agent_profile_versions.profile` JSONB document. Railway logs show company-profile and assistant-config reads returning 200. These are server/database paths, not local-storage-only onboarding.
+- Neon Auth owns application users/sessions. Company tenancy and memberships are represented in `companies` and `company_memberships`. Integration metadata and encrypted credential records, profile versions, preferences, and voice/session state also exist; the database is not limited to only the four requested categories. It should not store raw audio/transcripts or mirror Google Calendar event contents except for explicitly justified, tenant-scoped operational data.
+- Returning users are routed to the dashboard if `company_name` exists (`frontend/src/App.tsx` around lines 1861–1874). The persisted `onboarding_complete` preference exists in backend/database code, but frontend routing does not consult it. Nor does this decision verify that an assistant profile is published or required integrations are ready. This can send a user to the dashboard after only company details were saved, while voice startup later rejects a missing published profile. Make completion a persisted, explicit state derived from required setup milestones and test same-account sign-in/reload plus partial setup.
+- The v1 model is one company per application login (`company_memberships` has a unique user constraint). It does not yet support multiple employee logins sharing a company. This is consistent with the plan but must be an explicit product limitation.
+- Google application sign-in and Google Calendar connection are distinct OAuth uses. The app can support password sign-in through Neon Auth and social sign-in through Google; Calendar connection is a separate Google OAuth consent grant. The user should enter a Google email/password only on Google's own authorization page. The app must never collect or proxy a Google password. The Calendar connected-account email should be persisted and displayed as non-secret metadata.
+
+### Architecture and security review
+
+Positive controls found in source:
+
+- The Next.js Auth catch-all forwards Auth cookies/`Set-Cookie`; backend API requests do not forward the browser cookie. `frontend/src/lib/backendProxy.ts` checks same-origin mutations, obtains a server-verified Neon session, and sends a signed tenant context instead.
+- `frontend/src/lib/sessionContext.ts` verifies the cookie by calling Neon Auth server-side and derives a company identifier from the authenticated subject. Backend repositories set transaction-local `app.company_id`; migrations define tenant RLS policies and `FORCE ROW LEVEL SECURITY` on tenant tables.
+- Google OAuth credentials are brokered and encrypted in code; migration and production docs require a non-bypass-RLS role, KMS, and secret separation.
+
+Open verification gaps / design risks:
+
+1. **Live cookie attributes are unknown.** The Next.js proxy passes `Set-Cookie` through and does not itself enforce `HttpOnly`, `Secure`, or `SameSite`. Verify the actual production response in browser developer tools and add tests for those flags; do not assume proxy code proves them.
+2. **Live Neon production state is unknown.** Local migrations and the isolated test branch do not prove which migrations are applied to Railway's DATABASE_URL, whether the service uses the expected `NOSUPERUSER NOBYPASSRLS` role, or whether every RLS policy/grant works for the production runtime. Check the actual Railway database target and only run read-only schema/role inventory first; do not dump customer rows or secret-bearing tables.
+3. **Company name is duplicated.** `companies.display_name` and `company_profiles.company_name` are separate fields. `ensure_company` inserts the company name on first creation but does not update it on later profile changes. Declare a source of truth or keep both synchronized transactionally.
+4. **Google integration schema has possible drift.** `google_integrations` is created in migration 007 while OAuth token repositories also use the older `oauth_tokens` table. Audit and document the authoritative source for status/email, ciphertext, scopes, and refresh lifecycle before adding more integration code.
+5. **Repeated authenticated reads are slow in observed logs.** Several production assistant/profile reads took roughly 3.7–4.8 seconds at the API layer; some integrations were also several seconds. Profile end-to-end timing and Neon cold-start/connection-pool behavior need measurement. The frontend test suite cannot establish acceptable production latency.
+6. **Production-ready does not mean all future integrations work.** Existing plans record that 3CX runtime composition/PBX acceptance and several production rollout gates remain incomplete; do not expose unfinished capabilities as working product behavior.
+
+### Independent QA and architecture perspective
+
+Two independent read-only reviewers reached the same high-level conclusion: the generic configuration message masks backend persistence exceptions; saves are not atomic; onboarding completion is inferred from company-name presence; production RLS/migration/runtime-role and cookie flags need live verification. The architecture review flagged the versioned-profile insert as the leading SQL hypothesis but did not prove it. It also found that the current code/deployment split and unverified production encryption configuration undermine confidence even where the repository contains intended controls.
+
+### Verification performed in this audit
+
+- Railway status and service configuration read-only; variable names only. No Railway values were retrieved or changed.
+- Production HTTP/runtime logs around 08:00–08:50 UTC on 23 September 2026; no request bodies, transcripts, or credentials used as evidence.
+- Frontend test suite: **74 passed, 0 failed**. TypeScript typecheck: **passed**.
+- Python is available in the repository's `.venv` as Python 3.12.14 (the executable is not on the global shell `PATH`). Follow-up verification ran the focused assistant publish, profile-versioning, and company-membership tests: **11 passed**. Pytest emitted a cache-write permission warning for `.pytest_cache`; it did not affect test results.
+- No live browser cookie inspection, Google OAuth completion, production database query, or cross-company production test was performed. `.neon` metadata points at the isolated `codex-roadmap-migration-test` branch; that is not evidence about the Railway database target.
+
+### Required next-engineer order of work
+
+1. Reproduce and fix the assistant draft/publish failure on an isolated migrated database; identify the exact SQL; make legacy and versioned writes atomic; add DB-backed tests.
+2. Run production configuration preflight against Railway using names/boolean validation only; verify each value's presence, service scope, and cross-service consistency without printing secret values. Confirm broker KMS provider and workload identity; confirm database role and branch.
+3. Read-only inspect the Railway Neon branch: current database/branch identity, applied migration ledger, tenant table/policy inventory, forced-RLS flags, role flags, and required grants. Stop if branch identity or access role is unclear.
+4. Reconcile the frontend/API/worker/broker revisions into a reviewed release; document exact commit SHAs and rollback as one release unit.
+5. Define explicit persisted onboarding milestones; support return-to-dashboard only after the correct milestone, while keeping incomplete setup recoverable. Test first signup, interrupted onboarding, assistant publish failure/retry, logout/login, reload, and two isolated accounts.
+6. Verify Auth cookie flags and same-origin CSRF behavior in production; test account A cannot read/write account B's profile, assistant versions, Google email/tokens, or sessions.
+7. Confirm Google sign-in and Calendar OAuth separately, including Calendar email display and real availability/list/book/cancel consented flows. Never collect Google passwords.
+8. Profile API latency and run the full acceptance suite against an isolated migrated branch before production rollout; do not infer live readiness from local unit tests.
+
+## Prior audit history
+
 ## Current findings and disposition
 
 The findings below were captured against an earlier baseline. They are not all

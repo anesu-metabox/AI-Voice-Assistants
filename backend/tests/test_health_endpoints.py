@@ -31,3 +31,17 @@ async def test_database_diagnostic_never_returns_raw_connection_errors(monkeypat
 
     assert response == {"status": "error", "database": "unreachable"}
     assert "secret" not in str(response)
+
+
+@pytest.mark.asyncio
+async def test_security_headers_injected_on_responses():
+    from httpx import AsyncClient, ASGITransport
+    from backend.app.main import app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/health")
+        assert resp.status_code == 200
+        assert resp.headers.get("Strict-Transport-Security") == "max-age=31536000; includeSubDomains; preload"
+        assert resp.headers.get("X-Content-Type-Options") == "nosniff"
+        assert resp.headers.get("X-Frame-Options") == "DENY"
+        assert resp.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"

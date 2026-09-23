@@ -16,15 +16,21 @@ Neon verification do not substitute for these production checks.
 
 ## 2. Secrets and service identity
 
-- [ ] Configure an AWS symmetric KMS key and workload identity, then set
-  `CREDENTIAL_KEY_PROVIDER=aws-kms`, `CREDENTIAL_KMS_KEY_ID`, and
-  `AWS_REGION` **on the credential-broker workload only**; production must fail
-  closed otherwise. Only the broker's distinct IAM role may call
-  `kms:GenerateDataKey` and `kms:Decrypt`, constrained by the documented
-  non-sensitive encryption-context keys. The general FastAPI role must have no
-  KMS permission and must receive only the broker URL/HMAC secret. Use the
-  reviewed [CloudFormation template and setup guide](AWS_KMS_SETUP.md); do not
-  provision static AWS access keys for the application.
+- [ ] For the current Railway deployment, set a high-entropy 32-byte
+  URL-safe-base64 `CREDENTIAL_ENCRYPTION_KEY` only in the private Credential
+  Broker service variables. Set `CREDENTIAL_ENCRYPTION_KEY_VERSION` (initially
+  `1`); do not set it in the frontend, API, or LiveKit Worker. Railway project
+  administrators who can inspect/edit broker variables are trusted with this
+  key. Do not put key values in Git, logs, tickets, or shared docs.
+- [ ] Keep `CREDENTIAL_ENCRYPTION_PREVIOUS_KEY` and
+  `CREDENTIAL_ENCRYPTION_PREVIOUS_KEY_VERSION` broker-only and unset unless
+  rotating. Rotation procedure: deploy the new current key/version while the
+  old key/version is configured as previous; re-encrypt existing integration
+  credentials through an approved broker migration; verify no rows require the
+  old version; then remove previous-key variables. Never change the key or
+  version without this overlap/migration, or existing credentials become
+  undecryptable. Railway variable encryption protects storage at rest, but is
+  not an independent KMS boundary from Railway administrators.
 - [ ] Keep Neon credentials separate too: provision a dedicated
   `NOSUPERUSER NOBYPASSRLS` database login for normal API/broker traffic; keep
   the privileged migration/owner login out of service environments. Run the
@@ -46,12 +52,22 @@ Neon verification do not substitute for these production checks.
   LiveKit, and Google API credentials recorded there before any production use.
 - [ ] Confirm logs, traces, analytics, and error reporting redact OAuth tokens,
   3CX secrets, bearer tokens, transcript text, and request bodies.
+- [ ] Run the value-redacted Railway metadata preflight using
+  `scripts/production_preflight.py` and the names-only Railway snapshot. Review
+  [the preflight policy](../config/production-preflight.json) and
+  [latest recorded results](PRODUCTION_PREFLIGHT_RESULTS.md). The checker is
+  diagnostic only and does not change Railway configuration.
+- [ ] Resolve every `FAIL` and required `UNKNOWN`. Verify per-service secret
+  presence/equality from controlled runtime checks that emit booleans only;
+  confirm the actual Neon branch/runtime role and verify that only the private
+  broker receives the Railway encryption key. Variable names alone do not
+  satisfy these gates.
 - [ ] Run `powershell -File scripts/check-config.ps1 -Production`; resolve every
   reported key before deploying any service.
 - [ ] Run `powershell -File scripts/check-config.ps1 -Production -CredentialBroker`
   against the broker's isolated deployment environment and verify that the
-  Google OAuth client secret and KMS configuration are absent from the general
-  API environment.
+  Google OAuth client secret and Railway credential-encryption key are absent
+  from the general API environment.
 
 ## 3. Database migration sequence
 
@@ -108,8 +124,8 @@ so an unidentified or transaction-pooled target cannot be migrated accidentally.
 - [ ] Frontend typecheck, tests, lint, and build pass.
 - [ ] Backend tests pass against the migrated isolated schema and production
   smoke tests pass after migration.
-- [ ] Agent policy, signed context, tool allowlist, OAuth, RLS, KMS, SSRF, and
-  tenant-isolation tests pass.
+- [ ] Agent policy, signed context, tool allowlist, OAuth, RLS, credential
+  envelope encryption, SSRF, and tenant-isolation tests pass.
 - [ ] Browser voice acceptance passes for greeting, calendar actions, rejected
   off-topic requests, autoplay retry, reconnect, and stop/cleanup.
 - [ ] LiveKit logs show no duplicate agent and no active-conversation event-loop
