@@ -16,6 +16,14 @@ class AgentReliabilityTests(unittest.TestCase):
         self.assertIn("if event.transcript and event.is_final:", AGENT_SOURCE)
         self.assertIn('if event.item.role == "assistant":', AGENT_SOURCE)
 
+    def test_entrypoint_uses_configurable_backend_timeout(self) -> None:
+        self.assertIn("timeout=httpx.Timeout(BACKEND_TIMEOUT_SECONDS, connect=5.0)", AGENT_SOURCE)
+        self.assertNotIn("timeout=2.0", AGENT_SOURCE)
+
+    def test_company_profile_fetch_is_isolated_from_required_snapshot(self) -> None:
+        self.assertIn("Optional company profile fetch failed or timed out", AGENT_SOURCE)
+
 
 if __name__ == "__main__":
     unittest.main()
+

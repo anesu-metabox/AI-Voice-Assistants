@@ -813,7 +813,7 @@ async def entrypoint(ctx: JobContext) -> None:
     inbound_greeting = ""
     try:
         async with httpx.AsyncClient(
-            timeout=2.0,
+            timeout=httpx.Timeout(BACKEND_TIMEOUT_SECONDS, connect=5.0),
             verify=ssl_context if isinstance(ssl_context, ssl.SSLContext) else True,
             trust_env=False,
         ) as http_client:
@@ -861,25 +861,31 @@ async def entrypoint(ctx: JobContext) -> None:
                     )
                 active_instructions += format_company_operating_profile(profile)
 
-            comp_resp = await http_client.get(
-                f"{BACKEND_URL}/api/company-profile", headers=context_headers
-            )
-            if comp_resp.status_code == 200:
-                comp_data = comp_resp.json().get("data", {})
-                if isinstance(comp_data, dict):
-                    company_scope_context.update(comp_data)
-                session_timezone = session_context.timezone or str(comp_data.get("timezone") or "")[:64]
-                if session_timezone:
-                    company_scope_context["timezone"] = session_timezone
-                active_instructions += format_untrusted_company_context(
-                    "AUTHENTICATED COMPANY PROFILE DATA",
-                    {
-                        "company_name": str(comp_data.get("company_name") or "")[:255],
-                        "website_url": str(comp_data.get("website_url") or "")[:2048],
-                        "support_email": str(comp_data.get("support_email") or "")[:320],
-                        "phone": str(comp_data.get("company_phone") or "")[:64],
-                        "timezone": session_timezone,
-                    },
+            try:
+                comp_resp = await http_client.get(
+                    f"{BACKEND_URL}/api/company-profile", headers=context_headers
+                )
+                if comp_resp.status_code == 200:
+                    comp_data = comp_resp.json().get("data", {})
+                    if isinstance(comp_data, dict):
+                        company_scope_context.update(comp_data)
+                    session_timezone = session_context.timezone or str(comp_data.get("timezone") or "")[:64]
+                    if session_timezone:
+                        company_scope_context["timezone"] = session_timezone
+                    active_instructions += format_untrusted_company_context(
+                        "AUTHENTICATED COMPANY PROFILE DATA",
+                        {
+                            "company_name": str(comp_data.get("company_name") or "")[:255],
+                            "website_url": str(comp_data.get("website_url") or "")[:2048],
+                            "support_email": str(comp_data.get("support_email") or "")[:320],
+                            "phone": str(comp_data.get("company_phone") or "")[:64],
+                            "timezone": session_timezone,
+                        },
+                    )
+            except Exception as comp_err:
+                logger.warning(
+                    "Optional company profile fetch failed or timed out (error_type=%s)",
+                    type(comp_err).__name__,
                 )
     except Exception as fetch_err:
         if session_context.profile_version is not None:
