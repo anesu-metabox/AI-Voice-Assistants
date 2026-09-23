@@ -1858,11 +1858,19 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/company-profile", { cache: "no-store" })
-      .then(async (response) => {
-        if (!active || !response.ok) return;
-        const payload = await response.json();
-        const companyName = String(payload?.data?.company_name || "").trim();
+    fetch("/api/auth/get-session", { credentials: "include", cache: "no-store" })
+      .then(async (sessionResponse) => {
+        if (!sessionResponse.ok) return;
+        const sessionPayload = await sessionResponse.json();
+        if (!active || !(sessionPayload?.user || sessionPayload?.session?.user)) return;
+
+        // An authenticated user should never remain on the public landing page
+        // while their company profile is loading or temporarily unavailable.
+        setPage("onboarding-goals");
+        const profileResponse = await fetch("/api/company-profile", { credentials: "include", cache: "no-store" });
+        if (!active || !profileResponse.ok) return;
+        const profilePayload = await profileResponse.json();
+        const companyName = String(profilePayload?.data?.company_name || "").trim();
         setPage(companyName ? "dashboard" : "onboarding-goals");
       })
       .catch(() => {
