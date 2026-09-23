@@ -45,6 +45,9 @@ describe("FastAPI & Next.js Endpoints Integration Verification", () => {
     assert.match(signInContent, /sign-up\/email/);
     assert.match(signInContent, /new URL\("\/", window\.location\.origin\)\.toString\(\)/);
     assert.match(signInContent, /callbackURL/);
+    assert.match(signInContent, /\/api\/auth\/get-session/);
+    assert.match(signInContent, /router\.replace\("\/"\)/);
+    assert.match(signInContent, /session was not saved/);
   });
 
   it("checks mutation origins against the configured public app origin behind a reverse proxy", () => {
@@ -62,6 +65,14 @@ describe("FastAPI & Next.js Endpoints Integration Verification", () => {
     assert.match(appSource, /\/api\/auth\/sign-out/);
     assert.match(appSource, /window\.location\.assign\("\/sign-in"\)/);
     assert.doesNotMatch(appSource, /Signed-in company|Authenticated workspace/);
+  });
+
+  it("routes an authenticated session out of the public landing state before loading company data", () => {
+    const appSource = readFileSync(resolve(frontendDir, "src/App.tsx"), "utf-8");
+    assert.match(appSource, /fetch\("\/api\/auth\/get-session"/);
+    assert.match(appSource, /sessionPayload\?\.user \|\| sessionPayload\?\.session\?\.user/);
+    assert.match(appSource, /setPage\("onboarding-goals"\)/);
+    assert.match(appSource, /fetch\("\/api\/company-profile"/);
   });
 
   it("forwards single-segment Google OAuth paths without throwing in Next", () => {
