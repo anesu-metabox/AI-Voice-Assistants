@@ -211,11 +211,11 @@ async def google_callback(
                 <script>
                     try {
                         if (window.opener) {
-                            window.opener.postMessage({ type: 'GOOGLE_AUTH_SUCCESS' }, window.location.origin);
+                            window.opener.postMessage({ type: 'GOOGLE_AUTH_SUCCESS' }, '*');
                             setTimeout(function() { window.close(); }, 1500);
                         }
                     } catch (e) {
-                        console.error("OAuth completion notification failed");
+                        console.error("OAuth completion notification failed", e);
                     }
                 </script>
             </body>

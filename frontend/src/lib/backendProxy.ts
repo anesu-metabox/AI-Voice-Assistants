@@ -90,6 +90,7 @@ export async function proxyBackend(
         headers,
         body,
         cache: "no-store",
+        redirect: "manual",
         signal: AbortSignal.timeout(timeoutMs),
       });
       const responseBody = await response.arrayBuffer();

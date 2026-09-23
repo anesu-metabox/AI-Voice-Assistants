@@ -44,7 +44,7 @@ export function GoogleCalendarAuth() {
 
     // Listen for cross-window messages from OAuth popup
     const handleMessage = (event: MessageEvent) => {
-      if (event.origin === window.location.origin && event.data?.type === "GOOGLE_AUTH_SUCCESS") {
+      if (event.data?.type === "GOOGLE_AUTH_SUCCESS") {
         fetchStatus();
       }
     };
@@ -53,7 +53,7 @@ export function GoogleCalendarAuth() {
     return () => window.removeEventListener("message", handleMessage);
   }, [fetchStatus]);
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     setActionLoading(true);
     const width = 520;
     const height = 650;
@@ -61,10 +61,26 @@ export function GoogleCalendarAuth() {
     const top = window.screenY + (window.outerHeight - height) / 2;
 
     const popup = window.open(
-      "/auth/google/login",
+      "",
       "GoogleOAuth",
       `width=${width},height=${height},left=${left},top=${top},status=no,menubar=no,toolbar=no`
     );
+
+    try {
+      const res = await fetch("/auth/google/url", { cache: "no-store", credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.auth_url && popup) {
+          popup.location.href = data.auth_url;
+        } else if (popup) {
+          popup.location.href = "/auth/google/login";
+        }
+      } else if (popup) {
+        popup.location.href = "/auth/google/login";
+      }
+    } catch {
+      if (popup) popup.location.href = "/auth/google/login";
+    }
 
     // Fallback timer if popup closed without postMessage
     const timer = setInterval(() => {

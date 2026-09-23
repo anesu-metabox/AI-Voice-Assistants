@@ -851,7 +851,7 @@ function GoogleCalendarIntegrationCard() {
   useEffect(() => {
     checkStatus();
     const handleMsg = (e: MessageEvent) => {
-      if (e.origin === window.location.origin && e.data?.type === "GOOGLE_AUTH_SUCCESS") {
+      if (e.data?.type === "GOOGLE_AUTH_SUCCESS") {
         checkStatus();
       }
     };
@@ -859,17 +859,32 @@ function GoogleCalendarIntegrationCard() {
     return () => window.removeEventListener("message", handleMsg);
   }, [checkStatus]);
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     setBusy(true);
     const width = 520;
     const height = 650;
     const left = window.screenX + (window.outerWidth - width) / 2;
     const top = window.screenY + (window.outerHeight - height) / 2;
     const popup = window.open(
-      "/auth/google/login",
+      "",
       "GoogleOAuth",
       `width=${width},height=${height},left=${left},top=${top},status=no,menubar=no,toolbar=no`
     );
+    try {
+      const res = await fetch("/auth/google/url", { cache: "no-store", credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.auth_url && popup) {
+          popup.location.href = data.auth_url;
+        } else if (popup) {
+          popup.location.href = "/auth/google/login";
+        }
+      } else if (popup) {
+        popup.location.href = "/auth/google/login";
+      }
+    } catch {
+      if (popup) popup.location.href = "/auth/google/login";
+    }
     const timer = setInterval(() => {
       if (!popup || popup.closed) {
         clearInterval(timer);
