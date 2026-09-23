@@ -10,12 +10,26 @@ export default function SignInPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
 
   useEffect(() => {
+    let active = true;
     if (new URLSearchParams(window.location.search).get("mode") === "sign-up") {
       setMode("sign-up");
     }
-  }, []);
+    fetch("/api/auth/get-session", { credentials: "include", cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (active && (payload?.user || payload?.session?.user)) {
+          router.replace("/");
+          router.refresh();
+        }
+      })
+      .catch(() => { /* A transient session check must not block sign-in. */ })
+      .finally(() => { if (active) setCheckingSession(false); });
+    return () => { active = false; };
+  }, [router]);
 
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError("");
@@ -24,7 +38,12 @@ export default function SignInPage() {
       const callbackURL = new URL("/", window.location.origin).toString();
       const response = await fetch(`/api/auth/${endpoint}`, { method: "POST", headers: { "content-type": "application/json" }, credentials: "include", body: JSON.stringify({ email, password, name: email.split("@")[0], callbackURL }) });
       if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(payload.message || payload.error || "Authentication failed."); }
-      router.push("/"); router.refresh();
+      const sessionResponse = await fetch("/api/auth/get-session", { credentials: "include", cache: "no-store" });
+      const sessionPayload = sessionResponse.ok ? await sessionResponse.json() : null;
+      if (!sessionPayload?.user && !sessionPayload?.session?.user) {
+        throw new Error("Sign-in completed but your session was not saved. Please retry; if this continues, contact support.");
+      }
+      router.replace("/"); router.refresh();
     } catch (err) { setError(err instanceof Error ? err.message : "Authentication failed."); }
     finally { setBusy(false); }
   }
@@ -48,9 +67,11 @@ export default function SignInPage() {
         <label style={{ display: "block", marginBottom: 14 }}>Email<input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} style={{ display: "block", width: "100%", marginTop: 6, padding: 10, borderRadius: 8, color: "#0f172a" }} /></label>
         <label style={{ display: "block", marginBottom: 18 }}>Password<input required minLength={8} type="password" value={password} onChange={(event) => setPassword(event.target.value)} style={{ display: "block", width: "100%", marginTop: 6, padding: 10, borderRadius: 8, color: "#0f172a" }} /></label>
         {error && <p role="alert" style={{ color: "#fca5a5", marginBottom: 14 }}>{error}</p>}
-        <button disabled={busy} type="submit" style={{ width: "100%", padding: 11, border: 0, borderRadius: 8, background: "#4f46e5", color: "white", fontWeight: 700 }}>{busy ? "Working..." : mode === "sign-in" ? "Sign in" : "Create account"}</button>
-        <button disabled={busy} type="button" onClick={googleSignIn} style={{ width: "100%", padding: 11, marginTop: 10, borderRadius: 8, background: "transparent", border: "1px solid #475569", color: "white" }}>Continue with Google</button>
-        <button type="button" onClick={() => setMode(mode === "sign-in" ? "sign-up" : "sign-in")} style={{ width: "100%", marginTop: 18, background: "none", border: 0, color: "#93c5fd" }}>{mode === "sign-in" ? "Create an account" : "I already have an account"}</button>
+        {checkingSession ? <p role="status" style={{ color: "#94a3b8" }}>Checking your session…</p> : <>
+          <button disabled={busy} type="submit" style={{ width: "100%", padding: 11, border: 0, borderRadius: 8, background: "#4f46e5", color: "white", fontWeight: 700 }}>{busy ? "Working..." : mode === "sign-in" ? "Sign in" : "Create account"}</button>
+          <button disabled={busy} type="button" onClick={googleSignIn} style={{ width: "100%", padding: 11, marginTop: 10, borderRadius: 8, background: "transparent", border: "1px solid #475569", color: "white" }}>Continue with Google</button>
+          <button type="button" onClick={() => setMode(mode === "sign-in" ? "sign-up" : "sign-in")} style={{ width: "100%", marginTop: 18, background: "none", border: 0, color: "#93c5fd" }}>{mode === "sign-in" ? "Create an account" : "I already have an account"}</button>
+        </>}
       </form>
     </main>
   );
