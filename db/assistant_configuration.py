@@ -22,15 +22,19 @@ async def save_assistant_configuration(
     inbound_greeting: str,
     system_prompt: str,
     knowledge_base_notes: str | None,
-    is_deployed: bool,
+    is_deployed: bool = False,
     profile: dict[str, Any],
     compiled_policy: dict[str, Any],
+    published: bool | None = None,
+    **_kwargs: Any,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Write both assistant representations on one tenant-scoped transaction.
 
     The legacy row remains a compatibility projection while version history is
     written; callers must not split these writes across connections.
     """
+    if published is not None:
+        is_deployed = bool(published)
     company_uuid = uuid.UUID(company_id)
     operation_id = str(uuid.uuid4())
     stage = "acquire"

@@ -236,7 +236,6 @@ async def update_assistant_config(
                 "capabilities": payload.capabilities,
             },
             compiled_policy=compiled_policy,
-            published=payload.is_deployed,
         )
         return {
             "status": "success",

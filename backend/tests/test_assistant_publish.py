@@ -77,3 +77,11 @@ def test_profile_transition_accepts_only_explicit_source_states(current, target,
 def test_profile_transition_rejects_unvalidated_or_repeated_publish(current, target, allowed):
     with pytest.raises(ValueError):
         validate_profile_transition(current, target, allowed)
+
+
+def test_assistant_configuration_signature_accepts_deployment_parameters():
+    import inspect
+    from db.assistant_configuration import save_assistant_configuration
+    sig = inspect.signature(save_assistant_configuration)
+    assert "is_deployed" in sig.parameters
+    assert "published" in sig.parameters
