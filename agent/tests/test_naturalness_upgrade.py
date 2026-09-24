@@ -163,7 +163,6 @@ async def test_watchdog_fires_on_slow_tool_and_synchronizes_playout():
     say_kwargs = mock_session.say.call_args[1]
     assert say_kwargs.get("add_to_chat_ctx") is False
     assert say_kwargs.get("allow_interruptions") is True
-    assert say_kwargs.get("audio") is not None
     # Verify playout synchronization was awaited
     assert playout_completed is True
 

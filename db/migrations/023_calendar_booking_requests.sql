@@ -41,6 +41,9 @@ ALTER TABLE calendar_booking_requests FORCE ROW LEVEL SECURITY;
 -- NOBYPASSRLS and uses the tenant policy above.
 DO $$
 BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'voice_bot_runtime_app') THEN
+        EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON calendar_booking_requests TO voice_bot_runtime_app';
+    END IF;
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'calendar_booking_worker') THEN
         EXECUTE 'GRANT SELECT ON calendar_booking_requests TO calendar_booking_worker';
         EXECUTE 'GRANT UPDATE (status, attempt_count, next_attempt_at, lease_until, result_payload, error_message, updated_at) ON calendar_booking_requests TO calendar_booking_worker';

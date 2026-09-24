@@ -175,10 +175,10 @@ async def audio_frame_stream(frames: List[rtc.AudioFrame]) -> AsyncIterable[rtc.
 
 
 class LatencyMaskingWatchdog:
-    """Watchdog that starts a 280ms dwell timer concurrently with tool execution.
+    """Watchdog that immediately communicates with the user when a tool starts.
 
-    If the tool takes >280ms, immediately plays filler via:
-    session.say(text, audio=stream, add_to_chat_ctx=False)
+    Speaks a contextual in-progress filler via:
+    session.say(phrase, allow_interruptions=True, add_to_chat_ctx=False)
 
     On exit, ensures playout synchronization:
     await filler_handle.wait_for_playout() before returning tool JSON output to Gemini.
@@ -189,7 +189,7 @@ class LatencyMaskingWatchdog:
         ctx: Optional[RunContext] = None,
         tool_name: str = "",
         voice: str = "Aoede",
-        dwell_ms: float = 280.0,
+        dwell_ms: float = 0.0,
         session: Optional[AgentSession] = None,
     ) -> None:
         self.ctx = ctx
@@ -245,37 +245,28 @@ class LatencyMaskingWatchdog:
 
     async def _watchdog_loop(self) -> None:
         try:
-            await asyncio.sleep(self.dwell_seconds)
+            if self.dwell_seconds > 0:
+                await asyncio.sleep(self.dwell_seconds)
             if self._stop_event.is_set():
                 return
 
             phrases = FILLER_DICTIONARY.get(self.tool_name)
             if not phrases:
-                phrases = ("One moment please, checking that now.",)
+                phrases = ("Let me check that for you right now.",)
             phrase = random.choice(phrases)
             validate_filler_phrase(phrase)
             self._filler_phrase = phrase
             self._fired = True
             self._filler_triggered_at = time.perf_counter()
 
-            cached_frames = GLOBAL_PAC.get_frames(self.voice, phrase)
             if self._session is not None:
-                if cached_frames:
-                    frame_gen = audio_frame_stream(cached_frames)
-                    self._filler_handle = self._session.say(
-                        phrase,
-                        audio=frame_gen,
-                        allow_interruptions=True,
-                        add_to_chat_ctx=False,
-                    )
-                else:
-                    self._filler_handle = self._session.say(
-                        phrase,
-                        allow_interruptions=True,
-                        add_to_chat_ctx=False,
-                    )
+                self._filler_handle = self._session.say(
+                    phrase,
+                    allow_interruptions=True,
+                    add_to_chat_ctx=False,
+                )
                 logger.info(
-                    "Latency filler triggered for '%s': '%s' (after %.1fms)",
+                    "Spoke task filler for '%s': '%s' (after %.1fms)",
                     self.tool_name,
                     phrase,
                     (self._filler_triggered_at - self._start_time) * 1000,
