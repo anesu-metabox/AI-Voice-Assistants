@@ -230,12 +230,16 @@ async def get_google_calendar_availability(
         client = get_http_client()
         response = await client.post(url, headers=headers, json=payload)
         if response.status_code != 200:
-            logger.error("Google Calendar freeBusy query failed with status %s", response.status_code)
+            logger.error(
+                "Google Calendar freeBusy query failed with status %s: %s",
+                response.status_code,
+                response.text,
+            )
             if response.status_code in (401, 403):
-                return {"status": "needs_reconnect", "error_code": "GOOGLE_CALENDAR_REAUTH_REQUIRED"}
+                return {"status": "needs_reconnect", "error_code": "GOOGLE_CALENDAR_REAUTH_REQUIRED", "details": response.text}
             if response.status_code == 429 or response.status_code >= 500:
                 return {"status": "temporarily_unavailable", "retryable": True}
-            return {"status": "failed", "retryable": False}
+            return {"status": "failed", "retryable": False, "details": response.text}
 
         data = response.json()
         busy_periods = data.get("calendars", {}).get("primary", {}).get("busy", [])
