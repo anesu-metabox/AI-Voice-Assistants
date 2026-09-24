@@ -48,14 +48,6 @@ from livekit.agents.voice.events import RunContext
 from livekit.agents.types import APIConnectOptions
 from livekit.plugins.google import realtime
 try:
-    from .latency_masking import GLOBAL_PAC, LatencyMaskingWatchdog
-except (ImportError, ValueError):
-    try:
-        from agent.latency_masking import GLOBAL_PAC, LatencyMaskingWatchdog
-    except ImportError:
-        from latency_masking import GLOBAL_PAC, LatencyMaskingWatchdog
-
-try:
     from .tts import VoiceBotTTS
 except (ImportError, ValueError):
     try:
@@ -514,20 +506,13 @@ class VoiceBotAgent(Agent):
             if end_date:
                 params["end_date"] = end_date
 
-            async with LatencyMaskingWatchdog(
-                ctx,
+            result = await call_backend_tool(
                 "get_calendar_availability",
-                voice=self.voice,
-                session=getattr(self, "session", None) or (getattr(ctx, "session", None) if ctx else None),
-                room=self.room,
-            ):
-                result = await call_backend_tool(
-                    "get_calendar_availability",
-                    params,
-                    session_context=self.session_context,
-                    idempotency_key=None,
-                    client=self._backend_client,
-                )
+                params,
+                session_context=self.session_context,
+                idempotency_key=None,
+                client=self._backend_client,
+            )
             await broadcast_task_update(
                 self.room, task_id, title, "get_calendar_availability", "completed", output=result
             )
@@ -561,20 +546,13 @@ class VoiceBotAgent(Agent):
             if end_date:
                 params["end_date"] = end_date
 
-            async with LatencyMaskingWatchdog(
-                ctx,
+            result = await call_backend_tool(
                 "list_events",
-                voice=self.voice,
-                session=getattr(self, "session", None) or (getattr(ctx, "session", None) if ctx else None),
-                room=self.room,
-            ):
-                result = await call_backend_tool(
-                    "list_events",
-                    params,
-                    session_context=self.session_context,
-                    idempotency_key=None,
-                    client=self._backend_client,
-                )
+                params,
+                session_context=self.session_context,
+                idempotency_key=None,
+                client=self._backend_client,
+            )
             await broadcast_task_update(
                 self.room, task_id, title, "list_events", "completed", output=result
             )
@@ -616,20 +594,13 @@ class VoiceBotAgent(Agent):
                 params["description"] = description
 
             idempotency_key = self._stable_write_key("book_event", params)
-            async with LatencyMaskingWatchdog(
-                ctx,
+            result = await call_backend_tool(
                 "book_event",
-                voice=self.voice,
-                session=getattr(self, "session", None) or (getattr(ctx, "session", None) if ctx else None),
-                room=self.room,
-            ):
-                result = await call_backend_tool(
-                    "book_event",
-                    params,
-                    session_context=self.session_context,
-                    idempotency_key=idempotency_key,
-                    client=self._backend_client,
-                )
+                params,
+                session_context=self.session_context,
+                idempotency_key=idempotency_key,
+                client=self._backend_client,
+            )
             booking = result.get("data") if isinstance(result, dict) else None
             booking = booking if isinstance(booking, dict) else result
             if booking.get("status") == "pending_confirmation" and booking.get("booking_request_id"):
@@ -686,20 +657,13 @@ class VoiceBotAgent(Agent):
                 params["confirmation_token"] = confirmation_token
 
             idempotency_key = self._stable_write_key("cancel_event", params)
-            async with LatencyMaskingWatchdog(
-                ctx,
+            result = await call_backend_tool(
                 "cancel_event",
-                voice=self.voice,
-                session=getattr(self, "session", None) or (getattr(ctx, "session", None) if ctx else None),
-                room=self.room,
-            ):
-                result = await call_backend_tool(
-                    "cancel_event",
-                    params,
-                    session_context=self.session_context,
-                    idempotency_key=idempotency_key,
-                    client=self._backend_client,
-                )
+                params,
+                session_context=self.session_context,
+                idempotency_key=idempotency_key,
+                client=self._backend_client,
+            )
             await broadcast_task_update(
                 self.room, task_id, title, "cancel_event", "completed", output=result
             )
@@ -747,8 +711,6 @@ def prewarm(proc: JobProcess) -> None:
     # Import the async transport stack before the first realtime turn. The
     # first AnyIO/httpcore import previously blocked the worker for >1 second.
     # Session reporting is imported lazily by LiveKit at teardown. Import it
-    # Prewarm Pre-Buffered Acoustic Cache (PAC) for sub-15ms latency masking fillers
-    GLOBAL_PAC.warm_cache_for_voice(GEMINI_VOICE)
     proc.userdata["prewarmed"] = True
     logger.info("Audio, TLS, and schema dependencies prewarmed successfully.")
 

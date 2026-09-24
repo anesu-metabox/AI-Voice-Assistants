@@ -1,6 +1,6 @@
 /**
  * VAD AudioWorklet Processor (ADR-005, R2, R3)
- * Dual-stage acoustic detector with onset gating and 600ms pause hangover.
+ * Dual-stage acoustic detector with onset gating and 100ms pause hangover.
  * Runs in a dedicated audio thread to detect voice activity with <15ms latency.
  * Emits 'speech_start' and 'speech_end' messages to the main thread.
  */
@@ -11,8 +11,9 @@ class VADProcessor extends AudioWorkletProcessor {
     const rate = typeof sampleRate !== "undefined" ? sampleRate : 48000;
     this.energyThreshold = 0.025; // Calibrated mic energy threshold
     this.speechOnsetFrames = 4; // ~10.6ms at 48kHz: eliminates single-frame click/breath spikes
-    // 600ms hangover: Math.round(0.6 * rate / 128) -> 225 frames at 48kHz
-    this.silenceHangoverFrames = Math.round((0.6 * rate) / 128) || 225;
+    // End a short backchannel before the 320ms interruption timer fires.
+    // Gemini's server-side VAD still handles actual turn completion.
+    this.silenceHangoverFrames = Math.round((0.1 * rate) / 128) || 38;
     this.consecutiveSpeechFrames = 0;
     this.silentFramesCount = 0;
     this.isSpeaking = false;
