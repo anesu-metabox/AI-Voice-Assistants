@@ -664,9 +664,22 @@ class VoiceBotAgent(Agent):
                 idempotency_key=idempotency_key,
                 client=self._backend_client,
             )
-            await broadcast_task_update(
-                self.room, task_id, title, "cancel_event", "completed", output=result
-            )
+            data = result.get("data") if isinstance(result, dict) else None
+            outcome = data.get("status") if isinstance(data, dict) else None
+            response_status = result.get("status") if isinstance(result, dict) else None
+            if response_status == "confirmation_required":
+                await broadcast_task_update(
+                    self.room, task_id, title, "cancel_event", "pending", output=result
+                )
+            elif response_status == "success" and outcome == "cancelled":
+                await broadcast_task_update(
+                    self.room, task_id, title, "cancel_event", "completed", output=result
+                )
+            else:
+                await broadcast_task_update(
+                    self.room, task_id, title, "cancel_event", "failed",
+                    error="The calendar could not confirm this cancellation.",
+                )
             return json.dumps(result)
         except Exception as exc:
             logger.error("cancel_event failed (error_type=%s)", type(exc).__name__)
