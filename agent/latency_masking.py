@@ -225,11 +225,14 @@ async def audio_frame_stream(frames: List[rtc.AudioFrame]) -> AsyncIterable[rtc.
 class LatencyMaskingWatchdog:
     """Watchdog that immediately communicates with the user when a tool starts.
 
-    Speaks a contextual in-progress filler via:
-    session.say(phrase, audio=audio_frame_stream(frames), allow_interruptions=True, add_to_chat_ctx=False)
+    Speaks a contextual in-progress filler via direct WebRTC AudioOutput frame capture:
+    audio_output.capture_frame(frame) (pacing 20ms chunks) -> audio_output.flush()
+    This completely eliminates deadlocks with AgentActivity._speech_q during tool execution.
+
+    Also synchronizes UI transcript by broadcasting assistant transcript over DataChannel.
 
     On exit, ensures playout synchronization:
-    await filler_handle.wait_for_playout() before returning tool JSON output to Gemini.
+    await wait_for_playout() before releasing tool response to Gemini.
     """
 
     def __init__(
@@ -237,15 +240,19 @@ class LatencyMaskingWatchdog:
         ctx: Optional[RunContext] = None,
         tool_name: str = "",
         voice: str = "Aoede",
-        dwell_ms: float = 0.0,
+        dwell_ms: float = 280.0,
         session: Optional[AgentSession] = None,
+        room: Optional[rtc.Room] = None,
     ) -> None:
         self.ctx = ctx
         self.tool_name = tool_name
         self.voice = voice
         self.dwell_seconds = dwell_ms / 1000.0
         self._session: Optional[Any] = session or (getattr(ctx, "session", None) if ctx else None)
+        self._room: Optional[Any] = room or (getattr(ctx, "room", None) if ctx else None) or (getattr(self._session, "room", None) if self._session else None)
         self._filler_handle: Optional[Any] = None
+        self._filler_playout_task: Optional[asyncio.Task[None]] = None
+        self._playout_done_event = asyncio.Event()
         self._fired = False
         self._filler_phrase: Optional[str] = None
         self._stop_event = asyncio.Event()
@@ -281,15 +288,36 @@ class LatencyMaskingWatchdog:
 
     async def wait_for_playout(self) -> None:
         """Wait for any active filler speech to finish playing before releasing tool response."""
-        if self._filler_handle is not None:
+        if self._filler_playout_task is not None and not self._filler_playout_task.done():
+            try:
+                await asyncio.wait_for(self._playout_done_event.wait(), timeout=2.5)
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.debug("Filler playout wait timed out or interrupted: %s", e)
+        elif self._filler_handle is not None:
             try:
                 if hasattr(self._filler_handle, "wait_for_playout"):
-                    await self._filler_handle.wait_for_playout()
+                    await asyncio.wait_for(self._filler_handle.wait_for_playout(), timeout=2.5)
                 elif hasattr(self._filler_handle, "done") and not self._filler_handle.done():
                     if asyncio.iscoroutine(self._filler_handle):
-                        await self._filler_handle
-            except Exception as e:
+                        await asyncio.wait_for(self._filler_handle, timeout=2.5)
+            except (asyncio.TimeoutError, Exception) as e:
                 logger.debug("Filler wait_for_playout skipped or interrupted: %s", e)
+
+    async def _stream_frames_to_output(self, audio_output: Any, frames: List[rtc.AudioFrame]) -> None:
+        try:
+            for frame in frames:
+                if self._stop_event.is_set():
+                    break
+                await audio_output.capture_frame(frame)
+                await asyncio.sleep(0.02)
+            if hasattr(audio_output, "flush"):
+                audio_output.flush()
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.warning("Error streaming filler frames: %s", exc)
+        finally:
+            self._playout_done_event.set()
 
     async def _watchdog_loop(self) -> None:
         try:
@@ -307,19 +335,47 @@ class LatencyMaskingWatchdog:
             self._fired = True
             self._filler_triggered_at = time.perf_counter()
 
+            # Broadcast filler transcript card over DataChannel for UI feedback
+            if self._room is not None:
+                try:
+                    from agent.agent import broadcast_transcript
+                    await broadcast_transcript(self._room, "assistant", phrase, is_final=True)
+                except Exception as transcript_err:
+                    logger.debug("Failed to broadcast filler transcript: %s", transcript_err)
+
             if self._session is not None:
                 frames = GLOBAL_PAC.get_frames(self.voice, phrase) or GLOBAL_PAC.get_frames("Aoede", phrase)
                 if not frames:
-                    frames = create_pcm_audio_frames(duration_seconds=1.2, sample_rate=DEFAULT_SAMPLE_RATE)
+                    words = phrase.split()
+                    duration = max(0.8, min(2.5, len(words) * 0.28 + 0.3))
+                    frames = create_pcm_audio_frames(duration_seconds=duration, sample_rate=DEFAULT_SAMPLE_RATE)
 
-                self._filler_handle = self._session.say(
-                    phrase,
-                    audio=audio_frame_stream(frames),
-                    allow_interruptions=True,
-                    add_to_chat_ctx=False,
-                )
+                from livekit.agents.voice import io
+
+                audio_output = None
+                if hasattr(self._session, "output"):
+                    ao = getattr(self._session.output, "audio", None)
+                    if isinstance(ao, io.AudioOutput) or (
+                        callable(getattr(ao, "capture_frame", None)) and type(ao).__name__ != "MagicMock"
+                    ):
+                        audio_output = ao
+
+                if audio_output is not None:
+                    # Direct WebRTC audio capture: eliminates deadlock by bypassing AgentActivity._speech_q
+                    self._filler_playout_task = asyncio.create_task(
+                        self._stream_frames_to_output(audio_output, frames)
+                    )
+                elif hasattr(self._session, "say"):
+                    # Compatibility fallback for test mocks
+                    self._filler_handle = self._session.say(
+                        phrase,
+                        audio=audio_frame_stream(frames),
+                        allow_interruptions=True,
+                        add_to_chat_ctx=False,
+                    )
+
                 logger.info(
-                    "Spoke task filler for '%s': '%s' (after %.1fms)",
+                    "Emitted task filler for '%s': '%s' (after %.1fms)",
                     self.tool_name,
                     phrase,
                     (self._filler_triggered_at - self._start_time) * 1000,

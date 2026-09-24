@@ -55,6 +55,17 @@ except (ImportError, ValueError):
         from latency_masking import GLOBAL_PAC, LatencyMaskingWatchdog
 
 try:
+    from .tts import VoiceBotTTS
+except (ImportError, ValueError):
+    try:
+        from agent.tts import VoiceBotTTS
+    except (ImportError, ValueError):
+        try:
+            from tts import VoiceBotTTS
+        except Exception:
+            VoiceBotTTS = None
+
+try:
     from .event_loop_monitor import monitor_active_conversation
     from .config import (
         BACKEND_URL,
@@ -333,7 +344,9 @@ async def speak_configured_greeting(session: AgentSession, greeting: str) -> boo
     cleaned = clean_spoken_text(greeting)
     if not cleaned:
         return False
-    await session.say(cleaned, allow_interruptions=True)
+    handle = session.say(cleaned, allow_interruptions=True)
+    if asyncio.iscoroutine(handle) or hasattr(handle, "__await__"):
+        await handle
     return True
 
 
@@ -416,12 +429,26 @@ class VoiceBotAgent(Agent):
         self._redirect_response = redirect_response
         self.voice = voice
         self._idempotency_keys: Dict[str, str] = {}
+        self._custom_session: Optional[Any] = None
         self._backend_client = httpx.AsyncClient(
             timeout=httpx.Timeout(BACKEND_TIMEOUT_SECONDS, connect=5.0),
             limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
             verify=ssl_context if ssl_context is not None else True,
             trust_env=False,
         )
+
+    @property
+    def session(self) -> Any:
+        if getattr(self, "_custom_session", None) is not None:
+            return self._custom_session
+        try:
+            return super().session
+        except RuntimeError:
+            return None
+
+    @session.setter
+    def session(self, s: Any) -> None:
+        self._custom_session = s
 
     async def on_user_turn_completed(
         self, turn_ctx: llm.ChatContext, new_message: llm.ChatMessage
@@ -491,6 +518,7 @@ class VoiceBotAgent(Agent):
                 "get_calendar_availability",
                 voice=self.voice,
                 session=getattr(self, "session", None) or (getattr(ctx, "session", None) if ctx else None),
+                room=self.room,
             ):
                 result = await call_backend_tool(
                     "get_calendar_availability",
@@ -537,6 +565,7 @@ class VoiceBotAgent(Agent):
                 "list_events",
                 voice=self.voice,
                 session=getattr(self, "session", None) or (getattr(ctx, "session", None) if ctx else None),
+                room=self.room,
             ):
                 result = await call_backend_tool(
                     "list_events",
@@ -591,6 +620,7 @@ class VoiceBotAgent(Agent):
                 "book_event",
                 voice=self.voice,
                 session=getattr(self, "session", None) or (getattr(ctx, "session", None) if ctx else None),
+                room=self.room,
             ):
                 result = await call_backend_tool(
                     "book_event",
@@ -660,6 +690,7 @@ class VoiceBotAgent(Agent):
                 "cancel_event",
                 voice=self.voice,
                 session=getattr(self, "session", None) or (getattr(ctx, "session", None) if ctx else None),
+                room=self.room,
             ):
                 result = await call_backend_tool(
                     "cancel_event",
@@ -902,9 +933,9 @@ async def entrypoint(ctx: JobContext) -> None:
         redirect_response=redirect_response,
         voice=active_voice,
     )
-    session = AgentSession(
-        llm=model,
-        turn_handling={
+    session_kwargs: Dict[str, Any] = {
+        "llm": model,
+        "turn_handling": {
             "endpointing": {
                 "mode": "dynamic",
                 "min_delay": 0.6,
@@ -918,7 +949,10 @@ async def entrypoint(ctx: JobContext) -> None:
                 "false_interruption_timeout": 1.5,
             },
         },
-    )
+    }
+    if VoiceBotTTS is not None:
+        session_kwargs["tts"] = VoiceBotTTS(voice=active_voice)
+    session = AgentSession(**session_kwargs)
     agent.session = session
     event_loop_monitor_stop = asyncio.Event()
     event_loop_monitor_task: Optional[asyncio.Task] = None

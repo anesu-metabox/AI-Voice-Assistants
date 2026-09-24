@@ -167,6 +167,58 @@ async def test_watchdog_fires_on_slow_tool_and_synchronizes_playout():
     assert playout_completed is True
 
 
+@pytest.mark.asyncio
+async def test_watchdog_direct_audio_output_capture_and_broadcast():
+    """Verify watchdog streams frames directly to session.output.audio and broadcasts transcript."""
+    from livekit.agents.voice import io
+    from agent.tts import VoiceBotTTS
+
+    captured_frames = []
+    flushed = False
+
+    class DummyAudioOutput(io.AudioOutput):
+        def __init__(self):
+            super().__init__(label="test_sink", capabilities=io.AudioOutputCapabilities(pause=False))
+
+        async def capture_frame(self, frame):
+            await super().capture_frame(frame)
+            captured_frames.append(frame)
+
+        def flush(self):
+            super().flush()
+            nonlocal flushed
+            flushed = True
+            self.on_playback_finished(playback_position=0.1, interrupted=False)
+
+        def clear_buffer(self):
+            pass
+
+    dummy_sink = DummyAudioOutput()
+    mock_session = MagicMock()
+    mock_session.output.audio = dummy_sink
+    mock_room = MagicMock()
+    mock_room.local_participant.publish_data = AsyncMock()
+
+    async with LatencyMaskingWatchdog(
+        tool_name="get_calendar_availability",
+        voice="Aoede",
+        dwell_ms=50.0,
+        session=mock_session,
+        room=mock_room,
+    ) as watchdog:
+        await asyncio.sleep(0.12)
+
+    assert watchdog.fired is True
+    assert len(captured_frames) > 0
+    assert flushed is True
+    mock_room.local_participant.publish_data.assert_awaited()
+
+    # Verify VoiceBotTTS initializes and generates audio
+    bot_tts = VoiceBotTTS(voice="Aoede")
+    stream = bot_tts.synthesize("Checking availability now.")
+    assert stream is not None
+
+
 # ==============================================================================
 # 5. Milestone 2: RunContext Tool Parameter Injection
 # ==============================================================================

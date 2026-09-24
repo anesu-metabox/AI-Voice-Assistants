@@ -31,6 +31,7 @@ CREATE TRIGGER trg_calendar_booking_requests_updated_at
     FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 
 ALTER TABLE calendar_booking_requests ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS calendar_booking_requests_company_access ON calendar_booking_requests;
 CREATE POLICY calendar_booking_requests_company_access ON calendar_booking_requests
     USING (user_id = current_company_id())
     WITH CHECK (user_id = current_company_id());
