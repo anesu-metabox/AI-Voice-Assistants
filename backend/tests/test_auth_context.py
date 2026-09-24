@@ -4,7 +4,7 @@ import json
 import time
 
 from backend.app.auth_context import InternalSessionContext, issue_session_context, verify_session_context
-from agent.agent import load_verified_session_context
+from agent.session_context import load_verified_session_context
 
 
 def test_signed_context_binds_auth_subject_company_and_profile(monkeypatch):

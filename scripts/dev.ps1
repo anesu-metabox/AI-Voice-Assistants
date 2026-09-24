@@ -158,7 +158,8 @@ $processes = @()
 $brokerSecret = Resolve-LocalSecret "CREDENTIAL_BROKER_SHARED_SECRET" $rootEnvPath
 if (-not $brokerSecret) {
     $brokerSecretBytes = New-Object byte[] 48
-    [Security.Cryptography.RandomNumberGenerator]::Fill($brokerSecretBytes)
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    $rng.GetBytes($brokerSecretBytes)
     $brokerSecret = [Convert]::ToBase64String($brokerSecretBytes)
 }
 if ($brokerSecret.Length -lt 32) {
@@ -183,13 +184,15 @@ if (-not $sessionContextSecret) {
 }
 if (-not $sessionContextSecret) {
     $sessionContextBytes = New-Object byte[] 48
-    [Security.Cryptography.RandomNumberGenerator]::Fill($sessionContextBytes)
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    $rng.GetBytes($sessionContextBytes)
     $sessionContextSecret = [Convert]::ToBase64String($sessionContextBytes)
 }
 $oauthStateSecret = Resolve-LocalSecret "GOOGLE_OAUTH_STATE_SECRET" $rootEnvPath
 if (-not $oauthStateSecret) {
     $oauthStateBytes = New-Object byte[] 48
-    [Security.Cryptography.RandomNumberGenerator]::Fill($oauthStateBytes)
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    $rng.GetBytes($oauthStateBytes)
     $oauthStateSecret = [Convert]::ToBase64String($oauthStateBytes)
 }
 $brokerErrorLog = Join-Path $runtimeDir "credential-broker.err.log"
@@ -198,11 +201,40 @@ $backendErrorLog = Join-Path $runtimeDir "backend.err.log"
 $agentErrorLog = Join-Path $runtimeDir "agent.err.log"
 $agentOutputLog = Join-Path $runtimeDir "agent.out.log"
 $frontendErrorLog = Join-Path $runtimeDir "frontend.err.log"
+function Start-ServiceProcess(
+    [string]$filePath,
+    [string[]]$argList,
+    [string]$workDir,
+    [hashtable]$envMap,
+    [string]$outLog,
+    [string]$errLog
+) {
+    $saved = @{}
+    foreach ($k in $envMap.Keys) {
+        $saved[$k] = [Environment]::GetEnvironmentVariable($k, "Process")
+        $val = $envMap[$k]
+        [Environment]::SetEnvironmentVariable($k, $val, "Process")
+    }
+    try {
+        $proc = Start-Process -FilePath $filePath `
+            -ArgumentList $argList `
+            -WorkingDirectory $workDir `
+            -RedirectStandardOutput $outLog `
+            -RedirectStandardError $errLog `
+            -PassThru -WindowStyle Hidden
+        return $proc
+    } finally {
+        foreach ($k in $saved.Keys) {
+            [Environment]::SetEnvironmentVariable($k, $saved[$k], "Process")
+        }
+    }
+}
+
 try {
-    $broker = Start-Process -FilePath $backendPython `
-        -ArgumentList "-m", "uvicorn", "backend.credential_broker.main:app", "--host", "127.0.0.1", "--port", "8001" `
-        -WorkingDirectory $projectRoot `
-        -Environment @{
+    $broker = Start-ServiceProcess $backendPython `
+        @("-m", "uvicorn", "backend.credential_broker.main:app", "--host", "127.0.0.1", "--port", "8001") `
+        $projectRoot `
+        @{
             CREDENTIAL_BROKER_SHARED_SECRET = $brokerSecret
             LIVEKIT_API_KEY = $null
             LIVEKIT_API_SECRET = $null
@@ -212,15 +244,14 @@ try {
             DATABASE_URL_UNPOOLED = $null
             RUNTIME_DB_PASSWORD = $null
         } `
-        -RedirectStandardOutput $brokerOutputLog `
-        -RedirectStandardError $brokerErrorLog `
-        -PassThru -WindowStyle Hidden
+        $brokerOutputLog `
+        $brokerErrorLog
     $processes += $broker
 
-    $backend = Start-Process -FilePath $backendPython `
-        -ArgumentList "-m", "uvicorn", "backend.app.main:app", "--port", "8000" `
-        -WorkingDirectory $projectRoot `
-        -Environment @{
+    $backend = Start-ServiceProcess $backendPython `
+        @("-m", "uvicorn", "backend.app.main:app", "--port", "8000") `
+        $projectRoot `
+        @{
             CREDENTIAL_BROKER_SHARED_SECRET = $brokerSecret
             LIVEKIT_API_KEY = $liveKitApiKey
             LIVEKIT_API_SECRET = $liveKitApiSecret
@@ -236,20 +267,16 @@ try {
             AWS_ACCESS_KEY_ID = $null
             AWS_SECRET_ACCESS_KEY = $null
         } `
-        -RedirectStandardOutput (Join-Path $runtimeDir "backend.out.log") `
-        -RedirectStandardError $backendErrorLog `
-        -PassThru -WindowStyle Hidden
+        (Join-Path $runtimeDir "backend.out.log") `
+        $backendErrorLog
     $processes += $backend
 
     $hasAgent = (Test-Path -LiteralPath $agentPython)
     if ($hasAgent) {
-        # The legacy `dev` command runs an in-process Windows reload loop and
-        # emits misleading event-loop stalls. `start` uses the worker runtime
-        # directly while retaining the same local health endpoint.
-        $agent = Start-Process -FilePath $agentPython `
-        -ArgumentList "agent.py", "start" `
-            -WorkingDirectory $agentDir `
-            -Environment @{
+        $agent = Start-ServiceProcess $agentPython `
+            @("agent.py", "start") `
+            $agentDir `
+            @{
                 CREDENTIAL_BROKER_SHARED_SECRET = $null
                 DATABASE_URL = $null
                 DATABASE_URL_UNPOOLED = $null
@@ -266,17 +293,16 @@ try {
                 GOOGLE_API_KEY = $googleApiKey
                 LIVEKIT_SESSION_CONTEXT_SECRET = $sessionContextSecret
             } `
-            -RedirectStandardOutput $agentOutputLog `
-            -RedirectStandardError $agentErrorLog `
-            -PassThru -WindowStyle Hidden
+            $agentOutputLog `
+            $agentErrorLog
         $processes += $agent
     }
 
     $frontendArgs = @("`"$nextCli`"", "dev")
-    $frontend = Start-Process -FilePath "node.exe" `
-        -ArgumentList $frontendArgs `
-        -WorkingDirectory $frontendDir `
-        -Environment @{
+    $frontend = Start-ServiceProcess "node.exe" `
+        $frontendArgs `
+        $frontendDir `
+        @{
             CREDENTIAL_BROKER_SHARED_SECRET = $null
             TRIGGER_API_KEY = $null
             LIVEKIT_URL = $null
@@ -293,9 +319,8 @@ try {
             DATABASE_URL = $null
             DATABASE_URL_UNPOOLED = $null
         } `
-        -RedirectStandardOutput (Join-Path $runtimeDir "frontend.out.log") `
-        -RedirectStandardError $frontendErrorLog `
-        -PassThru -WindowStyle Hidden
+        (Join-Path $runtimeDir "frontend.out.log") `
+        $frontendErrorLog
     $processes += $frontend
 
     Write-Host "Starting the complete voice stack..."
@@ -315,7 +340,7 @@ try {
 
     $state = @{
         started_at = (Get-Date).ToUniversalTime().ToString("o")
-        processes = @($processes | ForEach-Object {
+        processes = @($processes | Where-Object { $_ -ne $null } | ForEach-Object {
             $_.Refresh()
             @{
                 id = $_.Id

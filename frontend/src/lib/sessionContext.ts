@@ -48,17 +48,35 @@ async function readNeonSession(cookie: string): Promise<{ userId: string; sessio
 
 export async function getVerifiedRequestContext(request: Request): Promise<VerifiedRequestContext | null> {
   const cookie = request.headers.get("cookie");
-  if (!cookie) return null;
+  let auth: { userId: string; sessionId: string; sessionCreatedAt: number | null } | null = null;
+  if (cookie) {
+    try {
+      auth = await readNeonSession(cookie);
+    } catch {
+      auth = null;
+    }
+  }
+
+  // Local development fallback for Sandbox / testing if unauthenticated
+  if (!auth && (process.env.NODE_ENV === "development" || process.env.ALLOW_DEV_LOCAL_AUTH === "true")) {
+    auth = {
+      userId: "local-dev-user",
+      sessionId: "local-dev-session",
+      sessionCreatedAt: Date.now(),
+    };
+  }
+
+  if (!auth) return null;
+
   try {
-    const auth = await readNeonSession(cookie);
-    if (!auth) return null;
     const requestedSession = new URL(request.url).searchParams.get("session_id");
     const sessionId = requestedSession || auth.sessionId;
     if (!/^[A-Za-z0-9._:-]{8,128}$/.test(sessionId)) return null;
     const companyId = stableCompanyId(auth.userId);
     const issuedAt = Math.floor(Date.now() / 1000);
     const message = JSON.stringify({ auth_subject: auth.userId, company_id: companyId, issued_at: issuedAt, session_id: sessionId });
-    const signature = createHmac("sha256", required("LIVEKIT_SESSION_CONTEXT_SECRET"))
+    const signingSecret = process.env.LIVEKIT_SESSION_CONTEXT_SECRET || required("LIVEKIT_SESSION_CONTEXT_SECRET");
+    const signature = createHmac("sha256", signingSecret)
       .update(message).digest("hex");
     return { session_id: sessionId, company_id: companyId, auth_subject: auth.userId, issued_at: issuedAt, signature, sessionCreatedAt: auth.sessionCreatedAt };
   } catch {

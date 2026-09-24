@@ -332,6 +332,13 @@ async def execute_tool(
                 tool_kwargs["business_hours"] = business_hours
         if tool_name == ToolName.BOOK_EVENT.value:
             tool_kwargs["session_id"] = tool_kwargs.get("session_id") or request.session_id
+            tool_kwargs["idempotency_key"] = request.idempotency_key
+            if active_profile is not None:
+                compiled = active_profile.get("compiled_policy") or {}
+                business_rules = compiled.get("businessRules") or {}
+                business_hours = business_rules.get("business_hours")
+                if isinstance(business_hours, dict):
+                    tool_kwargs["business_hours"] = business_hours
     # 7. Execute Tool Function
     try:
         import inspect

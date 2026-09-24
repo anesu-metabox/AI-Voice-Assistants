@@ -115,6 +115,27 @@ def test_broker_runtime_checks_key_shape_without_echoing_key():
     assert {item["check"]: item["status"] for item in findings}["broker_encryption_key_shape"] == "FAIL"
 
 
+def test_booking_worker_requires_its_separate_queue_only_database_identity():
+    policy = load_json(DEFAULT_POLICY)
+    names = policy["services"]["Calendar Booking Worker"]["required"]
+    env = {key_name: "configured" for key_name in names}
+    env.update({
+        "APP_ENV": "production",
+        "BOOKING_WORKER_DB_ROLE": "calendar_booking_worker",
+        "BOOKING_WORKER_DATABASE_URL": "postgresql://calendar_booking_worker:secret@db.example.invalid/app",
+        "CREDENTIAL_BROKER_URL": "https://broker.railway.internal",
+    })
+    findings = validate_runtime_environment("booking_worker", env, policy)
+    checks = {item["check"]: item["status"] for item in findings}
+    assert checks["booking_worker_database_url_shape"] == "PASS"
+    assert checks["booking_worker_database_user_matches_role"] == "PASS"
+    assert checks["production_mode"] == "PASS"
+
+    env["DATABASE_URL"] = "should-not-be-shared"
+    findings = validate_runtime_environment("booking_worker", env, policy)
+    assert {item["check"]: item["status"] for item in findings}["absent:DATABASE_URL"] == "FAIL"
+
+
 def test_unknown_critical_identity_checks_fail_closed(capsys):
     code = emit([{"check": "neon_endpoint_branch_identity", "status": "UNKNOWN"}])
     assert code != 0
@@ -125,4 +146,4 @@ def test_unknown_critical_identity_checks_fail_closed(capsys):
 def test_policy_file_has_explicit_service_roles():
     policy = load_json(Path(DEFAULT_POLICY))
     roles = {service["role"] for service in policy["services"].values()}
-    assert roles == {"frontend", "api", "broker", "worker"}
+    assert roles == {"frontend", "api", "broker", "worker", "booking_worker"}

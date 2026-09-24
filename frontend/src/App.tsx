@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { TestingSandboxPage } from "./components/sandbox/TestingSandboxPage";
+import { BookingUpdateCenter } from "./components/tasks/BookingUpdateCenter";
 import type { CapabilityId } from "./lib/capabilityRegistry";
 import { logSafeFailure } from "./lib/safeLogging";
 
@@ -1964,5 +1965,8 @@ export default function App() {
     }
   };
 
-  return <>{render()}</>;
+  return <>
+    {render()}
+    <BookingUpdateCenter enabled={!loading && page !== "landing" && page !== "signup"} />
+  </>;
 }

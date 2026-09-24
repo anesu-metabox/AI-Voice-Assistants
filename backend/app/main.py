@@ -17,6 +17,7 @@ from .api.tasks import router as tasks_router
 from .api.tools import router as tools_router
 from .api.integrations import router as integrations_router
 from .api.preferences import router as preferences_router
+from .api.bookings import router as bookings_router
 from .config import settings
 
 # Setup logging
@@ -126,18 +127,21 @@ app.include_router(auth_router)
 app.include_router(settings_router)
 app.include_router(integrations_router)
 app.include_router(preferences_router)
+app.include_router(bookings_router)
 app.include_router(tools_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 app.include_router(settings_router, prefix="/api")
 app.include_router(integrations_router, prefix="/api")
 app.include_router(preferences_router, prefix="/api")
+app.include_router(bookings_router, prefix="/api")
 app.include_router(tools_router, prefix="/api/v1")
 app.include_router(tasks_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(settings_router, prefix="/api/v1")
 app.include_router(integrations_router, prefix="/api/v1")
 app.include_router(preferences_router, prefix="/api/v1")
+app.include_router(bookings_router, prefix="/api/v1")
 
 
 from fastapi.responses import Response

@@ -12,18 +12,49 @@ interface TaskCardProps {
 
 export const TaskCard: React.FC<TaskCardProps> = ({ task, onCancel }) => {
   const [currentStatus, setCurrentStatus] = useState<TaskStatus>(task.status);
+  const [currentOutput, setCurrentOutput] = useState(task.output);
+  const [currentError, setCurrentError] = useState(task.errorMessage);
   const [cancelling, setCancelling] = useState(false);
 
   // Sync state if prop changes
   React.useEffect(() => {
     setCurrentStatus(task.status);
-  }, [task.status]);
+    setCurrentOutput(task.output);
+    setCurrentError(task.errorMessage);
+  }, [task.status, task.output, task.errorMessage]);
+
+  React.useEffect(() => {
+    if (task.toolName !== "book_event" || !["pending", "running", "needs_reconnect"].includes(currentStatus)) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/bookings/${encodeURIComponent(task.id)}`, { cache: "no-store" });
+        if (response.ok) {
+          const booking = await response.json();
+          if (!stopped) {
+            setCurrentStatus(booking.status);
+            if (booking.result) setCurrentOutput(booking.result);
+            if (booking.message) setCurrentError(booking.message);
+          }
+        }
+      } catch (err) {
+        logSafeFailure("Booking status refresh failed", err);
+      }
+      if (!stopped && ["pending", "running", "needs_reconnect"].includes(currentStatus)) {
+        timer = setTimeout(poll, 4000);
+      }
+    };
+    timer = setTimeout(poll, 1500);
+    return () => { stopped = true; if (timer) clearTimeout(timer); };
+  }, [task.id, task.toolName, currentStatus]);
 
   const handleCancelTask = async () => {
     if (cancelling) return;
     setCancelling(true);
     try {
-      const res = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, {
+      const endpoint = task.toolName === "book_event" ? `/api/bookings/${encodeURIComponent(task.id)}` : `/api/tasks/${encodeURIComponent(task.id)}`;
+      const res = await fetch(endpoint, {
         method: "POST",
       });
       const data = await res.json();
@@ -60,6 +91,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onCancel }) => {
             <AlertTriangle className="w-3 h-3" /> Failed
           </span>
         );
+      case "needs_reconnect":
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30">
+            <Key className="w-3 h-3" /> Reconnect calendar
+          </span>
+        );
       case "cancelled":
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-500/15 text-slate-400 border border-slate-500/30">
@@ -75,7 +112,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onCancel }) => {
     }
   };
 
-  const canCancel = currentStatus === "running" || currentStatus === "pending";
+  const canCancel = task.toolName === "book_event"
+    ? currentStatus === "pending" || currentStatus === "needs_reconnect"
+    : currentStatus === "running" || currentStatus === "pending";
 
   return (
     <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-slate-700 transition-all text-xs">
@@ -114,15 +153,15 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onCancel }) => {
         </div>
       )}
 
-      {task.output && (
+      {currentOutput && (
         <div className="p-2 rounded bg-slate-950/80 border border-slate-800/60 font-mono text-[11px] text-emerald-300/90 truncate">
-          {JSON.stringify(task.output)}
+          {JSON.stringify(currentOutput)}
         </div>
       )}
 
-      {task.errorMessage && (
+      {currentError && (
         <div className="p-2 rounded bg-rose-950/40 border border-rose-900/60 text-rose-300 text-[11px]">
-          {task.errorMessage}
+          {currentError}
         </div>
       )}
     </div>

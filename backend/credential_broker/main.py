@@ -18,6 +18,7 @@ load_broker_environment()
 from backend.app.services.credential_broker_protocol import require_broker_secret, verify_broker_request
 from backend.app.services.google_calendar import (
     book_google_calendar_event,
+    get_google_calendar_booking_by_request_key,
     cancel_google_calendar_event,
     get_google_calendar_availability,
     list_google_calendar_events,
@@ -91,6 +92,7 @@ class CalendarAvailabilityPayload(CalendarListPayload):
 
 
 class CalendarBookPayload(BrokerPayload):
+    request_key: str = Field(min_length=1, max_length=128)
     title: str = Field(min_length=1, max_length=255)
     start_time: str = Field(min_length=10, max_length=64)
     duration_minutes: int = Field(default=30, ge=5, le=1440)
@@ -101,6 +103,10 @@ class CalendarBookPayload(BrokerPayload):
 
 class CalendarCancelPayload(BrokerPayload):
     event_id: str = Field(min_length=1, max_length=255)
+
+
+class CalendarBookingStatusPayload(BrokerPayload):
+    request_key: str = Field(min_length=1, max_length=128)
 
 
 class OAuthCompletePayload(BrokerPayload):
@@ -199,8 +205,17 @@ async def calendar_book(payload: dict = Depends(verify_broker_request)):
     result = await book_google_calendar_event(
         str(request.company_id), request.title, request.start_time,
         request.duration_minutes, request.attendees, request.description, request.location,
+        request.request_key,
     )
-    return result or {"status": "integration_required", "error_code": "GOOGLE_CALENDAR_REQUIRED"}
+    return result or {"status": "temporarily_unavailable", "retryable": True}
+
+
+@app.post("/internal/v1/calendar/book-status")
+async def calendar_booking_status(payload: dict = Depends(verify_broker_request)):
+    request = await _validated(payload, CalendarBookingStatusPayload)
+    return await get_google_calendar_booking_by_request_key(
+        str(request.company_id), request.request_key
+    )
 
 
 @app.post("/internal/v1/calendar/cancel")

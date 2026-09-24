@@ -137,6 +137,13 @@ async def google_callback(
         )
 
     logger.info("Google OAuth credentials stored by broker for authenticated company")
+    try:
+        from db.booking_requests import resume_needs_reconnect_bookings
+        resumed = await resume_needs_reconnect_bookings(user_id=state_data["company_id"])
+        if resumed:
+            logger.info("Resumed paused calendar booking requests after account reconnection (count=%d)", resumed)
+    except Exception as exc:
+        logger.error("Could not resume paused booking requests after reconnection (error_type=%s)", type(exc).__name__)
 
     # Return polished success UI
     return HTMLResponse(

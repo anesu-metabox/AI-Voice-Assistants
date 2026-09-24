@@ -210,13 +210,20 @@ describe("FastAPI & Next.js Endpoints Integration Verification", () => {
     assert.ok(content.includes("/cancel"), "Must route to /tasks/{taskId}/cancel");
   });
 
-  it("verifies TaskCard includes cancel action communicating with tasks endpoint", () => {
+  it("verifies TaskCard polls durable bookings and cancels through the matching endpoint", () => {
     const taskCardPath = resolve(frontendDir, "src/components/tasks/TaskCard.tsx");
     assert.ok(existsSync(taskCardPath), "TaskCard component must exist");
     const content = readFileSync(taskCardPath, "utf-8");
 
-    assert.ok(content.includes("fetch(`/api/tasks/"), "TaskCard must invoke /api/tasks/[taskId]");
+    assert.ok(content.includes("/api/tasks/${encodeURIComponent(task.id)}"), "TaskCard must retain generic task cancellation");
+    assert.ok(content.includes("/api/bookings/${encodeURIComponent(task.id)}"), "TaskCard must poll and cancel durable bookings");
     assert.ok(content.includes("method: \"POST\""), "TaskCard must send POST request for cancellation");
     assert.ok(content.includes("canCancel"), "TaskCard must guard cancellation for active statuses");
+  });
+
+  it("provides the authenticated booking status proxy used by in-app updates", () => {
+    const routePath = resolve(frontendDir, "src/app/api/bookings/route.ts");
+    const content = readFileSync(routePath, "utf-8");
+    assert.ok(content.includes('proxyBackend(req, "/bookings"'), "Recent bookings must use the authenticated backend proxy");
   });
 });

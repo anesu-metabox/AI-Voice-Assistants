@@ -146,7 +146,8 @@ test("the local launcher scopes LiveKit signing credentials to FastAPI", () => {
     /\$env:CREDENTIAL_BROKER_SHARED_SECRET\s*=\s*\$(?!null\b)/,
   );
 
-  const agentStart = devLauncherSource.indexOf("$agent = Start-Process");
+  const agentMatch = devLauncherSource.search(/\$agent\s*=\s*Start-(?:Service)?Process/);
+  const agentStart = agentMatch !== -1 ? agentMatch : devLauncherSource.indexOf("$agent = Start-Process");
   const agentEnd = devLauncherSource.indexOf("$processes += $agent", agentStart);
   const agentEnvironment = devLauncherSource.slice(agentStart, agentEnd);
   assert.match(agentEnvironment, /LIVEKIT_API_KEY\s*=\s*\$liveKitApiKey/);

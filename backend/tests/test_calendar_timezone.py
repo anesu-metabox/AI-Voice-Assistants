@@ -333,3 +333,35 @@ async def test_naive_booking_time_is_interpreted_in_company_timezone(monkeypatch
     )
 
     assert captured["start_time"] == "2026-09-22T05:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_google_booking_classifies_provider_outage_and_uses_stable_event_id(monkeypatch):
+    captured = {}
+
+    class Response:
+        status_code = 503
+
+    class Client:
+        async def post(self, _url, *, headers, json):
+            captured.update(headers=headers, payload=json)
+            return Response()
+
+    async def access_token(_company_id):
+        return "test-token"
+
+    monkeypatch.setattr(google_calendar, "get_valid_access_token", access_token)
+    monkeypatch.setattr(google_calendar, "get_http_client", lambda: Client())
+    result = await google_calendar.book_google_calendar_event(
+        "company-123", "Review", "2026-10-01T06:00:00Z", request_key="stable-booking-key"
+    )
+
+    assert result == {"status": "temporarily_unavailable", "retryable": True}
+    first_id = captured["payload"]["id"]
+    assert len(first_id) == 64
+    assert all(char in "0123456789abcdef" for char in first_id)
+    again = await google_calendar.book_google_calendar_event(
+        "company-123", "Review", "2026-10-01T06:00:00Z", request_key="stable-booking-key"
+    )
+    assert again["status"] == "temporarily_unavailable"
+    assert captured["payload"]["id"] == first_id

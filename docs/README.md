@@ -21,5 +21,6 @@ Recommended implementation order:
 12. [3CX_ADAPTER_IMPLEMENTATION_SPEC.md](3CX_ADAPTER_IMPLEMENTATION_SPEC.md)
 13. [CREDENTIAL_BROKER.md](CREDENTIAL_BROKER.md)
 14. [PRODUCTION_ROLLOUT_CHECKLIST.md](PRODUCTION_ROLLOUT_CHECKLIST.md)
+15. [OUTBOX_WORKER_PLAN.md](OUTBOX_WORKER_PLAN.md)
 
 The plans are intentionally separated so collaborators can work on disjoint areas, while the QA review defines the cross-cutting security and systems constraints.

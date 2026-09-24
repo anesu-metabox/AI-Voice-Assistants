@@ -13,8 +13,9 @@ The process entrypoints are:
 | General API | `python -m uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT` | HTTPS ingress enabled for the frontend and OAuth callback. Protect application routes with the existing signed-session checks. |
 | Credential broker | `python -m uvicorn backend.credential_broker.main:app --host 0.0.0.0 --port $PORT` | No public domain or public ingress. The API reaches it using Railway private networking and request HMAC authentication. |
 | LiveKit worker | `python agent/agent.py start` | No public domain. It connects outbound to LiveKit and the API. |
+| Calendar booking worker | `python -m backend.booking_worker` | No public domain. It polls the dedicated Neon booking queue and calls the private credential broker. |
 
-Railway should build each service from the same GitHub repository, branch, and root Dockerfile, with the root as the build context. Configure the service-specific start command in Railway. The API and broker listen on Railway's injected `$PORT`; do not hard-code a container port. The worker is a long-running worker process, not an HTTP API. Its LiveKit worker health/metrics listener uses port `8081` in the current code; do not create public ingress for it.
+Railway should build each service from the same GitHub repository, branch, and root Dockerfile, with the root as the build context. Configure the service-specific start command in Railway. The API and broker listen on Railway's injected `$PORT`; do not hard-code a container port. The worker services are long-running processes, not public HTTP APIs. The LiveKit worker health/metrics listener uses port `8081` in the current code; do not create public ingress for it.
 
 ### Communication paths
 
@@ -32,11 +33,11 @@ The browser uses the Next.js same-origin API routes. The frontend's server-side 
 ## Ordered implementation and deployment workflow
 
 1. **Inspect and validate the container.** Confirm the checked-out commit and current Python requirements. Review the root Dockerfile and `.dockerignore`; preserve the repository-root build context and required `backend/`, `agent/`, and `db/` source packages. Do not copy `.env`, local virtual environments, logs, `.runtime/`, frontend build output, or Neon CLI state into the image. Do not add secrets as `ARG`, `ENV`, build arguments, or copied files. Build the image and verify it contains no credentials before configuring Railway.
-2. **Create/select a Railway development environment.** Use the GitHub repository source for three separate services named for the API, credential broker, and LiveKit worker. Select the same development branch/commit, root directory, root Dockerfile, and build context for all three. Set the process-specific start command from the table above. Configure the API health check as `/health`, and the broker health check as `/health`; only the API receives a public HTTPS domain. The worker is a persistent service, not a web service.
-3. **Provision an isolated Neon development target.** Use a dedicated non-production Neon branch and a dedicated `LOGIN NOSUPERUSER NOBYPASSRLS` application role for service traffic. Set `DATABASE_URL` only to that role's runtime connection string on the API and broker. Do not set `DATABASE_URL_UNPOOLED`, `RUNTIME_DB_PASSWORD`, or migration-owner credentials on runtime services. Apply migrations separately through the controlled migration workflow against the named development branch.
-4. **Set Railway variables by service.** Use the matrices below. Generate independent high-entropy secrets for `LIVEKIT_SESSION_CONTEXT_SECRET`, `GOOGLE_OAUTH_STATE_SECRET`, `CREDENTIAL_BROKER_SHARED_SECRET`, and the development `CREDENTIAL_ENCRYPTION_KEY`. Share the session-context secret only between the API, worker, and Next.js server. Share the broker HMAC secret only between API and broker. Never reuse production secrets.
+2. **Create/select a Railway development environment.** Use four services named for the API, credential broker, LiveKit worker, and Calendar booking worker. Select the same development branch/commit, root directory, root Dockerfile, and build context for all four. Set the process-specific start command from the table above. Configure health checks for the API and broker; only the API receives a public HTTPS domain. Both workers are persistent services, not web services.
+3. **Provision an isolated Neon development target.** Use a dedicated non-production Neon branch and a dedicated `LOGIN NOSUPERUSER NOBYPASSRLS` application role for API/broker traffic. Set `DATABASE_URL` only on the API and broker. After migration `023`, provision a separate booking worker role using `db/provision_booking_worker_role.py`; it has `BYPASSRLS` only to claim cross-tenant requests and table grants only on `calendar_booking_requests`. Set its URL only as `BOOKING_WORKER_DATABASE_URL` on the booking worker. Never reuse this identity on another service. Do not set unpooled or migration-owner credentials on runtime services.
+4. **Set Railway variables by service.** Use the matrices below. Generate independent secrets for `LIVEKIT_SESSION_CONTEXT_SECRET`, `GOOGLE_OAUTH_STATE_SECRET`, `CREDENTIAL_BROKER_SHARED_SECRET`, and the development `CREDENTIAL_ENCRYPTION_KEY`. Share the session-context secret only between API, LiveKit worker, and Next.js server. Share the broker HMAC secret with API, broker, and booking worker. Never reuse production secrets.
 5. **Configure Google OAuth for development.** Set the Google client ID on the API and broker, and the client secret only on the broker. Use a development OAuth client and test Google account/calendar with minimal test data. Set `GOOGLE_REDIRECT_URI` to `https://<frontend-host>/auth/google/callback` (or the local frontend origin when testing locally). Add that exact URI to the Google OAuth client and add the exact frontend origin to OAuth authorized JavaScript origins where required. OAuth consent-screen test users and Calendar API enablement must be configured in Google Cloud.
-6. **Deploy from GitHub.** Connect Railway services to the repository and selected development branch. Confirm Railway builds from the repo root and uses the root Dockerfile. Deploy API and broker, inspect startup logs for secret-free configuration errors, then deploy the worker. Redeploy services after changing variables when Railway does not automatically redeploy.
+6. **Deploy from GitHub.** Apply migration `023`, provision the booking worker role, then deploy API and broker. Deploy both worker services after their variables are set. Confirm root Dockerfile/build context and inspect sanitized startup logs.
 7. **Configure the frontend separately.** Set the Next.js server-side `BACKEND_URL` to the API's HTTPS Railway URL (or private Railway URL when the frontend is on Railway). Set `LIVEKIT_SESSION_CONTEXT_SECRET` to the same development value used by the API and worker. Set `NEON_AUTH_URL` (or supported alias `NEON_AUTH_BASE_URL`) to the Neon Auth endpoint for the isolated development branch. Do not put database, Google client secret, broker HMAC, encryption, or LiveKit API secrets in browser-visible `NEXT_PUBLIC_*` variables.
 8. **Check service health and acceptance.** Confirm API `GET /health` and broker `GET /health` report healthy over their intended network paths. Verify the API reports its database connected. Confirm the worker registers with LiveKit and receives a test dispatch. From the frontend, verify sign-in, a same-origin backend request, Google OAuth consent/callback, connected-account email display, and a Calendar read. Use two separate development companies to verify cross-tenant access is denied before using this shared environment for collaborator testing.
 
@@ -95,7 +96,19 @@ Do not set LiveKit or Gemini credentials on the broker. Railway private networki
 | `LIVEKIT_AGENT_NAME` | Ordinary setting | Optional; defaults to `calendar-assistant`. |
 | `GEMINI_MODEL`, `GEMINI_API_VERSION`, `GEMINI_VOICE`, `BACKEND_TIMEOUT_SECONDS` | Ordinary settings | Optional code-supported tuning; retain repository defaults initially. |
 
-The worker must not receive `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, Google OAuth client secrets, broker HMAC/encryption secrets, or AWS credentials.
+The LiveKit worker must not receive `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, Google OAuth client secrets, broker HMAC/encryption secrets, or AWS credentials.
+
+### Calendar booking worker service
+
+| Variable | Type | Notes |
+| --- | --- | --- |
+| `APP_ENV`, `NEON_BRANCH` | Ordinary setting | Must identify the isolated branch used by the application. |
+| `BOOKING_WORKER_DB_ROLE` | Ordinary setting | Must match the PostgreSQL login used by `BOOKING_WORKER_DATABASE_URL`; defaults to `calendar_booking_worker`. |
+| `BOOKING_WORKER_DATABASE_URL` | Secret | Dedicated booking worker role URL; never use API runtime or migration-owner credentials. |
+| `CREDENTIAL_BROKER_URL` | Internal URL | Private Railway hostname for the credential broker. |
+| `CREDENTIAL_BROKER_SHARED_SECRET` | Secret | Same broker HMAC key used by the API and broker. |
+
+The booking worker must not receive the general `DATABASE_URL`, Google OAuth client credentials, credential encryption key, LiveKit credentials, or Gemini key.
 
 ### Separately hosted or local Next.js frontend
 

@@ -21,6 +21,39 @@ GOOGLE_CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3"
 DEFAULT_COMPANY_TIMEZONE = "Indian/Mauritius"
 
 
+def _provider_event_id(request_key: str) -> str:
+    """Return a deterministic Google-compatible ID for one logical booking."""
+    import hashlib
+
+    return hashlib.sha256(request_key.encode("utf-8")).hexdigest()
+
+
+async def get_google_calendar_booking_by_request_key(user_id: str, request_key: str) -> Dict[str, Any]:
+    access_token = await get_valid_access_token(user_id)
+    if not access_token:
+        return {"status": "needs_reconnect", "error_code": "GOOGLE_CALENDAR_REAUTH_REQUIRED"}
+    try:
+        response = await get_http_client().get(
+            f"{GOOGLE_CALENDAR_API_BASE}/calendars/primary/events/{_provider_event_id(request_key)}",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        if response.status_code == 404:
+            return {"status": "not_found"}
+        if response.status_code in (401, 403):
+            return {"status": "needs_reconnect", "error_code": "GOOGLE_CALENDAR_REAUTH_REQUIRED"}
+        if response.status_code == 429 or response.status_code >= 500:
+            return {"status": "temporarily_unavailable", "retryable": True}
+        if response.status_code != 200:
+            return {"status": "failed", "retryable": False}
+        event = _calendar_event_payload(response.json())
+        if event["status"] == "cancelled":
+            return {"status": "failed", "retryable": False}
+        return event | {"status": "confirmed", "source": "google_calendar_live"}
+    except httpx.HTTPError as exc:
+        logger.error("Google Calendar booking reconciliation failed (%s)", type(exc).__name__)
+        return {"status": "temporarily_unavailable", "retryable": True}
+
+
 def _company_zone(timezone_name: str | None) -> ZoneInfo:
     try:
         return ZoneInfo(timezone_name or DEFAULT_COMPANY_TIMEZONE)
@@ -170,7 +203,7 @@ async def get_google_calendar_availability(
     access_token = await get_valid_access_token(user_id)
     if not access_token:
         logger.info("No valid Google access token found; skipping live availability request")
-        return None
+        return {"status": "needs_reconnect", "error_code": "GOOGLE_CALENDAR_REAUTH_REQUIRED"}
 
     try:
         start_dt, end_dt, start_day, end_day = _local_date_range_utc(
@@ -198,7 +231,11 @@ async def get_google_calendar_availability(
         response = await client.post(url, headers=headers, json=payload)
         if response.status_code != 200:
             logger.error("Google Calendar freeBusy query failed with status %s", response.status_code)
-            return None
+            if response.status_code in (401, 403):
+                return {"status": "needs_reconnect", "error_code": "GOOGLE_CALENDAR_REAUTH_REQUIRED"}
+            if response.status_code == 429 or response.status_code >= 500:
+                return {"status": "temporarily_unavailable", "retryable": True}
+            return {"status": "failed", "retryable": False}
 
         data = response.json()
         busy_periods = data.get("calendars", {}).get("primary", {}).get("busy", [])
@@ -217,9 +254,9 @@ async def get_google_calendar_availability(
             "timezone": str(zone),
             "source": "google_calendar_live",
         }
-    except Exception as exc:
+    except httpx.HTTPError as exc:
         logger.error("Google Calendar availability operation failed (%s)", type(exc).__name__)
-        return None
+        return {"status": "temporarily_unavailable", "retryable": True}
 
 
 def _compute_free_slots(
@@ -301,6 +338,7 @@ async def book_google_calendar_event(
     attendees: Optional[List[str]] = None,
     description: Optional[str] = None,
     location: Optional[str] = "Google Meet",
+    request_key: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Create a Google Calendar event with auto-generated Google Meet conferencing link.
@@ -309,7 +347,7 @@ async def book_google_calendar_event(
     access_token = await get_valid_access_token(user_id)
     if not access_token:
         logger.info("No valid Google access token found; skipping live booking")
-        return None
+        return {"status": "needs_reconnect", "error_code": "GOOGLE_CALENDAR_REAUTH_REQUIRED"}
 
     # Parse start and compute end time
     try:
@@ -347,6 +385,11 @@ async def book_google_calendar_event(
         },
     }
 
+    # A stable provider event ID makes retries safe if Google created the event
+    # but the response was lost before this service could record success.
+    if request_key:
+        event_payload["id"] = _provider_event_id(request_key)
+
     if location and "meet" not in location.lower():
         event_payload["location"] = location
 
@@ -362,11 +405,28 @@ async def book_google_calendar_event(
     try:
         client = get_http_client()
         response = await client.post(url, headers=headers, json=event_payload)
+        if response.status_code == 409 and request_key:
+            # The same logical request already created its event. Fetch the
+            # deterministic event ID and return the confirmed result.
+            existing = await client.get(
+                f"{GOOGLE_CALENDAR_API_BASE}/calendars/primary/events/{event_payload['id']}",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if existing.status_code == 200:
+                response = existing
+            else:
+                return {"status": "temporarily_unavailable", "retryable": True}
         if response.status_code not in (200, 201):
             logger.error("Google Calendar event creation failed with status %s", response.status_code)
-            return None
+            if response.status_code in (401, 403):
+                return {"status": "needs_reconnect", "error_code": "GOOGLE_CALENDAR_REAUTH_REQUIRED"}
+            if response.status_code == 429 or response.status_code >= 500:
+                return {"status": "temporarily_unavailable", "retryable": True}
+            return {"status": "failed", "retryable": False}
 
         event_data = response.json()
+        if event_data.get("status") == "cancelled":
+            return {"status": "failed", "retryable": False}
         meet_link = event_data.get("hangoutLink")
         if not meet_link:
             # Check conference entry points
@@ -387,7 +447,7 @@ async def book_google_calendar_event(
             "status": "confirmed",
             "source": "google_calendar_live",
         }
-    except Exception as exc:
+    except httpx.HTTPError as exc:
         logger.error("Google Calendar booking operation failed (%s)", type(exc).__name__)
-        return None
+        return {"status": "temporarily_unavailable", "retryable": True}
 

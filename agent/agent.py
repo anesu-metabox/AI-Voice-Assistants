@@ -12,12 +12,24 @@ import hmac
 import json
 import logging
 import os
+from pathlib import Path
 import ssl
 import time
 from typing import Annotated, Any, Dict, List, Mapping, Optional
 import uuid
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+try:
+    from dotenv import load_dotenv
+    _agent_env = Path(__file__).parent / ".env"
+    if _agent_env.exists():
+        load_dotenv(dotenv_path=_agent_env)
+    else:
+        load_dotenv()
+except ImportError:
+    pass
+
+import re
 import certifi
 import httpx
 import numpy.fft
@@ -32,7 +44,15 @@ from livekit.agents.voice import (
     ConversationItemAddedEvent,
     UserInputTranscribedEvent,
 )
+from livekit.agents.voice.events import RunContext
 from livekit.plugins.google import realtime
+try:
+    from .latency_masking import GLOBAL_PAC, LatencyMaskingWatchdog
+except (ImportError, ValueError):
+    try:
+        from agent.latency_masking import GLOBAL_PAC, LatencyMaskingWatchdog
+    except ImportError:
+        from latency_masking import GLOBAL_PAC, LatencyMaskingWatchdog
 
 try:
     from .event_loop_monitor import monitor_active_conversation
@@ -146,6 +166,40 @@ async def broadcast_task_update(
         logger.warning("Failed to broadcast task_update via DataChannel (error_type=%s)", type(exc).__name__)
 
 
+def clean_spoken_text(text: str) -> str:
+    """Strip markdown formatting, headers, bullets, numbers, code, and links for spoken audio and transcripts."""
+    if not text:
+        return ""
+    # 1. Strip code blocks
+    cleaned = re.sub(r"```[\s\S]*?```", "", text)
+    # 2. Strip markdown headers (# Header)
+    cleaned = re.sub(r"^#{1,6}\s+", "", cleaned, flags=re.MULTILINE)
+    # 3. Strip bullet points (- item, * item, • item)
+    cleaned = re.sub(r"^\s*[-*•]\s+", "", cleaned, flags=re.MULTILINE)
+    # 4. Strip numbered lists (1. item)
+    cleaned = re.sub(r"^\s*\d+\.\s+", "", cleaned, flags=re.MULTILINE)
+    # 5. Strip markdown links [label](url) -> label
+    cleaned = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", cleaned)
+    # 6. Strip raw URLs (http:// or https://)
+    cleaned = re.sub(r"https?://\S+", "", cleaned)
+    # 7. Strip inline backticks
+    cleaned = re.sub(r"`([^`]+)`", r"\1", cleaned)
+    # 8. Strip bold (**text**) and strikethrough (~~text~~)
+    cleaned = re.sub(r"\*\*(.*?)\*\*", r"\1", cleaned)
+    cleaned = re.sub(r"~~(.*?)~~", r"\1", cleaned)
+    # 9. Strip italics (*text*, _text_)
+    cleaned = re.sub(r"\*(.*?)\*", r"\1", cleaned)
+    cleaned = re.sub(r"_(.*?)_", r"\1", cleaned)
+    # 10. Strip any stray markdown formatting symbols
+    cleaned = re.sub(r"[*`#~]", "", cleaned)
+    # 11. Collapse newlines to pauses / periods
+    cleaned = re.sub(r"\n+", ". ", cleaned)
+    # 12. Normalize multi-spaces and punctuation
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    cleaned = re.sub(r"\s*\.\s*\.", ".", cleaned)
+    return cleaned.strip()
+
+
 async def broadcast_transcript(
     room: Optional[rtc.Room],
     role: str,
@@ -157,10 +211,14 @@ async def broadcast_transcript(
     if not room or not room.local_participant or not text.strip():
         return
 
+    cleaned_text = clean_spoken_text(text) if role == "assistant" else text
+    if not cleaned_text.strip():
+        return
+
     payload = {
         "type": "transcript",
         "role": role,
-        "text": text,
+        "text": cleaned_text,
         "is_final": is_final,
         "id": message_id or f"{role}-{uuid.uuid4().hex}",
         "timestamp": time.time(),
@@ -173,163 +231,30 @@ async def broadcast_transcript(
 
 
 # ------------------------------------------------------------------------------
-# Verified dispatch context
+# Verified dispatch context (Decoupled to agent.session_context)
 # ------------------------------------------------------------------------------
-@dataclass(frozen=True)
-class VerifiedSessionContext:
-    """Identity asserted by the authenticated LiveKit dispatch service.
-
-    This object is intentionally kept off every Gemini function signature.  The
-    worker obtains it from signed job metadata and injects it into backend
-    requests.  A missing or invalid context is never replaced with a default
-    account.
-    """
-
-    session_id: str
-    company_id: str
-    auth_subject: str
-    issued_at: int = 0
-    signature: str = ""
-    profile_version: Optional[int] = None
-    verification: str = "livekit-dispatch"
-    timezone: Optional[str] = None
-
-    def __post_init__(self) -> None:
-        if not self.session_id.strip() or not self.company_id.strip() or not self.auth_subject.strip():
-            raise ValueError("session_id, company_id, and auth_subject are required")
-        if self.verification != "livekit-dispatch":
-            raise ValueError("unsupported session context verification")
-        if self.timezone is not None:
-            try:
-                ZoneInfo(self.timezone)
-            except (ZoneInfoNotFoundError, ValueError) as exc:
-                raise ValueError("session context timezone must be a valid IANA timezone") from exc
-
-    def as_backend_payload(self) -> Dict[str, str | bool | int]:
-        payload: Dict[str, str | bool | int] = {
-            "session_id": self.session_id,
-            "company_id": self.company_id,
-            "auth_subject": self.auth_subject,
-            "verified": True,
-            "source": self.verification,
-        }
-        if self.profile_version is not None:
-            payload["profile_version"] = self.profile_version
-        if self.timezone is not None:
-            payload["timezone"] = self.timezone
-        return payload
-
-    def signed_metadata(self) -> str:
-        return json.dumps(
-            {
-                "session_id": self.session_id,
-                "company_id": self.company_id,
-                "auth_subject": self.auth_subject,
-                "issued_at": self.issued_at,
-                "signature": self.signature,
-                **({"profile_version": self.profile_version} if self.profile_version is not None else {}),
-                **({"timezone": self.timezone} if self.timezone is not None else {}),
-            },
-            separators=(",", ":"),
-        )
-
-
-def _signed_context_message(
-    session_id: str,
-    company_id: str,
-    auth_subject: str,
-    issued_at: int,
-    profile_version: Optional[int] = None,
-    timezone_name: Optional[str] = None,
-) -> bytes:
-    payload = {"auth_subject": auth_subject, "company_id": company_id, "issued_at": issued_at, "session_id": session_id}
-    if profile_version is not None:
-        payload["profile_version"] = profile_version
-    if timezone_name is not None:
-        payload["timezone"] = timezone_name
-    return json.dumps(
-        payload,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-
-
-def load_verified_session_context(
-    metadata: str | Mapping[str, Any] | None,
-    signing_secret: str = SESSION_CONTEXT_SIGNING_SECRET,
-    now: Optional[float] = None,
-    max_age_seconds: int = SESSION_CONTEXT_MAX_AGE_SECONDS,
-) -> Optional[VerifiedSessionContext]:
-    """Validate signed LiveKit job metadata and return tenant context.
-
-    The dispatch service must provide JSON containing ``session_id``,
-    ``company_id``, ``auth_subject``, ``issued_at`` and an HMAC-SHA256
-    ``signature`` minted by the trusted dispatch service. The signature binds
-    the company and session (and, when present, the immutable profile version).
-    Invalid, stale, unsigned, or incomplete metadata returns ``None`` so
-    callers can fail closed.
-    """
-
-    if not signing_secret or metadata is None or max_age_seconds <= 0 or max_age_seconds > 15 * 60:
-        return None
+try:
+    from .session_context import (
+        VerifiedSessionContext,
+        _signed_context_message,
+        load_verified_session_context,
+        require_bound_profile_snapshot,
+    )
+except (ImportError, ValueError):
     try:
-        payload = json.loads(metadata) if isinstance(metadata, str) else dict(metadata)
-        session_id = str(payload["session_id"])
-        company_id = str(payload["company_id"])
-        auth_subject = str(payload["auth_subject"])
-        issued_at = int(payload["issued_at"])
-        signature = str(payload["signature"])
-        profile_version = payload.get("profile_version")
-        if profile_version is not None:
-            profile_version = int(profile_version)
-        timezone_name = payload.get("timezone")
-        if timezone_name is not None:
-            timezone_name = str(timezone_name)
-            ZoneInfo(timezone_name)
-        if not session_id.strip() or not company_id.strip() or not auth_subject.strip() or not signature:
-            return None
-        current_time = time.time() if now is None else now
-        if abs(current_time - issued_at) > max_age_seconds:
-            return None
-        expected = hmac.new(
-            signing_secret.encode("utf-8"),
-            _signed_context_message(
-                session_id, company_id, auth_subject, issued_at, profile_version, timezone_name
-            ),
-            hashlib.sha256,
-        ).hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            return None
-        return VerifiedSessionContext(
-            session_id=session_id,
-            company_id=company_id,
-            auth_subject=auth_subject,
-            issued_at=issued_at,
-            signature=signature,
-            profile_version=profile_version,
-            timezone=timezone_name,
+        from agent.session_context import (
+            VerifiedSessionContext,
+            _signed_context_message,
+            load_verified_session_context,
+            require_bound_profile_snapshot,
         )
-    except (TypeError, ValueError, KeyError, ZoneInfoNotFoundError, json.JSONDecodeError):
-        return None
-
-
-def require_bound_profile_snapshot(
-    session_context: VerifiedSessionContext,
-    status_code: int,
-    runtime_data: Optional[Dict[str, Any]],
-) -> Optional[Dict[str, Any]]:
-    """Reject missing or mismatched immutable profile snapshots for published sessions."""
-    if session_context.profile_version is None:
-        return runtime_data
-    if status_code != 200 or not isinstance(runtime_data, dict):
-        raise PermissionError("Published assistant profile snapshot is unavailable")
-    try:
-        actual_version = int(runtime_data.get("version", -1))
-    except (TypeError, ValueError):
-        actual_version = -1
-    if actual_version != session_context.profile_version:
-        raise PermissionError("Published assistant profile snapshot version mismatch")
-    return runtime_data
+    except ImportError:
+        from session_context import (
+            VerifiedSessionContext,
+            _signed_context_message,
+            load_verified_session_context,
+            require_bound_profile_snapshot,
+        )
 
 
 def serialize_untrusted_company_data(value: Any) -> str:
@@ -405,7 +330,10 @@ async def speak_configured_greeting(session: AgentSession, greeting: str) -> boo
     greeting = configured_greeting({"inbound_greeting": greeting})
     if not greeting:
         return False
-    await session.say(greeting, allow_interruptions=True)
+    cleaned = clean_spoken_text(greeting)
+    if not cleaned:
+        return False
+    await session.say(cleaned, allow_interruptions=True)
     return True
 
 
@@ -471,6 +399,7 @@ class VoiceBotAgent(Agent):
         company_scope_context: Optional[Mapping[str, Any]] = None,
         allowed_tools: Optional[set[str]] = None,
         redirect_response: str = CALENDAR_REDIRECT_RESPONSE,
+        voice: str = GEMINI_VOICE,
     ):
         super().__init__(instructions=instructions)
         permitted_tools = set(CALENDAR_TOOL_NAMES) if allowed_tools is None else set(allowed_tools)
@@ -485,6 +414,7 @@ class VoiceBotAgent(Agent):
         self.company_capabilities = company_capabilities or {"google_calendar": {"enabled": True}}
         self.company_scope_context = company_scope_context or {}
         self._redirect_response = redirect_response
+        self.voice = voice
         self._idempotency_keys: Dict[str, str] = {}
         self._backend_client = httpx.AsyncClient(
             timeout=httpx.Timeout(BACKEND_TIMEOUT_SECONDS, connect=5.0),
@@ -519,7 +449,7 @@ class VoiceBotAgent(Agent):
                 if decision.reason == "calendar_unavailable"
                 else self._redirect_response
             )
-            self.session.say(redirect, allow_interruptions=True)
+            self.session.say(clean_spoken_text(redirect), allow_interruptions=True)
             raise StopResponse()
         self._calendar_context_active = decision.calendar_context_active
 
@@ -540,6 +470,7 @@ class VoiceBotAgent(Agent):
     )
     async def get_calendar_availability(
         self,
+        ctx: RunContext = None,
         start_date: Annotated[Optional[str], "Start date in YYYY-MM-DD format in the company's local timezone (defaults to today)."] = None,
         end_date: Annotated[Optional[str], "End date in YYYY-MM-DD format in the company's local timezone (defaults to start_date)."] = None,
         duration_minutes: Annotated[int, "Minimum slot duration in minutes (default 30)."] = 30,
@@ -555,13 +486,19 @@ class VoiceBotAgent(Agent):
             if end_date:
                 params["end_date"] = end_date
 
-            result = await call_backend_tool(
+            async with LatencyMaskingWatchdog(
+                ctx,
                 "get_calendar_availability",
-                params,
-                session_context=self.session_context,
-                idempotency_key=None,
-                client=self._backend_client,
-            )
+                voice=self.voice,
+                session=getattr(self, "session", None),
+            ):
+                result = await call_backend_tool(
+                    "get_calendar_availability",
+                    params,
+                    session_context=self.session_context,
+                    idempotency_key=None,
+                    client=self._backend_client,
+                )
             await broadcast_task_update(
                 self.room, task_id, title, "get_calendar_availability", "completed", output=result
             )
@@ -580,6 +517,7 @@ class VoiceBotAgent(Agent):
     )
     async def list_events(
         self,
+        ctx: RunContext = None,
         start_date: Annotated[Optional[str], "Start date in YYYY-MM-DD format in the company's local timezone (defaults to today)."] = None,
         end_date: Annotated[Optional[str], "End date in YYYY-MM-DD format in the company's local timezone (defaults to start_date)."] = None,
     ) -> str:
@@ -594,13 +532,19 @@ class VoiceBotAgent(Agent):
             if end_date:
                 params["end_date"] = end_date
 
-            result = await call_backend_tool(
+            async with LatencyMaskingWatchdog(
+                ctx,
                 "list_events",
-                params,
-                session_context=self.session_context,
-                idempotency_key=None,
-                client=self._backend_client,
-            )
+                voice=self.voice,
+                session=getattr(self, "session", None),
+            ):
+                result = await call_backend_tool(
+                    "list_events",
+                    params,
+                    session_context=self.session_context,
+                    idempotency_key=None,
+                    client=self._backend_client,
+                )
             await broadcast_task_update(
                 self.room, task_id, title, "list_events", "completed", output=result
             )
@@ -619,8 +563,9 @@ class VoiceBotAgent(Agent):
     )
     async def book_event(
         self,
-        title: Annotated[str, "Title or summary of the meeting/event."],
-        start_time: Annotated[str, "Start time in ISO 8601 format; include an offset when supplied, otherwise use the company's local timezone."],
+        ctx: RunContext = None,
+        title: Annotated[str, "Title or summary of the meeting/event."] = "",
+        start_time: Annotated[str, "Start time in ISO 8601 format; include an offset when supplied, otherwise use the company's local timezone."] = "",
         duration_minutes: Annotated[int, "Meeting duration in minutes (default 30)."] = 30,
         attendees: Annotated[Optional[List[str]], "List of attendee email addresses or names."] = None,
         description: Annotated[Optional[str], "Meeting notes or description."] = None,
@@ -628,7 +573,6 @@ class VoiceBotAgent(Agent):
     ) -> str:
         task_id = f"task_{uuid.uuid4().hex[:8]}"
         action_title = f"Booking: {title}"
-        await broadcast_task_update(self.room, task_id, action_title, "book_event", "running")
 
         try:
             params = {
@@ -642,16 +586,42 @@ class VoiceBotAgent(Agent):
                 params["description"] = description
 
             idempotency_key = self._stable_write_key("book_event", params)
-            result = await call_backend_tool(
+            async with LatencyMaskingWatchdog(
+                ctx,
                 "book_event",
-                params,
-                session_context=self.session_context,
-                idempotency_key=idempotency_key,
-                client=self._backend_client,
-            )
-            await broadcast_task_update(
-                self.room, task_id, action_title, "book_event", "completed", output=result
-            )
+                voice=self.voice,
+                session=getattr(self, "session", None),
+            ):
+                result = await call_backend_tool(
+                    "book_event",
+                    params,
+                    session_context=self.session_context,
+                    idempotency_key=idempotency_key,
+                    client=self._backend_client,
+                )
+            booking = result.get("data") if isinstance(result, dict) else None
+            booking = booking if isinstance(booking, dict) else result
+            if booking.get("status") == "pending_confirmation" and booking.get("booking_request_id"):
+                task_id = str(booking["booking_request_id"])
+                await broadcast_task_update(
+                    self.room, task_id, action_title, "book_event", "pending", output=booking
+                )
+            elif booking.get("status") == "needs_reconnect":
+                if booking.get("booking_request_id"):
+                    task_id = str(booking["booking_request_id"])
+                await broadcast_task_update(
+                    self.room, task_id, action_title, "book_event", "needs_reconnect",
+                    error=booking.get("message") or "Reconnect the calendar account before booking.",
+                )
+            elif booking.get("status") == "confirmed":
+                await broadcast_task_update(
+                    self.room, task_id, action_title, "book_event", "completed", output=booking
+                )
+            else:
+                await broadcast_task_update(
+                    self.room, task_id, action_title, "book_event", "failed",
+                    error=booking.get("message") or "The calendar could not confirm this booking.",
+                )
             return json.dumps(result)
         except Exception as exc:
             logger.error("book_event failed (error_type=%s)", type(exc).__name__)
@@ -667,7 +637,8 @@ class VoiceBotAgent(Agent):
     )
     async def cancel_event(
         self,
-        event_id: Annotated[str, "UUID of the calendar event to cancel."],
+        ctx: RunContext = None,
+        event_id: Annotated[str, "UUID of the calendar event to cancel."] = "",
         reason: Annotated[Optional[str], "Optional reason for cancellation."] = None,
         confirm: Annotated[bool, "Set to true if user explicitly confirmed cancellation."] = False,
         confirmation_token: Annotated[Optional[str], "Exact token returned by a prior confirmation_required response."] = None,
@@ -684,13 +655,19 @@ class VoiceBotAgent(Agent):
                 params["confirmation_token"] = confirmation_token
 
             idempotency_key = self._stable_write_key("cancel_event", params)
-            result = await call_backend_tool(
+            async with LatencyMaskingWatchdog(
+                ctx,
                 "cancel_event",
-                params,
-                session_context=self.session_context,
-                idempotency_key=idempotency_key,
-                client=self._backend_client,
-            )
+                voice=self.voice,
+                session=getattr(self, "session", None),
+            ):
+                result = await call_backend_tool(
+                    "cancel_event",
+                    params,
+                    session_context=self.session_context,
+                    idempotency_key=idempotency_key,
+                    client=self._backend_client,
+                )
             await broadcast_task_update(
                 self.room, task_id, title, "cancel_event", "completed", output=result
             )
@@ -738,9 +715,8 @@ def prewarm(proc: JobProcess) -> None:
     # Import the async transport stack before the first realtime turn. The
     # first AnyIO/httpcore import previously blocked the worker for >1 second.
     # Session reporting is imported lazily by LiveKit at teardown. Import it
-    # during worker prewarm so the first disconnect cannot synchronously load
-    # the reporting module on the realtime loop.
-    _ = anyio, aiohttp, httpcore, httpx
+    # Prewarm Pre-Buffered Acoustic Cache (PAC) for sub-15ms latency masking fillers
+    GLOBAL_PAC.warm_cache_for_voice(GEMINI_VOICE)
     proc.userdata["prewarmed"] = True
     logger.info("Audio, TLS, and schema dependencies prewarmed successfully.")
 
@@ -893,12 +869,25 @@ async def entrypoint(ctx: JobContext) -> None:
             raise PermissionError("Published assistant profile snapshot could not be loaded") from fetch_err
         logger.debug("Using baseline prompt; dynamic settings fetch skipped (error_type=%s)", type(fetch_err).__name__)
 
+    realtime_input_config = genai_types.RealtimeInputConfig(
+        automatic_activity_detection=genai_types.AutomaticActivityDetection(
+            disabled=False,
+            silence_duration_ms=600,
+            prefix_padding_ms=100,
+            start_of_speech_sensitivity=genai_types.StartSensitivity.START_SENSITIVITY_LOW,
+            end_of_speech_sensitivity=genai_types.EndSensitivity.END_SENSITIVITY_LOW,
+        ),
+        activity_handling=genai_types.ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
+        turn_coverage=genai_types.TurnCoverage.TURN_INCLUDES_ALL_INPUT,
+    )
+
     model = realtime.RealtimeModel(
         model=GEMINI_MODEL,
         voice=active_voice,
         api_key=GOOGLE_API_KEY,
         api_version=GEMINI_API_VERSION,
         http_options=http_options,
+        realtime_input_config=realtime_input_config,
     )
 
     # 2. Instantiate Agent & Session
@@ -911,8 +900,25 @@ async def entrypoint(ctx: JobContext) -> None:
         company_scope_context=company_scope_context,
         allowed_tools=allowed_tools,
         redirect_response=redirect_response,
+        voice=active_voice,
     )
-    session = AgentSession(llm=model)
+    session = AgentSession(
+        llm=model,
+        turn_handling={
+            "endpointing": {
+                "mode": "dynamic",
+                "min_delay": 0.6,
+                "max_delay": 1.5,
+            },
+            "interruption": {
+                "enabled": True,
+                "min_duration": 0.35,
+                "min_words": 2,
+                "resume_false_interruption": True,
+                "false_interruption_timeout": 1.5,
+            },
+        },
+    )
     event_loop_monitor_stop = asyncio.Event()
     event_loop_monitor_task: Optional[asyncio.Task] = None
 
@@ -934,7 +940,7 @@ async def entrypoint(ctx: JobContext) -> None:
                         broadcast_transcript(
                             ctx.room,
                             "assistant",
-                            event.item.text_content,
+                            clean_spoken_text(event.item.text_content),
                             is_final=True,
                             message_id=getattr(event.item, "id", None),
                         )

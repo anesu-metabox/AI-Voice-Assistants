@@ -71,6 +71,21 @@
       ],
       "publicDomain": false,
       "privateEndpoint": true
+    },
+    "Calendar Booking Worker": {
+      "role": "booking_worker",
+      "required": [
+        "APP_ENV", "NEON_BRANCH", "BOOKING_WORKER_DB_ROLE", "BOOKING_WORKER_DATABASE_URL",
+        "CREDENTIAL_BROKER_URL", "CREDENTIAL_BROKER_SHARED_SECRET"
+      ],
+      "oneOf": [],
+      "forbidden": [
+        "DATABASE_URL", "DATABASE_URL_UNPOOLED", "RUNTIME_DB_ROLE", "RUNTIME_DB_PASSWORD",
+        "GOOGLE_CLIENT_SECRET", "GOOGLE_OAUTH_STATE_SECRET", "CREDENTIAL_ENCRYPTION_KEY",
+        "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "GOOGLE_API_KEY", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"
+      ],
+      "publicDomain": false,
+      "privateEndpoint": true
     }
   }
 }

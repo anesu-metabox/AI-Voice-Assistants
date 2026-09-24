@@ -2,6 +2,13 @@
 
 This file is the handoff status for collaborators implementing the platform roadmap.
 
+## Deferred Calendar booking recovery (2026-09-24)
+
+- Implemented in the working tree: transient Google/broker outages create an unconfirmed, tenant-scoped booking request; a separate worker reconciles ambiguous provider writes, rechecks availability, retries bounded transient errors, and pauses for account reconnection. Successful, failed, reconnect-needed, and cancelled states are exposed through authenticated booking-status endpoints and an in-app update panel.
+- Added migration `023_calendar_booking_requests.sql`, a separate booking worker entrypoint (`python -m backend.booking_worker`), a dedicated queue-only database role provisioner, booking status polling, and OAuth reconnection resume logic.
+- This is code-complete locally but not deployed: migration `023` has not been applied, the dedicated worker role/service has not been provisioned, and the Railway booking worker has not been started. The connected Neon target is protected, so database-backed migration/RLS verification was intentionally not run against it.
+- Verification passed: focused backend tests **38/38**, agent tests **34/34**, frontend tests **64/64**, frontend TypeScript typecheck, optimized Next.js production build, and Python compile checks. The database-backed cross-tenant RLS test was not run because the linked Neon branch is protected; static RLS migration/fixture checks passed.
+
 ## Current deployment decision (2026-09-23)
 
 - Railway is the only deployment platform in scope; AWS KMS/workload identity

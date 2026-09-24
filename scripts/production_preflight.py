@@ -166,6 +166,12 @@ def validate_runtime_environment(
         matches = valid and parsed.username == runtime_user
         findings.append(_finding("database_url_shape", "PASS" if valid else "FAIL", role))
         findings.append(_finding("database_user_matches_runtime_role", "PASS" if matches else "FAIL", role))
+    if role == "booking_worker" and env.get("BOOKING_WORKER_DATABASE_URL", "").strip():
+        parsed = urlsplit(env["BOOKING_WORKER_DATABASE_URL"])
+        valid = parsed.scheme in {"postgres", "postgresql"} and bool(parsed.hostname and parsed.username)
+        matches = valid and parsed.username == env.get("BOOKING_WORKER_DB_ROLE", "").strip()
+        findings.append(_finding("booking_worker_database_url_shape", "PASS" if valid else "FAIL", role))
+        findings.append(_finding("booking_worker_database_user_matches_role", "PASS" if matches else "FAIL", role))
     if role == "broker":
         def valid_key(key_value: str) -> bool:
             try:
@@ -213,7 +219,8 @@ def validate_runtime_environment(
     findings.append(_finding("cross_service_secret_equality", "UNKNOWN", role))
     findings.append(_finding("neon_endpoint_branch_identity", "UNKNOWN", role))
     if not database_probed:
-        findings.append(_finding("neon_runtime_role_flags", "UNKNOWN", role))
+        check = "booking_worker_table_grants_restricted" if role == "booking_worker" else "neon_runtime_role_flags"
+        findings.append(_finding(check, "UNKNOWN", role))
     return findings
 
 
@@ -254,6 +261,59 @@ def probe_database(dsn: str, runtime_role: str) -> list[dict[str, str]]:
     ]
 
 
+def probe_booking_worker_database(dsn: str, worker_role: str) -> list[dict[str, str]]:
+    """Verify the intentionally BYPASSRLS role is limited to the booking queue."""
+    try:
+        import asyncpg
+    except ImportError:
+        return [_finding("database_probe", "UNKNOWN")]
+
+    async def query() -> tuple[bool, bool, bool]:
+        conn = await asyncpg.connect(dsn, ssl="require", timeout=8)
+        try:
+            async with conn.transaction(readonly=True):
+                row = await conn.fetchrow(
+                    """SELECT current_user = $1 AS role_matches,
+                              r.rolsuper AS is_superuser,
+                              r.rolbypassrls AS bypasses_rls,
+                              r.rolinherit AS inherits_roles,
+                              has_table_privilege(current_user, 'public.calendar_booking_requests', 'SELECT') AS can_read_queue,
+                              has_column_privilege(current_user, 'public.calendar_booking_requests', 'status', 'UPDATE') AS can_update_queue,
+                              has_column_privilege(current_user, 'public.calendar_booking_requests', 'user_id', 'UPDATE') AS can_change_tenant,
+                              EXISTS (
+                                SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                                 WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm')
+                                   AND c.relname <> 'calendar_booking_requests'
+                                   AND (has_table_privilege(current_user, c.oid, 'SELECT')
+                                     OR has_table_privilege(current_user, c.oid, 'INSERT')
+                                     OR has_table_privilege(current_user, c.oid, 'UPDATE')
+                                     OR has_table_privilege(current_user, c.oid, 'DELETE'))
+                              ) AS has_other_public_table_access
+                       FROM pg_roles r WHERE r.rolname = current_user""",
+                    worker_role,
+                )
+            if row is None:
+                raise RuntimeError
+            valid = (not row["is_superuser"] and row["bypasses_rls"] and not row["inherits_roles"]
+                     and row["can_read_queue"] and row["can_update_queue"]
+                     and not row["can_change_tenant"] and not row["has_other_public_table_access"])
+            return bool(row["role_matches"]), bool(valid), bool(row["is_superuser"])
+        finally:
+            await conn.close()
+
+    try:
+        matches, grants_valid, is_superuser = asyncio.run(query())
+    except Exception:
+        return [_finding("database_probe", "FAIL")]
+    return [
+        _finding("database_probe", "PASS"),
+        _finding("booking_worker_database_user_matches_role", "PASS" if matches else "FAIL"),
+        _finding("booking_worker_db_is_not_superuser", "PASS" if not is_superuser else "FAIL"),
+        _finding("booking_worker_table_grants_restricted", "PASS" if grants_valid else "FAIL"),
+        _finding("neon_endpoint_branch_identity", "UNKNOWN"),
+    ]
+
+
 def emit(findings: list[dict[str, str]]) -> int:
     print(json.dumps({"checks": findings}, sort_keys=True))
     return 1 if any(
@@ -266,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
     parser.add_argument("--snapshot", type=Path, help="sanitized Railway metadata JSON; names only")
-    parser.add_argument("--runtime-role", choices=("frontend", "api", "worker", "broker"))
+    parser.add_argument("--runtime-role", choices=("frontend", "api", "worker", "broker", "booking_worker"))
     parser.add_argument("--probe-database", action="store_true", help="read-only role flag check using current process DATABASE_URL")
     args = parser.parse_args(argv)
     try:
@@ -282,10 +342,13 @@ def main(argv: list[str] | None = None) -> int:
                 database_probed=args.probe_database,
             ))
         if args.probe_database:
-            dsn = os.getenv("DATABASE_URL", "")
-            role = os.getenv("RUNTIME_DB_ROLE", "")
+            booking_worker = args.runtime_role == "booking_worker"
+            dsn = os.getenv("BOOKING_WORKER_DATABASE_URL", "") if booking_worker else os.getenv("DATABASE_URL", "")
+            role = os.getenv("BOOKING_WORKER_DB_ROLE", "") if booking_worker else os.getenv("RUNTIME_DB_ROLE", "")
             if not dsn or not role:
                 findings.append(_finding("database_probe", "FAIL"))
+            elif booking_worker:
+                findings.extend(probe_booking_worker_database(dsn, role))
             else:
                 findings.extend(probe_database(dsn, role))
         if not findings:

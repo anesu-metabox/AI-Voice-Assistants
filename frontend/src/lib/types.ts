@@ -13,7 +13,7 @@ export interface TranscriptMessage {
   timestamp: string;
 }
 
-export type TaskStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+export type TaskStatus = "pending" | "running" | "completed" | "failed" | "needs_reconnect" | "cancelled";
 
 export interface TaskItem {
   id: string;

@@ -22,4 +22,5 @@ TENANT_TABLES = frozenset({
     "threecx_event_inbox",
     "credential_broker_nonces",
     "integration_action_limits",
+    "calendar_booking_requests",
 })

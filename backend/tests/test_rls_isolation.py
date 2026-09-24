@@ -32,6 +32,7 @@ def _tenant_probe_rows(company_id: uuid.UUID, tag: str):
         ("livekit_sessions", "INSERT INTO livekit_sessions (user_id, session_id, room_name) VALUES ($1, $2, $3)", (str(company_id), f"lk-{tag}", f"room-{tag}"), "session_id = $1", (f"lk-{tag}",)),
         ("oauth_states", "INSERT INTO oauth_states (nonce, company_id, session_id, code_verifier, expires_at) VALUES ($1, $2, $3, 'test-verifier', NOW() + interval '1 hour')", (f"oauth-{tag}", company_id, f"oauth-session-{tag}"), "nonce = $1", (f"oauth-{tag}",)),
         ("integration_audit_events", "INSERT INTO integration_audit_events (company_id, provider, action, outcome) VALUES ($1, 'google', 'rls_test', 'success')", (company_id,), "company_id = $1 AND action = 'rls_test'", (company_id,)),
+        ("calendar_booking_requests", "INSERT INTO calendar_booking_requests (user_id, idempotency_key, request_payload) VALUES ($1, $2, $3::jsonb)", (company_id, f"booking-{tag}", "{}"), "idempotency_key = $1", (f"booking-{tag}",)),
     ]
 
 
