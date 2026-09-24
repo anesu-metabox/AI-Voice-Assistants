@@ -14,6 +14,7 @@ import random
 import re
 import struct
 import time
+from pathlib import Path
 from typing import Any, AsyncIterable, Dict, List, Mapping, Optional, Tuple
 
 from livekit import rtc
@@ -130,6 +131,36 @@ def create_pcm_audio_frames(
     return frames
 
 
+RESOURCES_DIR = Path(__file__).parent / "resources" / "fillers"
+
+
+def phrase_slug(phrase: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9]+", "_", phrase.strip().lower()).strip("_")
+    return cleaned[:60]
+
+
+def load_pcm_frames_from_bytes(
+    raw_data: bytes,
+    sample_rate: int = DEFAULT_SAMPLE_RATE,
+    samples_per_channel: int = SAMPLES_PER_CHANNEL,
+) -> List[rtc.AudioFrame]:
+    """Convert raw 16-bit mono PCM bytes into a list of rtc.AudioFrame chunks."""
+    frames: List[rtc.AudioFrame] = []
+    chunk_size = samples_per_channel * 2  # 16-bit mono = 2 bytes per sample
+    for i in range(0, len(raw_data), chunk_size):
+        chunk = raw_data[i : i + chunk_size]
+        if len(chunk) == chunk_size:
+            frames.append(
+                rtc.AudioFrame(
+                    data=chunk,
+                    sample_rate=sample_rate,
+                    num_channels=NUM_CHANNELS,
+                    samples_per_channel=samples_per_channel,
+                )
+            )
+    return frames
+
+
 class PrebufferedAudioCache:
     """Pre-Buffered Acoustic Cache (PAC) storing 24kHz 16-bit PCM AudioFrames."""
 
@@ -147,13 +178,30 @@ class PrebufferedAudioCache:
         return (voice.lower(), phrase) in self._cache
 
     def warm_cache_for_voice(self, voice: str = "Aoede") -> None:
-        """Pre-populate PAC for all standard filler phrases so playback starts in <15ms."""
+        """Pre-populate PAC with pre-generated neural speech audio frames for sub-15ms playout."""
+        voice_lower = voice.lower()
+        voice_dir = RESOURCES_DIR / voice_lower
+        if not voice_dir.exists():
+            voice_dir = RESOURCES_DIR / "aoede"
+
         for tool, phrases in FILLER_DICTIONARY.items():
             for phrase in phrases:
                 if not self.has_phrase(voice, phrase):
-                    words = phrase.split()
-                    duration = max(0.8, min(2.5, len(words) * 0.28 + 0.3))
-                    frames = create_pcm_audio_frames(duration_seconds=duration, sample_rate=DEFAULT_SAMPLE_RATE)
+                    frames: List[rtc.AudioFrame] = []
+                    slug = phrase_slug(phrase)
+                    pcm_path = voice_dir / f"{slug}.pcm"
+                    if pcm_path.exists() and pcm_path.stat().st_size > 0:
+                        try:
+                            pcm_bytes = pcm_path.read_bytes()
+                            frames = load_pcm_frames_from_bytes(pcm_bytes)
+                        except Exception as read_err:
+                            logger.warning("Failed to load filler pcm %s: %s", pcm_path, read_err)
+
+                    if not frames:
+                        words = phrase.split()
+                        duration = max(0.8, min(2.5, len(words) * 0.28 + 0.3))
+                        frames = create_pcm_audio_frames(duration_seconds=duration, sample_rate=DEFAULT_SAMPLE_RATE)
+
                     self.register_phrase_audio(voice, phrase, frames)
 
 
@@ -178,7 +226,7 @@ class LatencyMaskingWatchdog:
     """Watchdog that immediately communicates with the user when a tool starts.
 
     Speaks a contextual in-progress filler via:
-    session.say(phrase, allow_interruptions=True, add_to_chat_ctx=False)
+    session.say(phrase, audio=audio_frame_stream(frames), allow_interruptions=True, add_to_chat_ctx=False)
 
     On exit, ensures playout synchronization:
     await filler_handle.wait_for_playout() before returning tool JSON output to Gemini.
@@ -260,8 +308,13 @@ class LatencyMaskingWatchdog:
             self._filler_triggered_at = time.perf_counter()
 
             if self._session is not None:
+                frames = GLOBAL_PAC.get_frames(self.voice, phrase) or GLOBAL_PAC.get_frames("Aoede", phrase)
+                if not frames:
+                    frames = create_pcm_audio_frames(duration_seconds=1.2, sample_rate=DEFAULT_SAMPLE_RATE)
+
                 self._filler_handle = self._session.say(
                     phrase,
+                    audio=audio_frame_stream(frames),
                     allow_interruptions=True,
                     add_to_chat_ctx=False,
                 )

@@ -490,7 +490,7 @@ class VoiceBotAgent(Agent):
                 ctx,
                 "get_calendar_availability",
                 voice=self.voice,
-                session=getattr(self, "session", None),
+                session=getattr(self, "session", None) or (getattr(ctx, "session", None) if ctx else None),
             ):
                 result = await call_backend_tool(
                     "get_calendar_availability",
@@ -536,7 +536,7 @@ class VoiceBotAgent(Agent):
                 ctx,
                 "list_events",
                 voice=self.voice,
-                session=getattr(self, "session", None),
+                session=getattr(self, "session", None) or (getattr(ctx, "session", None) if ctx else None),
             ):
                 result = await call_backend_tool(
                     "list_events",
@@ -590,7 +590,7 @@ class VoiceBotAgent(Agent):
                 ctx,
                 "book_event",
                 voice=self.voice,
-                session=getattr(self, "session", None),
+                session=getattr(self, "session", None) or (getattr(ctx, "session", None) if ctx else None),
             ):
                 result = await call_backend_tool(
                     "book_event",
@@ -659,7 +659,7 @@ class VoiceBotAgent(Agent):
                 ctx,
                 "cancel_event",
                 voice=self.voice,
-                session=getattr(self, "session", None),
+                session=getattr(self, "session", None) or (getattr(ctx, "session", None) if ctx else None),
             ):
                 result = await call_backend_tool(
                     "cancel_event",
@@ -919,6 +919,7 @@ async def entrypoint(ctx: JobContext) -> None:
             },
         },
     )
+    agent.session = session
     event_loop_monitor_stop = asyncio.Event()
     event_loop_monitor_task: Optional[asyncio.Task] = None
 
