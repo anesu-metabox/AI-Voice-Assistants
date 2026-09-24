@@ -122,17 +122,42 @@ async def get_oauth_tokens(user_id: str, provider: str = "google") -> Optional[D
         if row:
             record = dict(row)
             envelope = record.get("encryption_envelope") or {}
+            if isinstance(envelope, str):
+                try:
+                    envelope = json.loads(envelope)
+                except Exception:
+                    envelope = {}
+            if not isinstance(envelope, dict):
+                envelope = {}
             try:
-                record["access_token"] = await asyncio.to_thread(decrypt_secret,
-                    record["access_token_ciphertext"], envelope["access_token"],
-                    company_id=str(user_uuid), provider=provider, field="access_token"
-                ) if record.get("access_token_ciphertext") else None
-                record["refresh_token"] = await asyncio.to_thread(decrypt_secret,
-                    record["refresh_token_ciphertext"], envelope["refresh_token"],
-                    company_id=str(user_uuid), provider=provider, field="refresh_token"
-                ) if record.get("refresh_token_ciphertext") else None
-            except (KeyError, TypeError, ValueError):
-                logger.error("Encrypted Google credential failed integrity validation")
+                access_env = envelope.get("access_token")
+                refresh_env = envelope.get("refresh_token")
+                record["access_token"] = (
+                    await asyncio.to_thread(
+                        decrypt_secret,
+                        record["access_token_ciphertext"],
+                        access_env,
+                        company_id=str(user_uuid),
+                        provider=provider,
+                        field="access_token",
+                    )
+                    if record.get("access_token_ciphertext") and access_env
+                    else None
+                )
+                record["refresh_token"] = (
+                    await asyncio.to_thread(
+                        decrypt_secret,
+                        record["refresh_token_ciphertext"],
+                        refresh_env,
+                        company_id=str(user_uuid),
+                        provider=provider,
+                        field="refresh_token",
+                    )
+                    if record.get("refresh_token_ciphertext") and refresh_env
+                    else None
+                )
+            except Exception as exc:
+                logger.error("Encrypted Google credential failed integrity validation (%s: %s)", type(exc).__name__, exc)
                 return None
             return record
         return None

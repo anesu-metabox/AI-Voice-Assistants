@@ -235,19 +235,18 @@ async def refresh_access_token(refresh_token: str) -> Optional[Dict[str, Any]]:
 async def revoke_and_disconnect(user_id: str) -> bool:
     """
     Revoke the stored token at Google's servers and remove it from the PostgreSQL database.
+    Always cleans up local database records even if Google token revocation fails or decryption fails.
     """
     token_record = await get_oauth_tokens(user_id=user_id, provider="google")
-    if not token_record:
-        return False
-
-    token_to_revoke = token_record.get("refresh_token") or token_record.get("access_token")
-    if token_to_revoke:
-        try:
-            client = get_http_client()
-            res = await client.post(GOOGLE_REVOKE_URL, params={"token": token_to_revoke})
-            res.raise_for_status()
-        except Exception as exc:
-            logger.warning("Google token revocation failed in broker (%s); removing stored credential", type(exc).__name__)
+    if token_record:
+        token_to_revoke = token_record.get("refresh_token") or token_record.get("access_token")
+        if token_to_revoke:
+            try:
+                client = get_http_client()
+                res = await client.post(GOOGLE_REVOKE_URL, params={"token": token_to_revoke})
+                res.raise_for_status()
+            except Exception as exc:
+                logger.warning("Google token revocation failed in broker (%s); removing stored credential", type(exc).__name__)
 
     return await delete_oauth_tokens(user_id=user_id, provider="google")
 
