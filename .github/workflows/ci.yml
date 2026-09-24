@@ -33,7 +33,7 @@ jobs:
           python -m py_compile backend/app/services/google_oauth.py backend/app/services/google_calendar.py
           python -m py_compile backend/app/tools/calendar.py backend/app/tools/contacts.py backend/app/tools/email.py backend/app/tools/tasks.py
           python -m py_compile backend/app/api/auth.py backend/app/api/tools.py backend/app/api/tasks.py backend/app/main.py
-          python -m py_compile agent/config.py agent/agent.py
+          python -m py_compile agent/config.py agent/agent.py agent/tts.py
 
   frontend-check:
     name: Frontend TypeScript & Build Check (Node 20)
@@ -57,6 +57,9 @@ jobs:
 
       - name: Run TypeScript Typecheck
         run: npx tsc --noEmit
+
+      - name: Verify browser VAD timing
+        run: node --test tests/vad-processor.test.cjs
 
   database-syntax-check:
     name: PostgreSQL DDL Syntax Check
