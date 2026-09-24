@@ -1,16 +1,15 @@
 """
 agent/tts.py
 Unified neural TTS integration for VoiceBotAgent.
-Provides seamless fallback and pre-buffered acoustic caching so that
+Provides a speech path so that
 AgentSession.say() (greeting, scope redirect, fallback messages) succeeds
-even when using Gemini RealtimeModel (where capabilities.supports_say == False).
+when using Gemini RealtimeModel (where capabilities.supports_say == False).
 """
 
 from __future__ import annotations
 
 import asyncio
 import io
-import logging
 from typing import Optional
 
 try:
@@ -23,33 +22,9 @@ try:
 except ImportError:
     edge_tts = None
 
-from livekit import rtc
 from livekit.agents import APIConnectOptions, DEFAULT_API_CONNECT_OPTIONS, tts
 
-try:
-    from .latency_masking import (
-        DEFAULT_SAMPLE_RATE,
-        GLOBAL_PAC,
-        create_pcm_audio_frames,
-        load_pcm_frames_from_bytes,
-    )
-except (ImportError, ValueError):
-    try:
-        from agent.latency_masking import (
-            DEFAULT_SAMPLE_RATE,
-            GLOBAL_PAC,
-            create_pcm_audio_frames,
-            load_pcm_frames_from_bytes,
-        )
-    except ImportError:
-        from latency_masking import (
-            DEFAULT_SAMPLE_RATE,
-            GLOBAL_PAC,
-            create_pcm_audio_frames,
-            load_pcm_frames_from_bytes,
-        )
-
-logger = logging.getLogger("voice_bot.tts")
+DEFAULT_SAMPLE_RATE = 24000
 
 VOICE_MAP = {
     "aoede": "en-US-AvaNeural",
@@ -101,25 +76,12 @@ class VoiceBotChunkedStream(tts.ChunkedStream):
         )
 
         voice = getattr(self._tts, "voice", "Aoede")
-        # 1. Check in-memory PrebufferedAudioCache (0ms latency)
-        cached_frames = GLOBAL_PAC.get_frames(voice, text) or GLOBAL_PAC.get_frames("Aoede", text)
-        if cached_frames:
-            pcm_bytes = b"".join(f.data.tobytes() for f in cached_frames)
-            output_emitter.push(pcm_bytes)
-            return
-
-        # 2. Synthesize using edge-tts
-        try:
-            pcm_bytes = await asyncio.wait_for(
-                synthesize_neural_pcm(text, voice=voice, sample_rate=self._tts.sample_rate),
-                timeout=4.0,
-            )
-        except Exception as exc:
-            logger.warning("Neural TTS synthesis failed for '%s', using procedural tone: %s", text, exc)
-            words = text.split()
-            duration = max(0.8, min(3.5, len(words) * 0.28 + 0.3))
-            frames = create_pcm_audio_frames(duration_seconds=duration, sample_rate=self._tts.sample_rate)
-            pcm_bytes = b"".join(f.data.tobytes() for f in frames)
+        # Scripted greetings and policy redirects use the configured TTS only.
+        # Do not play procedural tones or cached task fillers when synthesis fails.
+        pcm_bytes = await asyncio.wait_for(
+            synthesize_neural_pcm(text, voice=voice, sample_rate=self._tts.sample_rate),
+            timeout=4.0,
+        )
 
         output_emitter.push(pcm_bytes)
 
