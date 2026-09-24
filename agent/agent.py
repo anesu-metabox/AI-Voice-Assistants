@@ -45,6 +45,7 @@ from livekit.agents.voice import (
     UserInputTranscribedEvent,
 )
 from livekit.agents.voice.events import RunContext
+from livekit.agents.types import APIConnectOptions
 from livekit.plugins.google import realtime
 try:
     from .latency_masking import GLOBAL_PAC, LatencyMaskingWatchdog
@@ -903,10 +904,10 @@ async def entrypoint(ctx: JobContext) -> None:
     realtime_input_config = genai_types.RealtimeInputConfig(
         automatic_activity_detection=genai_types.AutomaticActivityDetection(
             disabled=False,
-            silence_duration_ms=600,
+            silence_duration_ms=450,
             prefix_padding_ms=100,
-            start_of_speech_sensitivity=genai_types.StartSensitivity.START_SENSITIVITY_LOW,
-            end_of_speech_sensitivity=genai_types.EndSensitivity.END_SENSITIVITY_LOW,
+            start_of_speech_sensitivity=genai_types.StartSensitivity.START_SENSITIVITY_HIGH,
+            end_of_speech_sensitivity=genai_types.EndSensitivity.END_SENSITIVITY_HIGH,
         ),
         activity_handling=genai_types.ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
         turn_coverage=genai_types.TurnCoverage.TURN_INCLUDES_ALL_INPUT,
@@ -919,6 +920,8 @@ async def entrypoint(ctx: JobContext) -> None:
         api_version=GEMINI_API_VERSION,
         http_options=http_options,
         realtime_input_config=realtime_input_config,
+        session_resumption=genai_types.SessionResumptionConfig(),
+        conn_options=APIConnectOptions(max_retry=5, retry_interval=1.0, timeout=15.0),
     )
 
     # 2. Instantiate Agent & Session
@@ -938,8 +941,8 @@ async def entrypoint(ctx: JobContext) -> None:
         "turn_handling": {
             "endpointing": {
                 "mode": "dynamic",
-                "min_delay": 0.6,
-                "max_delay": 1.5,
+                "min_delay": 0.4,
+                "max_delay": 1.2,
             },
             "interruption": {
                 "enabled": True,
@@ -956,6 +959,14 @@ async def entrypoint(ctx: JobContext) -> None:
     agent.session = session
     event_loop_monitor_stop = asyncio.Event()
     event_loop_monitor_task: Optional[asyncio.Task] = None
+
+    @session.on("error")
+    def on_session_error(event: Any):
+        logger.warning(
+            "AgentSession error event received: room=%s error=%s",
+            ctx.room.name,
+            event,
+        )
 
     # 3. Handle client-side interruption cancellation signals
     @ctx.room.on("data_received")
