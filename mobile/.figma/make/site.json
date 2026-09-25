@@ -1,0 +1,10 @@
+{
+  "description": "AI-powered voice assistant app enabling companies to manage calls, integrations, and live voice sessions with real-time transcripts and analytics.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

@@ -1,0 +1,1 @@
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"the user is sending feedback: now build the mobile react native app with the prompts i have handed to you","additionalContext":"The user is sending feedback for your plan."}}

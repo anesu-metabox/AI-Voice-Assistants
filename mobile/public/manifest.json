@@ -1,0 +1,24 @@
+{
+  "name": "vocalist.ai - Executive Voice Assistant",
+  "short_name": "vocalist.ai",
+  "description": "Executive AI voice assistant with sub-450ms audio turnaround latency.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0A0E1F",
+  "theme_color": "#0A0E1F",
+  "icons": [
+    {
+      "src": "/mascot-1.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/mascot-1.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "name": "vocalist-mobile",
+  "main": "node_modules/expo/AppEntry.js",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "start": "expo start",
+    "start:ios": "expo start --ios",
+    "start:android": "expo start --android",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit",
+    "format": "oxfmt"
+  },
+  "dependencies": {
+    "expo": "~57.0.25",
+    "expo-linear-gradient": "^57.0.2",
+    "livekit-client": "^2.22.3",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-svg": "^15.15.5",
+    "react-native-web": "~0.21.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "~19.2.4",
+    "@types/react-dom": "~19.2.3",
+    "@vitejs/plugin-react": "^6.0.0",
+    "oxfmt": "^0.2.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "~6.0.3",
+    "vite": "^8.0.5"
+  }
+}
