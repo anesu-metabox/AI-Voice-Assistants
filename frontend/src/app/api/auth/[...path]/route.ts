@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
 import { isSameOriginMutation } from "@/lib/backendProxy";
 import { logSafeFailure } from "@/lib/safeLogging";
+import { isMockMode } from "@/lib/mockMode";
+import { handleMockAuth } from "@/mocks/mockStore";
 
 const AUTH_URL = (process.env.NEON_AUTH_URL || process.env.NEON_AUTH_BASE_URL || "").replace(/\/+$/, "");
 type RouteContext = { params: Promise<{ path: string[] }> };
 
 async function forward(request: Request, context: RouteContext) {
   const { path } = await context.params;
+  if (isMockMode()) {
+    return handleMockAuth(request, path);
+  }
   if (!AUTH_URL) return NextResponse.json({ error: "Neon Auth is not configured." }, { status: 503 });
   if (!isSameOriginMutation(request)) {
     return NextResponse.json({ error: "Cross-origin mutation rejected." }, { status: 403 });

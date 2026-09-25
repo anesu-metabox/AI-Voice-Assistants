@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { contextHeader, getVerifiedRequestContext } from "@/lib/sessionContext";
 import { logSafeFailure } from "@/lib/safeLogging";
+import { isMockMode } from "@/lib/mockMode";
+import { handleMockProxy } from "@/mocks/mockStore";
 
 const BACKEND_URL = (process.env.BACKEND_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
 
@@ -45,6 +47,9 @@ export async function proxyBackend(
   backendPath: string,
   options: ProxyBackendOptions = {},
 ) {
+  if (isMockMode()) {
+    return handleMockProxy(request, backendPath);
+  }
   if (!isSameOriginMutation(request)) {
     return NextResponse.json({ status: "error", error_code: "CSRF_REJECTED", error_message: "Cross-origin mutation rejected." }, { status: 403 });
   }

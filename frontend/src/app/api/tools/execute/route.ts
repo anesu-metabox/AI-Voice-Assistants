@@ -3,6 +3,8 @@ import { logSafeFailure } from "@/lib/safeLogging";
 import { isAllowedCalendarTool } from "@/lib/assistantPolicy";
 import { contextHeader, getVerifiedRequestContext } from "@/lib/sessionContext";
 import { isSameOriginMutation } from "@/lib/backendProxy";
+import { isMockMode } from "@/lib/mockMode";
+import { handleMockToolExecution } from "@/mocks/mockStore";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://127.0.0.1:8000";
 
@@ -19,6 +21,11 @@ export async function POST(req: NextRequest) {
         { error: "tool_name is required" },
         { status: 400 }
       );
+    }
+
+    if (isMockMode()) {
+      const mockResult = handleMockToolExecution(tool_name, parameters);
+      return NextResponse.json(mockResult);
     }
 
     if (!isAllowedCalendarTool(tool_name)) {

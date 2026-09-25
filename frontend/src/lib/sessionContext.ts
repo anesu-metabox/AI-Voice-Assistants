@@ -75,7 +75,7 @@ export async function getVerifiedRequestContext(request: Request): Promise<Verif
     const companyId = stableCompanyId(auth.userId);
     const issuedAt = Math.floor(Date.now() / 1000);
     const message = JSON.stringify({ auth_subject: auth.userId, company_id: companyId, issued_at: issuedAt, session_id: sessionId });
-    const signingSecret = process.env.LIVEKIT_SESSION_CONTEXT_SECRET || required("LIVEKIT_SESSION_CONTEXT_SECRET");
+    const signingSecret = process.env.LIVEKIT_SESSION_CONTEXT_SECRET || (process.env.NODE_ENV === "development" || process.env.MOCK_MODE === "true" ? "mock-dev-secret-12345678" : required("LIVEKIT_SESSION_CONTEXT_SECRET"));
     const signature = createHmac("sha256", signingSecret)
       .update(message).digest("hex");
     return { session_id: sessionId, company_id: companyId, auth_subject: auth.userId, issued_at: issuedAt, signature, sessionCreatedAt: auth.sessionCreatedAt };
