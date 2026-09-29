@@ -23,7 +23,7 @@ LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET", "")
 # Google Gemini Multimodal Live Engine (ADR-008 Active Baseline)
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-live")
-GEMINI_API_VERSION = os.getenv("GEMINI_API_VERSION", "v1alpha")
+GEMINI_API_VERSION = os.getenv("GEMINI_API_VERSION", "v1beta")
 GEMINI_VOICE = os.getenv("GEMINI_VOICE", "Aoede")
 
 # Tool Dispatching Backend Endpoint

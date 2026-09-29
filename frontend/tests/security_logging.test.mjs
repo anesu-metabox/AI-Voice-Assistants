@@ -16,6 +16,11 @@ test("voice hook does not log model tool arguments, IDs, or result payloads", ()
   assert.match(geminiHook, /logSafeFailure\("Dormant Gemini voice path failed", error\)/);
 });
 
+test("dormant Gemini voice path uses the supported Live API version", () => {
+  assert.match(geminiHook, /apiVersion:\s*"v1beta"/);
+  assert.doesNotMatch(geminiHook, /apiVersion:\s*"v1alpha"/);
+});
+
 test("safe logger emits only constrained error type metadata", () => {
   assert.doesNotMatch(safeLogger, /error\.message|String\(error\)|JSON\.stringify\(error\)/);
   assert.match(safeLogger, /errorType/);
