@@ -12,6 +12,21 @@ export interface BackendHealth {
   latencyMs?: number;
 }
 
+export interface UserAccount {
+  id: string;
+  email?: string;
+  name?: string;
+}
+
+export interface SessionResponse {
+  authenticated: boolean;
+  user?: UserAccount;
+  session?: {
+    id: string;
+    createdAt?: number | string;
+  };
+}
+
 export interface ToolExecutionResponse {
   status: 'success' | 'error' | 'confirmation_required';
   data?: any;
@@ -100,30 +115,57 @@ export interface ThreeCXPayload {
   failure_destination: string | null;
 }
 
+export interface CallRecord {
+  id: string | number;
+  did: string;
+  direction: 'inbound' | 'outbound';
+  state: string;
+  status: 'Ended' | 'Failed' | 'Active' | 'Ringing';
+  duration: string;
+  durationSeconds: number;
+  dateTime: string;
+  createdAt: string;
+  updatedAt: string;
+  endedAt?: string | null;
+  pbxHost?: string;
+  routePointDn?: string;
+  transcriptId?: string;
+}
+
+export interface TaskRecord {
+  id: string;
+  title: string;
+  tool_name: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  output_result?: any;
+  error_message?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 class ApiService {
   private backendUrl: string;
   private tokenEndpoint: string;
   private livekitUrl: string;
 
   constructor() {
-    const getEnv = (expoKey: string, viteKey: string, fallback: string): string => {
-      if (typeof process !== 'undefined' && process.env && process.env[expoKey]) {
-        return process.env[expoKey] as string;
-      }
-      try {
-        if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
-          const env = (import.meta as any).env;
-          return env[expoKey] || env[viteKey] || fallback;
-        }
-      } catch {
-        // Ignore in non-meta environments
+    const getEnv = (key: string, fallback: string): string => {
+      if (typeof process !== 'undefined' && process.env && process.env[key]) {
+        return process.env[key] as string;
       }
       return fallback;
     };
 
-    this.backendUrl = getEnv('EXPO_PUBLIC_BACKEND_URL', 'VITE_BACKEND_URL', 'http://localhost:8000');
-    this.tokenEndpoint = getEnv('EXPO_PUBLIC_TOKEN_ENDPOINT', 'VITE_TOKEN_ENDPOINT', 'http://localhost:3000/api/livekit-token');
-    this.livekitUrl = getEnv('EXPO_PUBLIC_LIVEKIT_URL', 'VITE_LIVEKIT_URL', 'wss://ai-voice-assistant-vu6rr406.livekit.cloud');
+    this.backendUrl = getEnv('EXPO_PUBLIC_BACKEND_URL', 'http://localhost:8000').replace(/\/+$/, '');
+    this.tokenEndpoint = getEnv('EXPO_PUBLIC_TOKEN_ENDPOINT', 'http://localhost:3000/api/livekit-token');
+    this.livekitUrl = getEnv('EXPO_PUBLIC_LIVEKIT_URL', 'wss://ai-voice-assistant-vu6rr406.livekit.cloud');
+  }
+
+  public getWebBase(): string {
+    if (this.tokenEndpoint) {
+      return this.tokenEndpoint.replace(/\/api\/livekit-token.*$/, '');
+    }
+    return this.backendUrl;
   }
 
   public getBackendUrl(): string {
@@ -150,6 +192,173 @@ class ApiService {
     this.livekitUrl = url;
   }
 
+  // ─── Authentication (Neon Auth) ───────────────────────────────────────────
+
+  /**
+   * Verify whether the client currently holds an active Neon Auth session.
+   */
+  async checkSession(): Promise<SessionResponse> {
+    const webBase = this.getWebBase();
+    try {
+      const res = await fetch(`${webBase}/api/auth/get-session`, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        credentials: 'include',
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!res.ok) {
+        return { authenticated: false };
+      }
+
+      const data = await res.json().catch(() => null);
+      const user = data?.user || data?.session?.user;
+      if (!user) {
+        return { authenticated: false };
+      }
+
+      return {
+        authenticated: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+        },
+        session: data.session,
+      };
+    } catch {
+      return { authenticated: false };
+    }
+  }
+
+  private getCallbackUrl(): string {
+    try {
+      if (typeof window !== 'undefined' && window.location && window.location.origin) {
+        return window.location.origin;
+      }
+    } catch {
+      // Fall through for non-browser runtimes
+    }
+    return '/';
+  }
+
+  /**
+   * Sign in using email and password via Neon Auth.
+   */
+  async signInEmail(email: string, password: string): Promise<{ success: boolean; error?: string }> {
+    const webBase = this.getWebBase();
+    try {
+      const callbackURL = this.getCallbackUrl();
+      const res = await fetch(`${webBase}/api/auth/sign-in/email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ email, password, callbackURL }),
+        signal: AbortSignal.timeout(8000),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        return {
+          success: false,
+          error: payload.message || payload.error || 'Authentication failed. Please verify your credentials.',
+        };
+      }
+
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: (err as any)?.message || 'Network connection failed during sign-in' };
+    }
+  }
+
+  /**
+   * Create account / sign up with email and password via Neon Auth.
+   */
+  async signUpEmail(email: string, password: string, name?: string): Promise<{ success: boolean; error?: string }> {
+    const webBase = this.getWebBase();
+    try {
+      const callbackURL = this.getCallbackUrl();
+      const resolvedName = name || email.split('@')[0];
+      const res = await fetch(`${webBase}/api/auth/sign-up/email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ email, password, name: resolvedName, callbackURL }),
+        signal: AbortSignal.timeout(8000),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        return {
+          success: false,
+          error: payload.message || payload.error || 'Account creation failed.',
+        };
+      }
+
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: (err as any)?.message || 'Network connection failed during sign-up' };
+    }
+  }
+
+  /**
+   * Request Google OAuth URL for social sign-in via Neon Auth.
+   */
+  async getGoogleSignInUrl(): Promise<string> {
+    const webBase = this.getWebBase();
+    const callbackURL = this.getCallbackUrl();
+    const res = await fetch(`${webBase}/api/auth/sign-in/social`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ provider: 'google', callbackURL }),
+      signal: AbortSignal.timeout(6000),
+    });
+
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok || !payload.url) {
+      throw new Error(payload.message || 'Google sign-in is unavailable.');
+    }
+    return payload.url;
+  }
+
+  /**
+   * Sign out current Neon Auth session.
+   */
+  async signOut(): Promise<{ success: boolean; error?: string }> {
+    const webBase = this.getWebBase();
+    try {
+      const res = await fetch(`${webBase}/api/auth/sign-out`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({}),
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!res.ok) {
+        return { success: false, error: 'Sign out failed' };
+      }
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: (err as any)?.message || 'Network error during sign out' };
+    }
+  }
+
+  // ─── Diagnostics & Tokens ─────────────────────────────────────────────────
+
   /**
    * Health probe verifying backend status and Neon PostgreSQL connection.
    */
@@ -159,6 +368,7 @@ class ApiService {
       const response = await fetch(`${this.backendUrl}/health`, {
         method: 'GET',
         headers: { 'Accept': 'application/json' },
+        credentials: 'include',
         signal: AbortSignal.timeout(3500),
       });
 
@@ -198,6 +408,7 @@ class ApiService {
     const response = await fetch(url.toString(), {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
+      credentials: 'include',
       signal: AbortSignal.timeout(5000),
     });
 
@@ -225,6 +436,7 @@ class ApiService {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
+        credentials: 'include',
         body: JSON.stringify({
           tool_name: toolName,
           arguments: args,
@@ -240,19 +452,21 @@ class ApiService {
       }
 
       return await response.json();
-    } catch (err: any) {
+    } catch (err) {
       return {
         status: 'error',
-        error_message: err?.message || 'Tool execution network failure',
+        error_message: (err as any)?.message || 'Tool execution network failure',
       };
     }
   }
+
+  // ─── Google OAuth Integration ─────────────────────────────────────────────
 
   /**
    * Check Google Calendar OAuth integration status.
    */
   async getGoogleAuthStatus(): Promise<GoogleAuthStatus> {
-    const webBase = this.tokenEndpoint.replace(/\/api\/livekit-token.*$/, '');
+    const webBase = this.getWebBase();
     const endpoints = [
       `${webBase}/auth/google/status`,
       `${this.backendUrl}/auth/google/status`,
@@ -263,6 +477,7 @@ class ApiService {
         const res = await fetch(url, {
           method: 'GET',
           headers: { 'Accept': 'application/json' },
+          credentials: 'include',
           signal: AbortSignal.timeout(4000),
         });
         if (res.ok) {
@@ -290,7 +505,7 @@ class ApiService {
    * Retrieve Google OAuth authorization URL.
    */
   async getGoogleAuthUrl(): Promise<string> {
-    const webBase = this.tokenEndpoint.replace(/\/api\/livekit-token.*$/, '');
+    const webBase = this.getWebBase();
     const endpoints = [
       `${webBase}/auth/google/url`,
       `${this.backendUrl}/auth/google/url`,
@@ -301,6 +516,7 @@ class ApiService {
         const res = await fetch(url, {
           method: 'GET',
           headers: { 'Accept': 'application/json' },
+          credentials: 'include',
           signal: AbortSignal.timeout(5000),
         });
         if (res.ok) {
@@ -314,7 +530,6 @@ class ApiService {
       }
     }
 
-    // Direct fallback to backend login redirect endpoint
     return `${this.backendUrl}/auth/google/login`;
   }
 
@@ -322,7 +537,7 @@ class ApiService {
    * Disconnect Google Calendar OAuth integration.
    */
   async disconnectGoogleAuth(): Promise<{ status: string }> {
-    const webBase = this.tokenEndpoint.replace(/\/api\/livekit-token.*$/, '');
+    const webBase = this.getWebBase();
     const endpoints = [
       `${webBase}/auth/google/disconnect`,
       `${this.backendUrl}/auth/google/disconnect`,
@@ -333,6 +548,7 @@ class ApiService {
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Accept': 'application/json' },
+          credentials: 'include',
           signal: AbortSignal.timeout(5000),
         });
         if (res.ok) {
@@ -347,11 +563,13 @@ class ApiService {
     return { status: 'disconnected' };
   }
 
+  // ─── Company Profile & Assistant Configuration ───────────────────────────
+
   /**
    * Fetch company profile.
    */
   async getCompanyProfile(): Promise<CompanyProfile | null> {
-    const webBase = this.tokenEndpoint.replace(/\/api\/livekit-token.*$/, '');
+    const webBase = this.getWebBase();
     const endpoints = [
       `${webBase}/api/company-profile`,
       `${this.backendUrl}/company-profile`,
@@ -362,6 +580,7 @@ class ApiService {
         const res = await fetch(url, {
           method: 'GET',
           headers: { 'Accept': 'application/json' },
+          credentials: 'include',
           signal: AbortSignal.timeout(4000),
         });
         if (res.ok) {
@@ -379,7 +598,7 @@ class ApiService {
    * Save or update company profile.
    */
   async saveCompanyProfile(profile: CompanyProfile): Promise<{ success: boolean; message?: string }> {
-    const webBase = this.tokenEndpoint.replace(/\/api\/livekit-token.*$/, '');
+    const webBase = this.getWebBase();
     const endpoints = [
       `${webBase}/api/company-profile`,
       `${this.backendUrl}/company-profile`,
@@ -390,6 +609,7 @@ class ApiService {
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify(profile),
           signal: AbortSignal.timeout(5000),
         });
@@ -407,7 +627,7 @@ class ApiService {
    * Fetch AI Assistant configuration draft and capabilities.
    */
   async getAssistantConfig(): Promise<AssistantConfig | null> {
-    const webBase = this.tokenEndpoint.replace(/\/api\/livekit-token.*$/, '');
+    const webBase = this.getWebBase();
     const endpoints = [
       `${webBase}/api/assistant-config`,
       `${this.backendUrl}/assistant-config`,
@@ -418,6 +638,7 @@ class ApiService {
         const res = await fetch(url, {
           method: 'GET',
           headers: { 'Accept': 'application/json' },
+          credentials: 'include',
           signal: AbortSignal.timeout(4000),
         });
         if (res.ok) {
@@ -449,9 +670,8 @@ class ApiService {
     config: AssistantConfig,
     deploy: boolean = false
   ): Promise<{ success: boolean; version?: number; message?: string }> {
-    const webBase = this.tokenEndpoint.replace(/\/api\/livekit-token.*$/, '');
+    const webBase = this.getWebBase();
     
-    // Convert capability booleans to { enabled: boolean } schema format
     const formattedCapabilities = {
       company_receptionist: { enabled: Boolean(config.capabilities.company_receptionist) },
       company_faq: { enabled: Boolean(config.capabilities.company_faq) },
@@ -474,6 +694,7 @@ class ApiService {
           const vRes = await fetch(vUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            credentials: 'include',
             body: JSON.stringify(payload),
             signal: AbortSignal.timeout(5000),
           });
@@ -497,6 +718,7 @@ class ApiService {
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify(payload),
           signal: AbortSignal.timeout(6000),
         });
@@ -523,7 +745,7 @@ class ApiService {
    * Fetch version history for assistant profiles.
    */
   async getAssistantVersions(): Promise<AssistantVersion[]> {
-    const webBase = this.tokenEndpoint.replace(/\/api\/livekit-token.*$/, '');
+    const webBase = this.getWebBase();
     const endpoints = [
       `${webBase}/api/assistant-config/versions`,
       `${this.backendUrl}/assistant-config/versions`,
@@ -534,6 +756,7 @@ class ApiService {
         const res = await fetch(url, {
           method: 'GET',
           headers: { 'Accept': 'application/json' },
+          credentials: 'include',
           signal: AbortSignal.timeout(4000),
         });
         if (res.ok) {
@@ -547,11 +770,13 @@ class ApiService {
     return [];
   }
 
+  // ─── 3CX PBX Telephony Integration ────────────────────────────────────────
+
   /**
    * Fetch 3CX PBX connection status and configuration.
    */
   async getThreeCXStatus(): Promise<ThreeCXStatus> {
-    const webBase = this.tokenEndpoint.replace(/\/api\/livekit-token.*$/, '');
+    const webBase = this.getWebBase();
     const endpoints = [
       `${webBase}/api/integrations/3cx`,
       `${this.backendUrl}/api/integrations/3cx`,
@@ -562,6 +787,7 @@ class ApiService {
         const res = await fetch(url, {
           method: 'GET',
           headers: { 'Accept': 'application/json' },
+          credentials: 'include',
           signal: AbortSignal.timeout(4000),
         });
         if (res.ok) {
@@ -578,7 +804,7 @@ class ApiService {
    * Test and save 3CX PBX connection configuration.
    */
   async saveThreeCXConfig(payload: ThreeCXPayload): Promise<{ success: boolean; message?: string }> {
-    const webBase = this.tokenEndpoint.replace(/\/api\/livekit-token.*$/, '');
+    const webBase = this.getWebBase();
     const endpoints = [
       `${webBase}/api/integrations/3cx`,
       `${this.backendUrl}/api/integrations/3cx`,
@@ -589,6 +815,7 @@ class ApiService {
         const res = await fetch(url, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify(payload),
           signal: AbortSignal.timeout(6000),
         });
@@ -612,7 +839,7 @@ class ApiService {
    * Disconnect 3CX PBX integration.
    */
   async disconnectThreeCX(): Promise<{ success: boolean; message?: string }> {
-    const webBase = this.tokenEndpoint.replace(/\/api\/livekit-token.*$/, '');
+    const webBase = this.getWebBase();
     const endpoints = [
       `${webBase}/api/integrations/3cx`,
       `${this.backendUrl}/api/integrations/3cx`,
@@ -623,6 +850,7 @@ class ApiService {
         const res = await fetch(url, {
           method: 'DELETE',
           headers: { 'Accept': 'application/json' },
+          credentials: 'include',
           signal: AbortSignal.timeout(5000),
         });
         if (res.ok) {
@@ -639,7 +867,7 @@ class ApiService {
    * Fetch live 3CX call history logs from database.
    */
   async getCallHistory(limit: number = 50): Promise<CallRecord[]> {
-    const webBase = this.tokenEndpoint.replace(/\/api\/livekit-token.*$/, '');
+    const webBase = this.getWebBase();
     const endpoints = [
       `${webBase}/api/integrations/3cx/calls?limit=${limit}`,
       `${this.backendUrl}/api/integrations/3cx/calls?limit=${limit}`,
@@ -651,6 +879,7 @@ class ApiService {
         const res = await fetch(url, {
           method: 'GET',
           headers: { 'Accept': 'application/json' },
+          credentials: 'include',
           signal: AbortSignal.timeout(5000),
         });
         if (res.ok) {
@@ -667,7 +896,6 @@ class ApiService {
             const secs = durationSeconds % 60;
             const duration = durationSeconds > 0 ? `${mins}m ${secs.toString().padStart(2, '0')}s` : '0m 00s';
 
-            // Format date time string
             const timeStr = start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const isToday = new Date().toDateString() === start.toDateString();
             const dateTime = isToday ? `Today, ${timeStr}` : `${start.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${timeStr}`;
@@ -709,7 +937,7 @@ class ApiService {
    * Fetch background task history / queued executions.
    */
   async getTasks(limit: number = 20): Promise<TaskRecord[]> {
-    const webBase = this.tokenEndpoint.replace(/\/api\/livekit-token.*$/, '');
+    const webBase = this.getWebBase();
     const endpoints = [
       `${webBase}/api/tasks?limit=${limit}`,
       `${this.backendUrl}/api/tasks?limit=${limit}`,
@@ -721,6 +949,7 @@ class ApiService {
         const res = await fetch(url, {
           method: 'GET',
           headers: { 'Accept': 'application/json' },
+          credentials: 'include',
           signal: AbortSignal.timeout(4000),
         });
         if (res.ok) {
@@ -739,7 +968,7 @@ class ApiService {
    * Cancel an active or pending background task.
    */
   async cancelTask(taskId: string): Promise<boolean> {
-    const webBase = this.tokenEndpoint.replace(/\/api\/livekit-token.*$/, '');
+    const webBase = this.getWebBase();
     const endpoints = [
       `${webBase}/api/tasks/${taskId}/cancel`,
       `${this.backendUrl}/api/tasks/${taskId}/cancel`,
@@ -751,6 +980,7 @@ class ApiService {
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Accept': 'application/json' },
+          credentials: 'include',
           signal: AbortSignal.timeout(5000),
         });
         if (res.ok) {
@@ -764,34 +994,4 @@ class ApiService {
   }
 }
 
-export interface CallRecord {
-  id: string | number;
-  did: string;
-  direction: 'inbound' | 'outbound';
-  state: string;
-  status: 'Ended' | 'Failed' | 'Active' | 'Ringing';
-  duration: string;
-  durationSeconds: number;
-  dateTime: string;
-  createdAt: string;
-  updatedAt: string;
-  endedAt?: string | null;
-  pbxHost?: string;
-  routePointDn?: string;
-  transcriptId?: string;
-}
-
-export interface TaskRecord {
-  id: string;
-  title: string;
-  tool_name: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-  output_result?: any;
-  error_message?: string;
-  created_at?: string;
-  updated_at?: string;
-}
-
 export const apiService = new ApiService();
-
-

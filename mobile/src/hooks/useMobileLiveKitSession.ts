@@ -227,27 +227,31 @@ export function useMobileLiveKitSession(options?: { forceDemo?: boolean }) {
       // Incoming audio track handling
       room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
         if (track.kind === Track.Kind.Audio) {
-          const audioElement = document.createElement('audio');
-          audioElement.autoplay = true;
-          track.attach(audioElement);
+          if (typeof document !== 'undefined') {
+            const audioElement = document.createElement('audio');
+            audioElement.autoplay = true;
+            track.attach(audioElement);
 
-          // Web Audio API Setup
-          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-          const ctx = new AudioContextClass();
-          audioCtxRef.current = ctx;
+            // Web Audio API Setup
+            const AudioContextClass = typeof window !== 'undefined' ? (window.AudioContext || (window as any).webkitAudioContext) : null;
+            if (AudioContextClass) {
+              const ctx = new AudioContextClass();
+              audioCtxRef.current = ctx;
 
-          const source = ctx.createMediaElementSource(audioElement);
-          const gainNode = ctx.createGain();
-          const analyser = ctx.createAnalyser();
-          analyser.fftSize = 128;
+              const source = ctx.createMediaElementSource(audioElement);
+              const gainNode = ctx.createGain();
+              const analyser = ctx.createAnalyser();
+              analyser.fftSize = 128;
 
-          gainNode.gain.value = 1.0;
-          gainNodeRef.current = gainNode;
-          analyserRef.current = analyser;
+              gainNode.gain.value = 1.0;
+              gainNodeRef.current = gainNode;
+              analyserRef.current = analyser;
 
-          source.connect(gainNode);
-          gainNode.connect(analyser);
-          analyser.connect(ctx.destination);
+              source.connect(gainNode);
+              gainNode.connect(analyser);
+              analyser.connect(ctx.destination);
+            }
+          }
         }
       });
 

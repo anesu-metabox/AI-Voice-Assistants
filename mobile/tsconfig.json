@@ -29,7 +29,7 @@
   },
   "include": [
     "src",
-    "vite.config.ts"
+    "app"
   ],
   "extends": "expo/tsconfig.base"
 }

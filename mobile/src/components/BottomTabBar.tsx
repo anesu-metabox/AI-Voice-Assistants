@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Path, Rect, Circle, Line } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 
 interface BottomTabBarProps {
@@ -88,9 +89,21 @@ const tabs = [
 
 export default function BottomTabBar({ activeTab, onTabChange, onFabPress }: BottomTabBarProps) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, 10);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.tabBarBg, borderTopColor: colors.border }]}>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: colors.tabBarBg,
+          borderTopColor: colors.border,
+          height: 60 + bottomInset,
+          paddingBottom: bottomInset,
+        },
+      ]}
+    >
       <View style={styles.tabRow}>
         {tabs.map((tab, i) => {
           const isActive = activeTab === tab.id;
@@ -152,14 +165,13 @@ export default function BottomTabBar({ activeTab, onTabChange, onFabPress }: Bot
 const styles = StyleSheet.create({
   container: {
     position: 'relative',
-    height: 72,
     borderTopWidth: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
   },
   tabRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: '100%',
+    height: 60,
   },
   tabButton: {
     flex: 1,

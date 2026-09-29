@@ -20,7 +20,13 @@ const SLIDES = [
   },
 ];
 
-export default function SplashScreen({ onDone }: { onDone: () => void }) {
+export default function SplashScreen({
+  onDone,
+  onSignInPress,
+}: {
+  onDone: () => void;
+  onSignInPress?: () => void;
+}) {
   return (
     <LinearGradient
       colors={['#EEF2FF', '#F0F4FF', '#F8FAFC']}
@@ -78,7 +84,11 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
         </TouchableOpacity>
 
         {/* Sign in link */}
-        <TouchableOpacity activeOpacity={0.7} style={styles.signInBtn}>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={onSignInPress || onDone}
+          style={styles.signInBtn}
+        >
           <Text style={styles.signInText}>Sign In to Workspace</Text>
         </TouchableOpacity>
       </View>

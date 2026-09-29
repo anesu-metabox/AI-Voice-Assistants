@@ -225,8 +225,8 @@ function ThreeCXIntegrationCard() {
       setStatus({ configured: true, state: 'active' });
       Alert.alert('Success', '3CX PBX connection saved successfully.');
       await loadStatus();
-    } catch (err: any) {
-      setStatus((current) => ({ ...(current || {}), error: err?.message || '3CX connection failed' }));
+    } catch (err) {
+      setStatus((current) => ({ ...(current || {}), error: (err as any)?.message || '3CX connection failed' }));
     } finally {
       setClientSecret('');
       setBusy(false);
@@ -256,8 +256,8 @@ function ThreeCXIntegrationCard() {
               setFailureAction('');
               setFailureDestination('');
               setClientSecret('');
-            } catch (err: any) {
-              setStatus((current) => ({ ...(current || {}), error: err?.message || '3CX could not be disconnected' }));
+            } catch (err) {
+              setStatus((current) => ({ ...(current || {}), error: (err as any)?.message || '3CX could not be disconnected' }));
             } finally {
               setBusy(false);
             }

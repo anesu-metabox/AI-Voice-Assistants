@@ -93,9 +93,9 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const saved = localStorage.getItem(THEME_STORAGE_KEY);
       if (saved === 'dark' || saved === 'light') return saved;
     } catch {
-      // Ignore localStorage access restrictions
+      //Ignore localStorage access restrictions
     }
-    return 'dark'; // Executive Dark Mode by default
+    return 'dark'; //Executive Dark Mode by default
   });
 
   useEffect(() => {

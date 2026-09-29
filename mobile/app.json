@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "vocalist.ai",
-    "slug": "vocalist-mobile",
+    "name": "Vocalist Assistant Ai",
+    "slug": "vocalist-assistant-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./src/assets/mascot-1.png",
@@ -35,6 +35,9 @@
         "INTERNET"
       ]
     },
-    "plugins": []
+    "scheme": "vocalist-mobile",
+    "plugins": [
+      "expo-router"
+    ]
   }
 }

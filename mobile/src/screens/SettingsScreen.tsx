@@ -54,7 +54,7 @@ const BUSINESS_DAYS = [
   'sunday',
 ] as const;
 
-export default function SettingsScreen() {
+export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?: () => void; onSetupPress?: () => void } = {}) {
   const { colors, theme, toggleTheme } = useTheme();
   const [currentView, setCurrentView] = useState<SettingsView>('hub');
 
@@ -1067,6 +1067,48 @@ export default function SettingsScreen() {
                   <Text style={[styles.itemSub, { color: colors.textMuted }]}>feat/mobile-app-init (develop target)</Text>
                 </View>
               </View>
+            </View>
+          </View>
+
+          {/* Section: Account & Workspace */}
+          <View style={styles.sectionGroup}>
+            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
+              Account & Workspace
+            </Text>
+            <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.border }]}>
+              {/* Company & AI Setup */}
+              <TouchableOpacity
+                onPress={() => onSetupPress?.()}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: colors.border, marginBottom: 12, paddingBottom: 12 }}
+                activeOpacity={0.7}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Text style={{ fontSize: 18 }}>⚙️</Text>
+                  <View>
+                    <Text style={[styles.itemLabel, { color: colors.textHeading }]}>Company & AI Setup</Text>
+                    <Text style={[styles.itemSub, { color: colors.textMuted }]}>Re-configure your workspace & assistant</Text>
+                  </View>
+                </View>
+                <Text style={{ color: colors.textMuted, fontWeight: '600', fontSize: 14 }}>→</Text>
+              </TouchableOpacity>
+              {/* Sign Out */}
+              <TouchableOpacity
+                onPress={async () => {
+                  await apiService.signOut();
+                  onSignOut?.();
+                }}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4 }}
+                activeOpacity={0.7}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Text style={{ fontSize: 18 }}>🚪</Text>
+                  <View>
+                    <Text style={[styles.itemLabel, { color: '#EF4444' }]}>Sign Out of Workspace</Text>
+                    <Text style={[styles.itemSub, { color: colors.textMuted }]}>End your authenticated Neon session</Text>
+                  </View>
+                </View>
+                <Text style={{ color: '#EF4444', fontWeight: '700', fontSize: 14 }}>Sign Out →</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
