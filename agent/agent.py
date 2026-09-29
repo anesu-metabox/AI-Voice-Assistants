@@ -938,7 +938,7 @@ async def entrypoint(ctx: JobContext) -> None:
     redirect_response = CALENDAR_REDIRECT_RESPONSE
     inbound_greeting = ""
     active_default_language = "en"
-    active_allowed_languages = ["fr-FR", "fr-BE", "en"]
+    active_allowed_languages = ["en"]
     runtime_behavior_instruction = ""
     try:
         async with httpx.AsyncClient(

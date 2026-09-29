@@ -110,6 +110,9 @@ def test_french_scope_and_explicit_language_switches_are_supported():
     assert detect_explicit_language_switch("Please continue in French") == "fr-FR"
     assert detect_explicit_language_switch("French") == "fr-FR"
     assert detect_explicit_language_switch("Répondez en français") == "fr-FR"
+    assert detect_explicit_language_switch("Do you have an English menu?") is None
+    assert detect_explicit_language_switch("I don't speak English") is None
+    assert detect_explicit_language_switch("French food") is None
     assert classify_assistant_turn("Please speak Spanish", company_capabilities=FAQ_ONLY).reason == "unsupported_language"
     assert classify_assistant_turn("Hola, necesito ayuda", company_capabilities=FAQ_ONLY).reason == "unsupported_language"
     assert classify_assistant_turn("مرحبا، أحتاج إلى مساعدة", company_capabilities=FAQ_ONLY).reason == "unsupported_language"
