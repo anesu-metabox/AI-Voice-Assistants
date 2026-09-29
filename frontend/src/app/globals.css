@@ -5,13 +5,29 @@
 :root {
   --background: #090d16;
   --foreground: #f1f5f9;
+
+  /* Brand palette — used by the new marketing/hero treatment. The app
+     dashboard keeps its existing inline-styled palette (#3B5BDB primary,
+     #0D1526 ink, #E8ECF4 borders) untouched for consistency. */
+  --brand-ink: #0d1526;
+  --brand-primary: #3b5bdb;
+  --brand-primary-dark: #2c46b8;
+  --brand-accent: #14b8a6;
+  --brand-accent-dark: #0d9488;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 ::-webkit-scrollbar {
@@ -30,4 +46,307 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #475569;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Visual polish layer
+   ──────────────────────────────────────────────────────────────────────────
+   The dashboard UI is styled with inline style={{…}} objects rather than
+   Tailwind classes, so this layer polishes it two ways without touching
+   behavior or requiring a rewrite:
+   1) generic tag/role rules (button, input, table, :focus-visible) that
+      apply everywhere automatically, and
+   2) attribute selectors keyed to numeric/text values already used
+      consistently in the inline styles (e.g. `border-radius: 14px`).
+   No colors are targeted this way — browsers normalize color values when
+   reflecting them back to the style attribute, so matching on hex/keyword
+   colors is unreliable — only literal numbers, units and font names, which
+   are preserved as written. New elements added directly in JSX (the
+   hamburger menus, the redesigned hero, sign-in page) use real Tailwind
+   classes instead, now that Tailwind actually compiles (see
+   postcss.config.mjs).
+   ══════════════════════════════════════════════════════════════════════════ */
+
+[style*="Bricolage Grotesque"] {
+  letter-spacing: -0.012em;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  transition: filter 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease,
+    border-color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease;
+}
+
+button:not(:disabled) {
+  cursor: pointer;
+}
+button:not(:disabled):hover {
+  filter: brightness(1.06);
+}
+button:not(:disabled):active {
+  transform: translateY(1px);
+  filter: brightness(0.97);
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
+a:hover {
+  opacity: 0.85;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--brand-primary) !important;
+  box-shadow: 0 0 0 3px rgba(59, 91, 219, 0.15);
+}
+
+/* Card surfaces: the app consistently pairs a 1px border with a 12–16px
+   radius for panels/cards (buttons/inputs use 6–8px, so this never touches
+   them). Softer corners + a quiet elevation shadow that lifts a little on
+   hover for anything that also has a pointer cursor. */
+[style*="border-radius: 12px"][style*="border: 1px solid"],
+[style*="border-radius: 14px"][style*="border: 1px solid"],
+[style*="border-radius: 16px"][style*="border: 1px solid"],
+[style*="border-radius: 18px"][style*="border: 1px solid"] {
+  box-shadow: 0 1px 2px rgba(13, 21, 38, 0.04), 0 10px 28px -16px rgba(13, 21, 38, 0.18);
+}
+
+table {
+  font-variant-numeric: tabular-nums;
+}
+tbody tr[style*="cursor: pointer"]:hover {
+  background-color: #f8fafc !important;
+}
+
+::selection {
+  background: var(--brand-primary);
+  color: white;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Responsive layer — sidebar → off-canvas drawer, landing nav → dropdown,
+   two-column layouts → single column, tables → horizontal scroll.
+   Breakpoints: 960 app sidebar / landing nav collapse · 720 forms stack ·
+   560 fine tuning for very small phones.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+button, a, input, select, textarea, [role="button"] {
+  touch-action: manipulation;
+}
+
+/* ── App shell sidebar (desktop default: static column) ─────────────────── */
+.app-burger,
+.app-drawer-close,
+.app-backdrop {
+  display: none;
+}
+
+@media (max-width: 960px) {
+  .app-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 60;
+    width: min(280px, 84vw);
+    min-height: 0;
+    height: 100vh;
+    height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 0.25s ease, visibility 0s linear 0.25s;
+  }
+  .app-sidebar[data-open="true"] {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.25s ease, visibility 0s;
+    box-shadow: 16px 0 40px rgba(2, 6, 23, 0.45);
+  }
+  .app-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(13, 21, 38, 0.55);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+  .app-backdrop[data-open="true"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .app-burger {
+    display: inline-flex;
+  }
+  .app-drawer-close {
+    display: inline-flex;
+  }
+  .app-header {
+    height: auto !important;
+    min-height: 60px;
+    padding: 10px 16px !important;
+    position: sticky;
+    top: 0;
+    z-index: 40;
+  }
+  .app-header-title-text {
+    font-size: 16px !important;
+  }
+  .app-content-pad {
+    padding: 16px !important;
+  }
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px !important; /* prevents iOS Safari auto-zoom (and the sideways scroll it causes) */
+  }
+}
+@media (max-width: 480px) {
+  .app-content-pad {
+    padding: 12px !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-sidebar, .app-backdrop {
+    transition: none !important;
+  }
+}
+
+/* ── Landing / marketing nav ─────────────────────────────────────────────── */
+@media (max-width: 860px) {
+  .lp-links {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    background: white;
+    padding: 6px 20px 22px;
+    border-bottom: 1px solid #e8ecf4;
+    box-shadow: 0 16px 32px rgba(13, 21, 38, 0.1);
+  }
+  .lp-links[data-open="true"] {
+    display: flex;
+  }
+}
+
+/* ── Shared responsive helpers (attach `className` alongside `style`) ────── */
+.rs-table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 960px) {
+  .rs-stack-md {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 16px !important;
+  }
+  .rs-stack-md > * {
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+  .rs-cols-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+  }
+  .rs-wrap-row {
+    flex-wrap: wrap !important;
+    row-gap: 10px !important;
+  }
+  .rs-btn-row {
+    flex-wrap: wrap !important;
+  }
+  .rs-btn-row > button {
+    flex: 1 1 140px !important;
+  }
+}
+@media (max-width: 720px) {
+  .rs-form-row {
+    flex-direction: column !important;
+    gap: 16px !important;
+  }
+  .rs-form-row > * {
+    flex: 0 0 auto !important;
+    width: 100% !important;
+  }
+  .rs-cols-2 {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .rs-actions {
+    flex-direction: column-reverse !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+  .rs-actions > button {
+    width: 100%;
+  }
+  .rs-card-pad {
+    padding: 18px !important;
+  }
+}
+@media (max-width: 560px) {
+  .rs-cols-4 {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/* ── Voice testing sandbox ────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .sb-header {
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 14px 16px !important;
+  }
+  .sb-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .sb-card-audio {
+    padding: 22px 16px !important;
+  }
+}
+
+/* ── Modern signed-in app (light workspace) ──────────────────────────────── */
+.app-light ::-webkit-scrollbar-track {
+  background: transparent;
+}
+.app-light ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+.app-light ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+.app-light {
+  scroll-behavior: smooth;
 }

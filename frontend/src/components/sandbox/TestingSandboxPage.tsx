@@ -549,6 +549,7 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: "calc(100vh - 112px)" }}>
       {/* Top Header Bar */}
       <div
+        className="sb-header"
         style={{
           display: "flex",
           justifyContent: "space-between",
@@ -682,9 +683,10 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
       )}
 
       {/* Main Sandbox Grid: Left Voice Console | Right Transcript Feed */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, flex: 1 }}>
+      <div className="sb-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, flex: 1 }}>
         {/* Left Card: Audio Orb & Controls */}
         <div
+          className="sb-card-audio"
           style={{
             background: "white",
             borderRadius: 16,
