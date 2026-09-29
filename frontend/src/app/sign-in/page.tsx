@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 export default function SignInPage() {
   const router = useRouter();
@@ -76,13 +77,13 @@ export default function SignInPage() {
         onSubmit={submit}
         className="relative w-full max-w-[420px] rounded-2xl border border-white/10 bg-[#111726]/90 p-8 text-slate-100 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.6)] backdrop-blur"
       >
-        <a href="/" className="mb-8 flex items-center gap-2 text-white no-underline">
+        <Link href="/" className="mb-8 flex items-center gap-2 text-white no-underline">
           <svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true">
             <rect width="32" height="32" rx="8" fill="#3B5BDB" />
             <path d="M10 22V10l12 6-12 6z" fill="white" />
           </svg>
           <span style={{ fontFamily: "Bricolage Grotesque" }} className="text-base font-bold">vocalist.ai</span>
-        </a>
+        </Link>
 
         <h1 className="mb-1.5 text-[26px] font-bold text-white">
           {mode === "sign-in" ? "Welcome back" : "Create your account"}

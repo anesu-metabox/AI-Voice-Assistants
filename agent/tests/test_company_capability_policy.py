@@ -15,7 +15,8 @@ from agent.agent import (
     require_bound_profile_snapshot,
     speak_configured_greeting,
 )
-from agent.assistant_policy import classify_assistant_turn
+from agent.assistant_policy import classify_assistant_turn, detect_explicit_language_switch
+from agent.tts import VoiceBotTTS, edge_voice_for
 
 
 FAQ_ONLY = {"company_faq": {"enabled": True, "tools": []}}
@@ -92,6 +93,37 @@ def test_calendar_follow_up_requires_company_calendar_grant():
     assert classify_assistant_turn(
         "tomorrow", calendar_context_active=True, company_capabilities=CALENDAR_AND_FAQ
     ).reason == "calendar_follow_up"
+
+
+def test_french_scope_and_explicit_language_switches_are_supported():
+    assert classify_assistant_turn(
+        "Je voudrais réserver un rendez-vous demain",
+        company_capabilities=CALENDAR_AND_FAQ,
+    ).reason == "calendar_intent"
+    assert classify_assistant_turn("euh", company_capabilities=FAQ_ONLY).action == "clarify"
+    assert detect_explicit_language_switch("Please speak English") == "en"
+    assert detect_explicit_language_switch("English") == "en"
+    assert detect_explicit_language_switch("Parlez en anglais, s'il vous plaît") == "en"
+    assert detect_explicit_language_switch("Please use Belgian French") == "fr-BE"
+    assert detect_explicit_language_switch("français belge") == "fr-BE"
+    assert detect_explicit_language_switch("Continuez en français belge") == "fr-BE"
+    assert detect_explicit_language_switch("Please continue in French") == "fr-FR"
+    assert detect_explicit_language_switch("French") == "fr-FR"
+    assert detect_explicit_language_switch("Répondez en français") == "fr-FR"
+    assert detect_explicit_language_switch("Do you have an English menu?") is None
+    assert detect_explicit_language_switch("I don't speak English") is None
+    assert detect_explicit_language_switch("French food") is None
+    assert classify_assistant_turn("Please speak Spanish", company_capabilities=FAQ_ONLY).reason == "unsupported_language"
+    assert classify_assistant_turn("Hola, necesito ayuda", company_capabilities=FAQ_ONLY).reason == "unsupported_language"
+    assert classify_assistant_turn("مرحبا، أحتاج إلى مساعدة", company_capabilities=FAQ_ONLY).reason == "unsupported_language"
+
+
+def test_scripted_tts_uses_language_specific_voice_mappings():
+    assert edge_voice_for("Aoede", "fr-FR") == "fr-FR-DeniseNeural"
+    assert edge_voice_for("Puck", "fr-FR") == "fr-FR-HenriNeural"
+    assert edge_voice_for("Kore", "fr-BE") == "fr-BE-CharlineNeural"
+    assert edge_voice_for("Fenrir", "fr-BE") == "fr-BE-GerardNeural"
+    assert edge_voice_for("Aoede", "en") == "en-US-AvaNeural"
 
 
 def test_structured_company_profile_is_rendered_as_bounded_untrusted_data():
@@ -198,5 +230,109 @@ async def test_rejected_company_turn_speaks_redirect_and_stops_model_turn():
             "I’m focused on helping with your company’s information and enabled services. What would you like help with?",
             allow_interruptions=True,
         )
+    finally:
+        await agent.aclose()
+
+
+@pytest.mark.asyncio
+async def test_language_switch_persists_and_updates_scripted_tts():
+    scripted_tts = VoiceBotTTS(voice="Aoede", language="fr-FR")
+    agent = VoiceBotAgent(
+        room=MagicMock(),
+        instructions="company FAQ only",
+        company_capabilities=FAQ_ONLY,
+        allowed_tools=set(),
+        default_language="fr-FR",
+        allowed_languages=["fr-FR", "fr-BE", "en"],
+        scripted_tts=scripted_tts,
+    )
+    session = SimpleNamespace(say=MagicMock())
+    agent._activity = SimpleNamespace(session=session, update_instructions=AsyncMock())
+    try:
+        with pytest.raises(StopResponse):
+            await agent.on_user_turn_completed(
+                MagicMock(), SimpleNamespace(text_content="Please speak English")
+            )
+        assert agent._active_language == "en"
+        assert scripted_tts.language == "en"
+        session.say.assert_called_once_with(
+            "Of course. I’ll continue in English.", allow_interruptions=True
+        )
+
+        session.say.reset_mock()
+        with pytest.raises(StopResponse):
+            await agent.on_user_turn_completed(
+                MagicMock(), SimpleNamespace(text_content="français belge")
+            )
+        assert agent._active_language == "fr-BE"
+        assert scripted_tts.language == "fr-BE"
+        assert "français belge" in session.say.call_args.args[0]
+
+        session.say.reset_mock()
+        with pytest.raises(StopResponse):
+            await agent.on_user_turn_completed(
+                MagicMock(), SimpleNamespace(text_content="French")
+            )
+        assert agent._active_language == "fr-FR"
+        assert scripted_tts.language == "fr-FR"
+
+        session.say.reset_mock()
+        with pytest.raises(StopResponse):
+            await agent.on_user_turn_completed(
+                MagicMock(), SimpleNamespace(text_content="Explain quantum mechanics")
+            )
+        assert "uniquement" in session.say.call_args.args[0]
+    finally:
+        await agent.aclose()
+
+
+@pytest.mark.asyncio
+async def test_unclear_turns_ask_twice_then_offer_support_and_reset_after_clear_turn():
+    scripted_tts = VoiceBotTTS(voice="Aoede", language="fr-FR")
+    agent = VoiceBotAgent(
+        room=MagicMock(),
+        instructions="company FAQ only",
+        company_capabilities=FAQ_ONLY,
+        company_scope_context={
+            **COMPANY_CONTEXT,
+            "phone": "+230 123 4567",
+            "support_email": "support@example.com",
+        },
+        allowed_tools=set(),
+        default_language="fr-FR",
+        allowed_languages=["fr-FR", "fr-BE", "en"],
+        scripted_tts=scripted_tts,
+    )
+    session = SimpleNamespace(say=MagicMock())
+    agent._activity = SimpleNamespace(session=session, update_instructions=AsyncMock())
+    try:
+        for _ in range(3):
+            with pytest.raises(StopResponse):
+                await agent.on_user_turn_completed(
+                    MagicMock(), SimpleNamespace(text_content="euh")
+                )
+        spoken = [call.args[0] for call in session.say.call_args_list]
+        assert "répéter" in spoken[0]
+        assert "français ou en anglais" in spoken[1]
+        assert "+230 123 4567" in spoken[2]
+        assert "support@example.com" in spoken[2]
+        assert spoken[2].index("+230 123 4567") < spoken[2].index("support@example.com")
+
+        await agent.on_user_turn_completed(
+            MagicMock(), SimpleNamespace(text_content="Bonjour")
+        )
+        assert agent._clarification_count == 0
+
+        with pytest.raises(StopResponse):
+            await agent.on_user_turn_completed(
+                MagicMock(), SimpleNamespace(text_content="euh")
+            )
+        assert agent._clarification_count == 1
+
+        with pytest.raises(StopResponse):
+            await agent.on_user_turn_completed(
+                MagicMock(), SimpleNamespace(text_content="Tell me a joke")
+            )
+        assert agent._clarification_count == 0
     finally:
         await agent.aclose()

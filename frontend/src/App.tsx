@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode, type RefObject } from "react";
 import { TestingSandboxPage } from "./components/sandbox/TestingSandboxPage";
 import { BookingUpdateCenter } from "./components/tasks/BookingUpdateCenter";
-import type { CapabilityId } from "./lib/capabilityRegistry";
+import type { CapabilityId, ResponseLanguage } from "./lib/capabilityRegistry";
 import { logSafeFailure } from "./lib/safeLogging";
 import * as Lu from "lucide-react";
 import { Alert, Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, KeyValue, SelectWrap, Skeleton, StatCard, Toast, cn, controlCls, selectCls, type Tone } from "./components/app/ui";
@@ -167,7 +167,7 @@ function Sidebar({
   setPage: (p: Page) => void;
   open: boolean;
   onClose: () => void;
-  closeButtonRef: RefObject<HTMLButtonElement | null>;
+  closeButtonRef: RefObject<HTMLButtonElement>;
 }) {
   const go = (p: Page) => {
     setPage(p);
@@ -312,7 +312,7 @@ function AppHeader({
   subtitle: string;
   onMenuClick: () => void;
   menuOpen: boolean;
-  menuButtonRef: RefObject<HTMLButtonElement | null>;
+  menuButtonRef: RefObject<HTMLButtonElement>;
 }) {
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/80 backdrop-blur-xl">
@@ -683,7 +683,6 @@ type CallRow = {
   endedAt: string | null;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getJson(url: string): Promise<any | null> {
   try {
     const response = await fetch(url, { credentials: "include", cache: "no-store" });
@@ -1288,14 +1287,14 @@ function GoogleCalendarIntegrationCard() {
 }
 
 function ThreeCXIntegrationCard() {
-  const [connectionName, setConnectionName] = useState("");
+  const [connectionName, setConnectionName] = useState("3CX PBX Connection");
   const [pbxUrl, setPbxUrl] = useState("");
   const [appId, setAppId] = useState("");
   const [routePointDn, setRoutePointDn] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [dids, setDids] = useState("");
   const [transferDestinations, setTransferDestinations] = useState("");
-  const [failureAction, setFailureAction] = useState<"" | "disconnect" | "transfer">("");
+  const [failureAction, setFailureAction] = useState<"" | "disconnect" | "transfer">("disconnect");
   const [failureDestination, setFailureDestination] = useState("");
   const [status, setStatus] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -1305,13 +1304,13 @@ function ThreeCXIntegrationCard() {
     if (!response.ok) throw new Error("Could not load the 3CX connection details");
     const data = await response.json();
     setStatus(data);
-    setConnectionName(data.connectionName || "");
+    setConnectionName(data.connectionName || "3CX PBX Connection");
     setPbxUrl(data.pbxHost ? `https://${data.pbxHost}` : "");
     setAppId(data.appId || "");
     setRoutePointDn(data.routePointDn || "");
     setDids(Array.isArray(data.dids) ? data.dids.join(", ") : "");
     setTransferDestinations(Array.isArray(data.transferDestinations) ? data.transferDestinations.join(", ") : "");
-    setFailureAction(data.failureAction === "disconnect" || data.failureAction === "transfer" ? data.failureAction : "");
+    setFailureAction(data.failureAction === "disconnect" || data.failureAction === "transfer" ? data.failureAction : "disconnect");
     setFailureDestination(data.failureDestination || "");
     setClientSecret("");
   }, []);
@@ -1321,11 +1320,13 @@ function ThreeCXIntegrationCard() {
   const save = async () => {
     setBusy(true);
     try {
+      const trimmedUrl = pbxUrl.trim();
+      const normalizedUrl = trimmedUrl ? (trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://") ? trimmedUrl : `https://${trimmedUrl}`) : "";
       const payload = {
-        connection_name: connectionName,
-        pbx_url: pbxUrl,
+        connection_name: connectionName.trim() || "3CX PBX Connection",
+        pbx_url: normalizedUrl,
         app_id: appId,
-        route_point_dn: routePointDn,
+        route_point_dn: routePointDn.trim() || appId.trim(),
         client_secret: clientSecret,
         dids: dids.split(",").map((value) => value.trim()).filter(Boolean),
         transfer_destinations: transferDestinations.split(",").map((value) => value.trim()).filter(Boolean),
@@ -1415,7 +1416,6 @@ function ThreeCXIntegrationCard() {
             </Field>
           ))}
         </div>
-
         <Field label="If the assistant cannot handle a live call">
           <SelectWrap>
             <select
@@ -1458,6 +1458,7 @@ function ThreeCXIntegrationCard() {
               {busy ? "Testing & saving..." : "Test & save 3CX"}
             </Button>
           </div>
+
         </div>
       </CardBody>
     </Card>
@@ -1478,6 +1479,8 @@ type OnboardingAssistantDraft = {
   inbound_greeting: string;
   system_prompt: string;
   knowledge_base_notes: string;
+  default_language: ResponseLanguage;
+  allowed_languages: ResponseLanguage[];
   tone: "professional" | "friendly" | "warm" | "concise";
   business_hours: Record<string, string>;
   escalation_rules: string[];
@@ -1489,9 +1492,63 @@ type FAQEntry = { question: string; answer: string };
 const BUSINESS_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
 const EMPTY_ASSISTANT_DRAFT: OnboardingAssistantDraft = {
   assistant_name: "", voice_engine: "Aoede", inbound_greeting: "", system_prompt: "",
-  knowledge_base_notes: "", tone: "friendly", business_hours: {}, escalation_rules: [],
+  knowledge_base_notes: "", default_language: "en", allowed_languages: ["fr-FR", "fr-BE", "en"],
+  tone: "friendly", business_hours: {}, escalation_rules: [],
   faq_entries: [], capabilities: { company_receptionist: false, company_faq: false, google_calendar: true },
 };
+
+const RESPONSE_LANGUAGE_OPTIONS: Array<{ value: ResponseLanguage; label: string }> = [
+  { value: "fr-FR", label: "General French" },
+  { value: "fr-BE", label: "Belgian French" },
+  { value: "en", label: "English" },
+];
+
+function readResponseLanguage(value: unknown): ResponseLanguage {
+  return value === "fr-FR" || value === "fr-BE" || value === "en" ? value : "en";
+}
+
+function readAllowedLanguages(value: unknown, defaultLanguage: ResponseLanguage): ResponseLanguage[] {
+  const languages = Array.isArray(value)
+    ? value.filter((item): item is ResponseLanguage => item === "fr-FR" || item === "fr-BE" || item === "en")
+    : [];
+  const unique = Array.from(new Set(languages));
+  if (!unique.includes(defaultLanguage)) unique.unshift(defaultLanguage);
+  return unique.length ? unique : ["fr-FR", "fr-BE", "en"];
+}
+
+function LanguagePolicyFields({
+  defaultLanguage,
+  allowedLanguages,
+  onChange,
+}: {
+  defaultLanguage: ResponseLanguage;
+  allowedLanguages: ResponseLanguage[];
+  onChange: (defaultLanguage: ResponseLanguage, allowedLanguages: ResponseLanguage[]) => void;
+}) {
+  return <section aria-label="Response language policy" style={{ border: "1px solid #E2E8F0", borderRadius: 9, padding: 14, marginBottom: 18, background: "#FAFBFF" }}>
+    <div style={{ fontSize: 13, fontWeight: 700, color: "#1E293B", marginBottom: 9 }}>Response languages</div>
+    <label style={{ display: "block", fontSize: 12, color: "#374151", marginBottom: 10 }}>
+      Default response language
+      <select value={defaultLanguage} onChange={(event) => {
+        const nextDefault = event.target.value as ResponseLanguage;
+        onChange(nextDefault, allowedLanguages.includes(nextDefault) ? allowedLanguages : [...allowedLanguages, nextDefault]);
+      }} style={{ ...inputStyle, marginTop: 5 }}>
+        {RESPONSE_LANGUAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>
+    </label>
+    <div style={{ fontSize: 12, color: "#374151", marginBottom: 5 }}>Allowed explicit language switches</div>
+    {RESPONSE_LANGUAGE_OPTIONS.map((option) => <label key={option.value} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 12, color: "#334155" }}>
+      <input type="checkbox" checked={allowedLanguages.includes(option.value)} disabled={option.value === defaultLanguage} onChange={(event) => {
+        const next = event.target.checked
+          ? [...allowedLanguages, option.value]
+          : allowedLanguages.filter((language) => language !== option.value);
+        onChange(defaultLanguage, Array.from(new Set(next)));
+      }} />
+      {option.label}{option.value === defaultLanguage ? " (default)" : ""}
+    </label>)}
+    <p style={{ margin: "8px 0 0", fontSize: 11, color: "#64748B", lineHeight: 1.45 }}>The assistant switches only after an explicit caller request. Unclear or unsupported speech is never guessed.</p>
+  </section>;
+}
 
 const inputStyle = {
   width: "100%", border: "1.5px solid #D1D5DB", borderRadius: 8,
@@ -1795,6 +1852,7 @@ function PersistedAssistantOnboardingPage({ setPage }: { setPage: (p: Page) => v
       {message && <p role="alert" style={{ color: "#B91C1C", fontSize: 13 }}>{message}</p>}
       <label style={{ display: "block", marginBottom: 14, fontSize: 13, color: "#374151" }}>Assistant name<input required value={draft.assistant_name} onChange={(e) => update("assistant_name", e.target.value)} placeholder="Your calendar assistant" style={inputStyle} /></label>
       <label style={{ display: "block", marginBottom: 14, fontSize: 13, color: "#374151" }}>Voice<select value={draft.voice_engine} onChange={(e) => update("voice_engine", e.target.value)} style={inputStyle}><option>Aoede</option><option>Puck</option><option>Charon</option><option>Kore</option><option>Fenrir</option></select></label>
+      <LanguagePolicyFields defaultLanguage={draft.default_language} allowedLanguages={draft.allowed_languages} onChange={(default_language, allowed_languages) => setDraft((current) => ({ ...current, default_language, allowed_languages }))} />
       <label style={{ display: "block", marginBottom: 14, fontSize: 13, color: "#374151" }}>Greeting<input maxLength={500} value={draft.inbound_greeting} onChange={(e) => update("inbound_greeting", e.target.value)} placeholder="How can I help with your calendar?" style={inputStyle} /></label>
       <CapabilityChoices value={draft.capabilities} onChange={updateCapability} />
       <CompanyOperatingFields
@@ -1989,6 +2047,8 @@ function AssistantConfigPage({ setPage, onTestDraft }: { setPage: (p: Page) => v
   const [inboundGreeting, setInboundGreeting] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [knowledgeBaseNotes, setKnowledgeBaseNotes] = useState("");
+  const [defaultLanguage, setDefaultLanguage] = useState<ResponseLanguage>("en");
+  const [allowedLanguages, setAllowedLanguages] = useState<ResponseLanguage[]>(["fr-FR", "fr-BE", "en"]);
   const [tone, setTone] = useState<OnboardingAssistantDraft["tone"]>("friendly");
   const [businessHours, setBusinessHours] = useState<Record<string, string>>({});
   const [escalationRules, setEscalationRules] = useState<string[]>([]);
@@ -2025,6 +2085,9 @@ function AssistantConfigPage({ setPage, onTestDraft }: { setPage: (p: Page) => v
             if (json.data.inbound_greeting) setInboundGreeting(json.data.inbound_greeting);
             if (json.data.system_prompt) setSystemPrompt(json.data.system_prompt);
             if (json.data.knowledge_base_notes) setKnowledgeBaseNotes(json.data.knowledge_base_notes);
+            const loadedDefaultLanguage = readResponseLanguage(json.data.default_language);
+            setDefaultLanguage(loadedDefaultLanguage);
+            setAllowedLanguages(readAllowedLanguages(json.data.allowed_languages, loadedDefaultLanguage));
             if (["professional", "friendly", "warm", "concise"].includes(json.data.tone)) setTone(json.data.tone);
             setBusinessHours(json.data.business_hours || {});
             setEscalationRules(json.data.escalation_rules || []);
@@ -2050,6 +2113,8 @@ function AssistantConfigPage({ setPage, onTestDraft }: { setPage: (p: Page) => v
         inbound_greeting: inboundGreeting,
         system_prompt: systemPrompt,
         knowledge_base_notes: knowledgeBaseNotes,
+        default_language: defaultLanguage,
+        allowed_languages: allowedLanguages,
         tone,
         business_hours: businessHours,
         escalation_rules: escalationRules,
@@ -2129,6 +2194,14 @@ function AssistantConfigPage({ setPage, onTestDraft }: { setPage: (p: Page) => v
               <Field label="Inbound greeting phrase" hint={`${inboundGreeting.length}/500 characters`}>
                 <input maxLength={500} value={inboundGreeting} onChange={(e) => setInboundGreeting(e.target.value)} placeholder="Write the greeting your callers should hear" className={controlCls} />
               </Field>
+              <LanguagePolicyFields
+                defaultLanguage={defaultLanguage}
+                allowedLanguages={allowedLanguages}
+                onChange={(nextDefault, nextAllowed) => {
+                  setDefaultLanguage(nextDefault);
+                  setAllowedLanguages(nextAllowed);
+                }}
+              />
             </CardBody>
           </Card>
 
@@ -2215,12 +2288,6 @@ function AssistantConfigPage({ setPage, onTestDraft }: { setPage: (p: Page) => v
               <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Active voice model</div>
               <div className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-800">
                 <Lu.Sparkles className="h-4 w-4 text-indigo-500" /> {voiceEngine} (Gemini Live)
-              </div>
-            </div>
-            <div className="rounded-xl border border-slate-100 bg-slate-50 p-3.5">
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Published profile</div>
-              <div className={cn("mt-1 text-[13px] font-semibold", profileStatus === "error" ? "text-rose-600" : "text-slate-800")}>
-                {profileStatus === "loading" ? "Checking publish status…" : profileStatus === "error" ? "Publish status unavailable" : publishedVersion === null ? "No profile published" : `Version ${publishedVersion} · used by new sessions`}
               </div>
             </div>
             <Button block size="lg" icon={<Lu.Mic className="h-4 w-4" />} onClick={() => setPage("testing-sandbox")}>

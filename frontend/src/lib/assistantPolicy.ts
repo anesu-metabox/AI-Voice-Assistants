@@ -12,10 +12,12 @@ export type ScopeDecisionReason =
   | "social"
   | "hard_diversion"
   | "off_topic"
+  | "unsupported_language"
+  | "unclear_input"
   | "empty_input";
 
 export interface ScopeDecision {
-  action: "allow" | "redirect";
+  action: "allow" | "clarify" | "redirect";
   reason: ScopeDecisionReason;
   calendarContextActive: boolean;
 }
@@ -31,6 +33,8 @@ export interface AssistantPolicy {
     calendarIntent: string[];
     social: string[];
     calendarFollowUp: string[];
+    unclear: string[];
+    unsupportedLanguage: string[];
   };
 }
 
@@ -60,7 +64,15 @@ export function classifyAssistantTurn(
 ): ScopeDecision {
   const text = input.trim().toLowerCase();
   if (!text) {
-    return { action: "redirect", reason: "empty_input", calendarContextActive: false };
+    return { action: "clarify", reason: "empty_input", calendarContextActive };
+  }
+
+  if (matches(compiledPatterns.unclear, text)) {
+    return { action: "clarify", reason: "unclear_input", calendarContextActive };
+  }
+
+  if (matches(compiledPatterns.unsupportedLanguage, text)) {
+    return { action: "clarify", reason: "unsupported_language", calendarContextActive };
   }
 
   if (matches(compiledPatterns.hardDiversion, text)) {

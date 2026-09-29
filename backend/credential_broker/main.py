@@ -119,18 +119,33 @@ class OAuthDisconnectPayload(BrokerPayload):
 
 
 class ThreeCXPayload(BrokerPayload):
-    connection_name: str = Field(min_length=1, max_length=255)
-    pbx_url: str = Field(min_length=8, max_length=255)
+    connection_name: str = Field(default="3CX PBX Connection", max_length=255)
+    pbx_url: str = Field(min_length=3, max_length=255)
     app_id: str = Field(min_length=1, max_length=255)
-    route_point_dn: str = Field(min_length=1, max_length=128)
-    client_secret: str = Field(min_length=8, max_length=4096)
+    route_point_dn: str = Field(default="", max_length=128)
+    client_secret: str = Field(min_length=4, max_length=4096)
     dids: list[str] = Field(default_factory=list, max_length=100)
     transfer_destinations: list[str] = Field(default_factory=list, max_length=100)
-    failure_action: str = Field(pattern="^(disconnect|transfer)$")
+    failure_action: str = Field(default="disconnect", pattern="^(disconnect|transfer)$")
     failure_destination: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_input(cls, data: object) -> object:
+        if isinstance(data, dict):
+            url = str(data.get("pbx_url", "")).strip()
+            if url and not (url.startswith("http://") or url.startswith("https://")):
+                data["pbx_url"] = f"https://{url}"
+            if not data.get("connection_name") or not str(data.get("connection_name")).strip():
+                data["connection_name"] = "3CX PBX Connection"
+            if not data.get("failure_action"):
+                data["failure_action"] = "disconnect"
+        return data
 
     @model_validator(mode="after")
     def validate_failure_policy(self):
+        if not self.route_point_dn or not self.route_point_dn.strip():
+            self.route_point_dn = self.app_id.strip()
         self.transfer_destinations = [
             value.strip() for value in self.transfer_destinations if value.strip()
         ]

@@ -12,7 +12,7 @@ import uuid
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Header, HTTPException, Query, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..config import settings
 from db.settings import (
@@ -73,8 +73,20 @@ class AssistantConfigRequest(BaseModel):
     business_hours: dict[str, str] = Field(default_factory=dict)
     escalation_rules: list[str] = Field(default_factory=list, max_length=10)
     faq_entries: list[dict[str, str]] = Field(default_factory=list, max_length=20)
+    default_language: Literal["fr-FR", "fr-BE", "en"] = "en"
+    allowed_languages: list[Literal["fr-FR", "fr-BE", "en"]] = Field(
+        default_factory=lambda: ["fr-FR", "fr-BE", "en"], min_length=1, max_length=3
+    )
     capabilities: dict[str, Any] = Field(default_factory=lambda: {"google_calendar": {"enabled": True}})
     is_deployed: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def validate_language_policy(self):
+        if len(set(self.allowed_languages)) != len(self.allowed_languages):
+            raise ValueError("allowed_languages must not contain duplicates")
+        if self.default_language not in self.allowed_languages:
+            raise ValueError("allowed_languages must include default_language")
+        return self
 
 
 class ProfileVersionRequest(BaseModel):
@@ -208,6 +220,10 @@ async def update_assistant_config(
                     "escalation_rules": payload.escalation_rules,
                 },
                 "faqEntries": payload.faq_entries,
+                "languagePolicy": {
+                    "default_language": payload.default_language,
+                    "allowed_languages": payload.allowed_languages,
+                },
             })
         except CapabilityValidationError as exc:
             raise HTTPException(
@@ -233,6 +249,8 @@ async def update_assistant_config(
                 "business_hours": payload.business_hours,
                 "escalation_rules": payload.escalation_rules,
                 "faq_entries": payload.faq_entries,
+                "default_language": payload.default_language,
+                "allowed_languages": payload.allowed_languages,
                 "capabilities": payload.capabilities,
             },
             compiled_policy=compiled_policy,
@@ -436,6 +454,10 @@ async def validate_assistant_profile(
                 "escalation_rules": payload.escalation_rules,
             },
             "faqEntries": payload.faq_entries,
+            "languagePolicy": {
+                "default_language": payload.default_language,
+                "allowed_languages": payload.allowed_languages,
+            },
         })
     except CapabilityValidationError as exc:
         raise HTTPException(

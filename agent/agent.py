@@ -81,6 +81,7 @@ try:
         CALENDAR_TOOL_NAMES,
         CALENDAR_UNAVAILABLE_REDIRECT_RESPONSE,
         classify_assistant_turn,
+        detect_explicit_language_switch,
         is_allowed_calendar_tool,
     )
 except ImportError:
@@ -106,6 +107,7 @@ except ImportError:
         CALENDAR_TOOL_NAMES,
         CALENDAR_UNAVAILABLE_REDIRECT_RESPONSE,
         classify_assistant_turn,
+        detect_explicit_language_switch,
         is_allowed_calendar_tool,
     )
 
@@ -388,6 +390,35 @@ async def call_backend_tool(
 # ------------------------------------------------------------------------------
 # Voice Assistant Agent Class
 # ------------------------------------------------------------------------------
+SUPPORTED_RESPONSE_LANGUAGES = frozenset({"fr-FR", "fr-BE", "en"})
+LOCALIZED_RESPONSES: Dict[str, Dict[str, str]] = {
+    "fr-FR": {
+        "switch": "Très bien, je continuerai en français.",
+        "clarify_first": "Je n’ai pas bien compris. Pourriez-vous répéter, s’il vous plaît ?",
+        "clarify_second": "Je suis désolé, je n’ai toujours pas compris. Pouvez-vous répéter clairement en français ou en anglais ?",
+        "support": "Je n’arrive pas à comprendre votre demande. Vous pouvez contacter directement notre équipe",
+        "scope": "Je peux uniquement vous aider avec les informations de l’entreprise et les services d’accueil activés. Que souhaitez-vous savoir ?",
+        "calendar_unavailable": "Les actions de calendrier ne sont pas activées. Je peux néanmoins vous aider avec les informations de l’entreprise.",
+    },
+    "fr-BE": {
+        "switch": "Très bien, je continuerai en français belge.",
+        "clarify_first": "Je n’ai pas bien compris. Pourriez-vous répéter, s’il vous plaît ?",
+        "clarify_second": "Je suis désolé, je n’ai toujours pas compris. Pouvez-vous répéter clairement en français ou en anglais ?",
+        "support": "Je n’arrive pas à comprendre votre demande. Vous pouvez contacter directement notre équipe",
+        "scope": "Je peux uniquement vous aider avec les informations de l’entreprise et les services d’accueil activés. Que souhaitez-vous savoir ?",
+        "calendar_unavailable": "Les actions de calendrier ne sont pas activées. Je peux néanmoins vous aider avec les informations de l’entreprise.",
+    },
+    "en": {
+        "switch": "Of course. I’ll continue in English.",
+        "clarify_first": "I didn’t understand that clearly. Could you please repeat it?",
+        "clarify_second": "I’m sorry, I still didn’t understand. Please repeat clearly in French or English.",
+        "support": "I’m unable to understand the request. You can contact our team directly",
+        "scope": "I can only help with company information and enabled receptionist services. What would you like to know?",
+        "calendar_unavailable": "Calendar actions are not enabled. I can still help with company information.",
+    },
+}
+
+
 class VoiceBotAgent(Agent):
     """
     LiveKit Voice Agent integrating Gemini Realtime Multimodal audio and backend tool dispatch.
@@ -406,8 +437,22 @@ class VoiceBotAgent(Agent):
         allowed_tools: Optional[set[str]] = None,
         redirect_response: str = CALENDAR_REDIRECT_RESPONSE,
         voice: str = GEMINI_VOICE,
+        default_language: str = "en",
+        allowed_languages: Optional[List[str]] = None,
+        scripted_tts: Optional[Any] = None,
     ):
-        super().__init__(instructions=instructions)
+        allowed = tuple(dict.fromkeys(allowed_languages or [default_language]))
+        if default_language not in SUPPORTED_RESPONSE_LANGUAGES:
+            default_language = "en"
+        allowed = tuple(language for language in allowed if language in SUPPORTED_RESPONSE_LANGUAGES)
+        if default_language not in allowed:
+            allowed = (default_language, *allowed)
+        self._base_instructions = instructions
+        self._active_language = default_language
+        self._allowed_languages = frozenset(allowed)
+        self._clarification_count = 0
+        self._scripted_tts = scripted_tts
+        super().__init__(instructions=self._instructions_for_language(default_language))
         permitted_tools = set(CALENDAR_TOOL_NAMES) if allowed_tools is None else set(allowed_tools)
         self._tools = [
             tool for tool in self._tools
@@ -430,6 +475,68 @@ class VoiceBotAgent(Agent):
             trust_env=False,
         )
 
+    def _instructions_for_language(self, language: str) -> str:
+        dialect_guidance = ""
+        if language == "fr-BE":
+            dialect_guidance = (
+                " Vous devez répondre en français belge authentique. Utilisez le vocabulaire et les tournures belges "
+                "(ex. 'septante' pour 70, 'nonante' pour 90, 's'il vous plaît', 'à tantôt', etc.)."
+            )
+        elif language == "fr-FR":
+            dialect_guidance = (
+                " Vous devez répondre en français général métropolitain. Utilisez la numération standard "
+                "(ex. 'soixante-dix', 'quatre-vingt-dix')."
+            )
+        elif language == "en":
+            dialect_guidance = " You must respond in natural, clear, fluent English."
+        return (
+            f"{self._base_instructions}\n\nCURRENT RESPONSE MODE (server-authoritative): {language}.{dialect_guidance} "
+            "Respond only in this mode until the server processes an explicit allowed language switch."
+        )
+
+    def _localized(self, key: str) -> str:
+        return LOCALIZED_RESPONSES[self._active_language][key]
+
+    def _support_response(self) -> str:
+        base = self._localized("support")
+        phone = str(
+            self.company_scope_context.get("phone")
+            or self.company_scope_context.get("company_phone")
+            or ""
+        ).strip()
+        email = str(self.company_scope_context.get("support_email") or "").strip()
+        if phone and email:
+            if self._active_language == "en":
+                return f"{base} by phone at {phone}, or by email at {email}."
+            return f"{base} par téléphone au {phone}, ou par e-mail à {email}."
+        if phone:
+            connector = " by phone at " if self._active_language == "en" else " par téléphone au "
+            return f"{base}{connector}{phone}."
+        if email:
+            connector = " by email at " if self._active_language == "en" else " par e-mail à "
+            return f"{base}{connector}{email}."
+        return f"{base}."
+
+    def _say_scripted(self, text: str) -> None:
+        if self._scripted_tts is not None:
+            self._scripted_tts.set_language(self._active_language)
+        self.session.say(clean_spoken_text(text), allow_interruptions=True)
+
+    def _next_clarification_response(self) -> str:
+        self._clarification_count += 1
+        if self._clarification_count == 1:
+            return self._localized("clarify_first")
+        if self._clarification_count == 2:
+            return self._localized("clarify_second")
+        return self._support_response()
+
+    async def _switch_language(self, language: str) -> None:
+        self._active_language = language
+        self._clarification_count = 0
+        if self._scripted_tts is not None:
+            self._scripted_tts.set_language(language)
+        await self.update_instructions(self._instructions_for_language(language))
+
     @property
     def session(self) -> Any:
         if getattr(self, "_custom_session", None) is not None:
@@ -448,30 +555,66 @@ class VoiceBotAgent(Agent):
     ) -> None:
         """Apply the deterministic calendar scope gate before Gemini can answer."""
         transcript = new_message.text_content or ""
+        transcript_confidence = getattr(new_message, "transcript_confidence", None)
+        if isinstance(transcript_confidence, (int, float)) and transcript_confidence < 0.45:
+            transcript = ""
+        requested_language = detect_explicit_language_switch(transcript)
+        if requested_language is not None:
+            if requested_language in self._allowed_languages:
+                await self._switch_language(requested_language)
+                self._say_scripted(self._localized("switch"))
+                decision_reason = "language_switch"
+            else:
+                self._say_scripted(self._next_clarification_response())
+                decision_reason = "unsupported_language"
+            logger.info(
+                "Receptionist policy: response_language=%s decision_reason=%s clarification_count=%s",
+                self._active_language,
+                decision_reason,
+                self._clarification_count,
+            )
+            raise StopResponse()
         decision = classify_assistant_turn(
             transcript,
             calendar_context_active=self._calendar_context_active,
             company_capabilities=self.company_capabilities,
             company_context=self.company_scope_context,
         )
-        logger.info(
-            "Policy decision: version=%s action=%s reason=%s calendar_context=%s session_id=%s",
-            ASSISTANT_POLICY_VERSION,
-            decision.action,
-            decision.reason,
-            decision.calendar_context_active,
-            self.session_context.session_id if self.session_context else "unknown",
-        )
-        if decision.action == "redirect":
-            self._calendar_context_active = False
-            redirect = (
-                CALENDAR_UNAVAILABLE_REDIRECT_RESPONSE
-                if decision.reason == "calendar_unavailable"
-                else self._redirect_response
+        if decision.action == "clarify":
+            response = self._next_clarification_response()
+            logger.info(
+                "Receptionist policy: response_language=%s decision_reason=%s clarification_count=%s",
+                self._active_language,
+                decision.reason,
+                self._clarification_count,
             )
-            self.session.say(clean_spoken_text(redirect), allow_interruptions=True)
+            self._say_scripted(response)
             raise StopResponse()
+        if decision.action == "redirect":
+            self._clarification_count = 0
+            self._calendar_context_active = False
+            logger.info(
+                "Receptionist policy: response_language=%s decision_reason=%s clarification_count=%s",
+                self._active_language,
+                decision.reason,
+                self._clarification_count,
+            )
+            if decision.reason == "calendar_unavailable":
+                redirect = self._localized("calendar_unavailable")
+            elif self._active_language == "en":
+                redirect = self._redirect_response
+            else:
+                redirect = self._localized("scope")
+            self._say_scripted(redirect)
+            raise StopResponse()
+        self._clarification_count = 0
         self._calendar_context_active = decision.calendar_context_active
+        logger.info(
+            "Receptionist policy: response_language=%s decision_reason=%s clarification_count=%s",
+            self._active_language,
+            decision.reason,
+            self._clarification_count,
+        )
 
     def _stable_write_key(self, tool_name: str, params: Dict[str, Any]) -> str:
         logical_action = f"{tool_name}:{json.dumps(params, sort_keys=True, separators=(',', ':'))}"
@@ -794,6 +937,9 @@ async def entrypoint(ctx: JobContext) -> None:
     allowed_tools = set(CALENDAR_TOOL_NAMES)
     redirect_response = CALENDAR_REDIRECT_RESPONSE
     inbound_greeting = ""
+    active_default_language = "en"
+    active_allowed_languages = ["en"]
+    runtime_behavior_instruction = ""
     try:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(BACKEND_TIMEOUT_SECONDS, connect=5.0),
@@ -824,10 +970,35 @@ async def entrypoint(ctx: JobContext) -> None:
                     company_capabilities = compiled_policy.get("capabilities") or {}
                     allowed_tools = set(compiled_policy.get("allowedTools") or ()) & set(CALENDAR_TOOL_NAMES)
                     redirect_response = str(compiled_policy.get("redirectResponse") or CALENDAR_REDIRECT_RESPONSE)
+                    runtime_behavior_instruction = str(compiled_policy.get("runtimeBehaviorInstruction") or "").strip()
+                    language_policy = compiled_policy.get("languagePolicy") or {}
+                    if isinstance(language_policy, Mapping):
+                        candidate_default = language_policy.get("defaultLanguage")
+                        candidate_allowed = language_policy.get("allowedLanguages")
+                        if candidate_default in SUPPORTED_RESPONSE_LANGUAGES:
+                            active_default_language = candidate_default
+                        if isinstance(candidate_allowed, list):
+                            normalized_allowed = [
+                                language for language in candidate_allowed
+                                if language in SUPPORTED_RESPONSE_LANGUAGES
+                            ]
+                            if normalized_allowed:
+                                active_allowed_languages = list(dict.fromkeys(normalized_allowed))
                 if asst_data.get("voice_engine"):
                     active_voice = asst_data.get("voice_engine")
                 if profile.get("voice_engine"):
                     active_voice = profile.get("voice_engine")
+                profile_default_language = profile.get("default_language")
+                profile_allowed_languages = profile.get("allowed_languages")
+                if profile_default_language in SUPPORTED_RESPONSE_LANGUAGES:
+                    active_default_language = profile_default_language
+                if isinstance(profile_allowed_languages, list):
+                    normalized_profile_languages = [
+                        language for language in profile_allowed_languages
+                        if language in SUPPORTED_RESPONSE_LANGUAGES
+                    ]
+                    if normalized_profile_languages:
+                        active_allowed_languages = list(dict.fromkeys(normalized_profile_languages))
                 company_instructions = str(profile.get("system_prompt") or "").strip()
                 if not company_instructions:
                     company_instructions = str(profile.get("instructions") or "").strip()
@@ -876,6 +1047,11 @@ async def entrypoint(ctx: JobContext) -> None:
             raise PermissionError("Published assistant profile snapshot could not be loaded") from fetch_err
         logger.debug("Using baseline prompt; dynamic settings fetch skipped (error_type=%s)", type(fetch_err).__name__)
 
+    if active_default_language not in active_allowed_languages:
+        active_allowed_languages.insert(0, active_default_language)
+    if runtime_behavior_instruction:
+        active_instructions += f"\n\n{runtime_behavior_instruction}"
+
     realtime_input_config = genai_types.RealtimeInputConfig(
         automatic_activity_detection=genai_types.AutomaticActivityDetection(
             disabled=False,
@@ -900,6 +1076,11 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
     # 2. Instantiate Agent & Session
+    scripted_tts = (
+        VoiceBotTTS(voice=active_voice, language=active_default_language)
+        if VoiceBotTTS is not None
+        else None
+    )
     agent = VoiceBotAgent(
         room=ctx.room,
         instructions=active_instructions,
@@ -910,6 +1091,9 @@ async def entrypoint(ctx: JobContext) -> None:
         allowed_tools=allowed_tools,
         redirect_response=redirect_response,
         voice=active_voice,
+        default_language=active_default_language,
+        allowed_languages=active_allowed_languages,
+        scripted_tts=scripted_tts,
     )
     session_kwargs: Dict[str, Any] = {
         "llm": model,
@@ -928,8 +1112,8 @@ async def entrypoint(ctx: JobContext) -> None:
             },
         },
     }
-    if VoiceBotTTS is not None:
-        session_kwargs["tts"] = VoiceBotTTS(voice=active_voice)
+    if scripted_tts is not None:
+        session_kwargs["tts"] = scripted_tts
     session = AgentSession(**session_kwargs)
     agent.session = session
     event_loop_monitor_stop = asyncio.Event()

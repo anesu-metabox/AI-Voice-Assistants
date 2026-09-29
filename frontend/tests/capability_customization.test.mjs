@@ -33,11 +33,21 @@ test("onboarding and assistant settings persist the structured company operating
 });
 
 test("shared capability policy contains company-scope security and behavior templates", () => {
-  assert.equal(policy.version, "company-capability-v2");
+  assert.equal(policy.version, "company-capability-v3");
   assert.equal(policySource.match(/"systemInstruction"\s*:/g)?.length, 1);
   assert.match(policy.companyPolicyKernel, /capabilities explicitly enabled/);
   assert.match(policy.companyCapabilityInstructions.company_faq, /Do not guess/);
   assert.match(registry, /implemented: false/);
   assert.match(registry, /Capability is not available yet/);
   assert.match(registry, /assistantPolicy\.companyPolicyKernel/);
+});
+
+test("assistant profiles expose validated default and allowed response languages", () => {
+  assert.match(app, /Response language policy/);
+  assert.match(app, /General French/);
+  assert.match(app, /Belgian French/);
+  assert.match(app, /Allowed explicit language switches/);
+  assert.match(app, /default_language/);
+  assert.match(app, /allowed_languages/);
+  assert.match(app, /switches only after an explicit caller request/);
 });

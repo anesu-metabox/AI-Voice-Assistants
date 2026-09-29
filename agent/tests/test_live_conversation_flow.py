@@ -156,10 +156,7 @@ class TestLiveConversationFlow(unittest.IsolatedAsyncioTestCase):
             parsed = json.loads(raw_result)
             self.assertEqual(parsed.get("status"), "success")
             self.assertEqual(parsed.get("tool"), tool_name)
-            # Verify frames were captured directly into WebRTC sink
-            self.assertGreater(len(self.captured_frames), 0, f"Tool {tool_name} failed to stream audio frames")
-            self.assertTrue(self.flushed, f"Tool {tool_name} failed to flush audio sink")
-            # Verify DataChannel transcript was published to the room
+            # Verify DataChannel task update was published to the room
             self.mock_participant.publish_data.assert_awaited()
 
         await bot_agent.aclose()

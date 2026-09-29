@@ -1,5 +1,5 @@
 {
-  "version": "company-capability-v2",
+  "version": "company-capability-v3",
   "redirectResponse": "I’m focused on your calendar. I can check availability, list, book, or cancel events. What would you like to do?",
   "allowedTools": [
     "get_calendar_availability",
@@ -26,21 +26,33 @@
     ],
     "offTopic": [
       "\\b(tell|give|write|make)\\b.{0,30}\\b(joke|story|poem|song|recipe)\\b",
+      "\\b(raconte|écris|ecris|compose|donne)\\b.{0,30}\\b(blague|histoire|poème|poeme|chanson|recette)\\b",
       "\\b(weather|headlines?|news|politics|political|sports score|stock price|cryptocurrency)\\b",
+      "\\b(météo|meteo|actualités|actualites|politique|score sportif|cours de bourse|cryptomonnaie)\\b",
       "\\b(write|debug|review|explain|generate)\\b.{0,30}\\b(code|program|script|software)\\b",
+      "\\b(écris|ecris|débogue|debogue|explique|génère|genere)\\b.{0,30}\\b(code|programme|script|logiciel)\\b",
       "\\b(medical|legal|financial|relationship|dating)\\s+(advice|question|help)\\b",
-      "\\b(capital of|who is the president|what is the meaning of)\\b"
+      "\\b(conseil|question|aide)\\s+(médical|medical|juridique|financier|relationnel)\\b",
+      "\\b(capital of|who is the president|what is the meaning of|what is [0-9]+\\s*[+*/-]\\s*[0-9]+)\\b",
+      "\\b(capitale de|qui est le président|qui est le president|que signifie|combien font [0-9]+\\s*[+*/-]\\s*[0-9]+)\\b"
     ],
     "calendarIntent": [
       "\\b(calendar|calendars|meeting|meetings|appointment|appointments|event|events|availability|available times?|free times?|free slots?|booking|bookings|sync|catch\\s*up)\\b",
+      "\\b(calendrier|agenda|réunion|reunion|réunions|reunions|rendez-vous|événement|evenement|événements|evenements|disponibilité|disponibilite|disponibilités|disponibilites|créneau|creneau|créneaux|creneaux|réservation|reservation|réservations|reservations)\\b",
       "\\b(book|schedule|reserve|cancel|reschedule|move|shift|set\\s*up|create|organize|plan)\\b.{0,60}\\b(meeting|appointment|event|call|slot|calendar|session|sync|time)\\b",
+      "\\b(réserver|reserver|planifier|annuler|déplacer|deplacer|reprogrammer|organiser|créer|creer)\\b.{0,60}\\b(réunion|reunion|rendez-vous|événement|evenement|appel|créneau|creneau|agenda|calendrier|session|heure)\\b",
       "\\b(book|schedule|reserve|set\\s*up)\\b.{0,40}\\b(for|at|on|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b",
-      "\\b(what(?:'s| is) on my schedule|do i have anything scheduled|check my schedule|check my calendar|when am i free)\\b"
+      "\\b(réserver|reserver|planifier|organiser)\\b.{0,40}\\b(pour|à|a|demain|aujourd'hui|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\\b",
+      "\\b(what(?:'s| is) on my schedule|do i have anything scheduled|check my schedule|check my calendar|when am i free)\\b",
+      "\\b(qu'est-ce que j'ai dans mon agenda|ai-je quelque chose de prévu|verifie mon agenda|vérifie mon agenda|quand suis-je libre)\\b"
     ],
     "social": [
       "^(hi|hello|hey|good morning|good afternoon|good evening)[!. ]*$",
+      "^(bonjour|salut|bonsoir|bonne journée|bonne journee)[!. ]*$",
       "^(thanks|thank you|okay|ok|got it|cool|great)[!. ]*$",
-      "\\b(what can you do|how can you help|are you there|who are you)\\b"
+      "^(merci|d'accord|compris|très bien|tres bien|parfait)[!. ]*$",
+      "\\b(what can you do|how can you help|are you there|who are you)\\b",
+      "\\b(que pouvez-vous faire|comment pouvez-vous m'aider|vous êtes là|vous etes la|qui êtes-vous|qui etes-vous)\\b"
     ],
     "calendarFollowUp": [
       "\\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|january|february|march|april|may|june|july|august|september|october|november|december)\\b",
@@ -48,6 +60,18 @@
       "^(yes|no|confirm|do it|that works|sounds good|please do|sure|cancel it|book it|move it|make it so|proceed|go ahead)[!. ]*$",
       "\\b(\\d+|half an?|an?)\\s*(minutes?|hours?)\\b",
       "\\b(add|invite|remove|with)\\b.{0,30}\\b(attendee|guest|email|them|him|her|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})\\b"
+    ],
+    "unclear": [
+      "^(uh+|um+|erm+|h+m+|huh|eh+|euh+|heu+|inaudible|unintelligible)[.!? ]*$",
+      "^\\[(inaudible|unintelligible|noise)\\]$"
+    ],
+    "unsupportedLanguage": [
+      "[\\u0400-\\u052f\\u0600-\\u06ff\\u0750-\\u077f\\u4e00-\\u9fff]",
+      "\\b(hola|buenos días|buenos dias|gracias|necesito|quisiera|por favor)\\b",
+      "\\b(guten tag|danke|ich möchte|ich mochte|bitte)\\b",
+      "\\b(goedemorgen|dank u|ik wil|alstublieft)\\b",
+      "\\b(buongiorno|grazie|vorrei|per favore)\\b",
+      "\\b(obrigado|obrigada|bom dia|eu gostaria|por favor)\\b"
     ]
   }
 }

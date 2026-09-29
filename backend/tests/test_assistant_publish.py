@@ -39,6 +39,8 @@ async def test_assistant_save_preserves_requested_publish_state(monkeypatch, pub
         business_hours={"monday": "09:00-17:00"},
         escalation_rules=["Ask a manager to follow up"],
         faq_entries=[{"question": "Where are you?", "answer": "Port Louis."}],
+        default_language="fr-FR",
+        allowed_languages=["fr-FR", "fr-BE", "en"],
         capabilities={"google_calendar": {"enabled": True}, "company_faq": {"enabled": True}},
         is_deployed=publish,
     )
@@ -52,6 +54,23 @@ async def test_assistant_save_preserves_requested_publish_state(monkeypatch, pub
     assert recorded["profile"]["business_hours"] == {"monday": "09:00-17:00"}
     assert recorded["profile"]["escalation_rules"] == ["Ask a manager to follow up"]
     assert recorded["profile"]["faq_entries"] == [{"question": "Where are you?", "answer": "Port Louis."}]
+    assert recorded["profile"]["default_language"] == "fr-FR"
+    assert recorded["profile"]["allowed_languages"] == ["fr-FR", "fr-BE", "en"]
+
+
+def test_assistant_request_rejects_duplicate_or_missing_default_language():
+    with pytest.raises(ValueError):
+        settings_api.AssistantConfigRequest(
+            assistant_name="Invalid",
+            default_language="fr-FR",
+            allowed_languages=["fr-FR", "fr-FR"],
+        )
+    with pytest.raises(ValueError):
+        settings_api.AssistantConfigRequest(
+            assistant_name="Invalid",
+            default_language="fr-FR",
+            allowed_languages=["en"],
+        )
 
 
 @pytest.mark.parametrize(
