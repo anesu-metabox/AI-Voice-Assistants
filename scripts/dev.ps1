@@ -195,6 +195,13 @@ if (-not $oauthStateSecret) {
     $rng.GetBytes($oauthStateBytes)
     $oauthStateSecret = [Convert]::ToBase64String($oauthStateBytes)
 }
+$credentialEncryptionKey = Resolve-LocalSecret "CREDENTIAL_ENCRYPTION_KEY" $rootEnvPath
+if (-not $credentialEncryptionKey) {
+    $keyBytes = New-Object byte[] 32
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    $rng.GetBytes($keyBytes)
+    $credentialEncryptionKey = [Convert]::ToBase64String($keyBytes)
+}
 $brokerErrorLog = Join-Path $runtimeDir "credential-broker.err.log"
 $brokerOutputLog = Join-Path $runtimeDir "credential-broker.out.log"
 $backendErrorLog = Join-Path $runtimeDir "backend.err.log"
@@ -236,6 +243,7 @@ try {
         $projectRoot `
         @{
             CREDENTIAL_BROKER_SHARED_SECRET = $brokerSecret
+            CREDENTIAL_ENCRYPTION_KEY = $credentialEncryptionKey
             LIVEKIT_API_KEY = $null
             LIVEKIT_API_SECRET = $null
             LIVEKIT_SESSION_CONTEXT_SECRET = $null

@@ -72,11 +72,25 @@ async def broker_post(path: str, payload: dict) -> dict:
     except HTTPException:
         raise
     except Exception as exc:
+        status_code = getattr(getattr(exc, "response", None), "status_code", 503)
+        detail = "Credential broker operation failed"
+        if hasattr(exc, "response") and exc.response is not None:
+            try:
+                err_data = exc.response.json()
+                if isinstance(err_data, dict) and "detail" in err_data:
+                    safe_detail = str(err_data["detail"])
+                    if len(safe_detail) <= 255 and "\n" not in safe_detail:
+                        detail = safe_detail
+            except Exception:
+                pass
         logger.error(
-            "Credential broker request failed (%s, status=%s)",
+            "Credential broker request failed (%s, status=%s, detail=%s)",
             type(exc).__name__,
-            getattr(getattr(exc, "response", None), "status_code", None),
+            status_code,
+            detail,
         )
-        # Do not propagate provider errors or raw responses that could contain secrets.
-        raise HTTPException(status_code=503, detail="Credential broker operation failed") from exc
+        raise HTTPException(
+            status_code=status_code if isinstance(status_code, int) and 400 <= status_code < 600 else 503,
+            detail=detail,
+        ) from exc
 

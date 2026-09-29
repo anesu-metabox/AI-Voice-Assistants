@@ -955,14 +955,14 @@ function GoogleCalendarIntegrationCard() {
 }
 
 function ThreeCXIntegrationCard() {
-  const [connectionName, setConnectionName] = useState("");
+  const [connectionName, setConnectionName] = useState("3CX PBX Connection");
   const [pbxUrl, setPbxUrl] = useState("");
   const [appId, setAppId] = useState("");
   const [routePointDn, setRoutePointDn] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [dids, setDids] = useState("");
   const [transferDestinations, setTransferDestinations] = useState("");
-  const [failureAction, setFailureAction] = useState<"" | "disconnect" | "transfer">("");
+  const [failureAction, setFailureAction] = useState<"" | "disconnect" | "transfer">("disconnect");
   const [failureDestination, setFailureDestination] = useState("");
   const [status, setStatus] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -972,13 +972,13 @@ function ThreeCXIntegrationCard() {
     if (!response.ok) throw new Error("Could not load the 3CX connection details");
     const data = await response.json();
     setStatus(data);
-    setConnectionName(data.connectionName || "");
+    setConnectionName(data.connectionName || "3CX PBX Connection");
     setPbxUrl(data.pbxHost ? `https://${data.pbxHost}` : "");
     setAppId(data.appId || "");
     setRoutePointDn(data.routePointDn || "");
     setDids(Array.isArray(data.dids) ? data.dids.join(", ") : "");
     setTransferDestinations(Array.isArray(data.transferDestinations) ? data.transferDestinations.join(", ") : "");
-    setFailureAction(data.failureAction === "disconnect" || data.failureAction === "transfer" ? data.failureAction : "");
+    setFailureAction(data.failureAction === "disconnect" || data.failureAction === "transfer" ? data.failureAction : "disconnect");
     setFailureDestination(data.failureDestination || "");
     setClientSecret("");
   }, []);
@@ -988,11 +988,13 @@ function ThreeCXIntegrationCard() {
   const save = async () => {
     setBusy(true);
     try {
+      const trimmedUrl = pbxUrl.trim();
+      const normalizedUrl = trimmedUrl ? (trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://") ? trimmedUrl : `https://${trimmedUrl}`) : "";
       const payload = {
-        connection_name: connectionName,
-        pbx_url: pbxUrl,
+        connection_name: connectionName.trim() || "3CX PBX Connection",
+        pbx_url: normalizedUrl,
         app_id: appId,
-        route_point_dn: routePointDn,
+        route_point_dn: routePointDn.trim() || appId.trim(),
         client_secret: clientSecret,
         dids: dids.split(",").map((value) => value.trim()).filter(Boolean),
         transfer_destinations: transferDestinations.split(",").map((value) => value.trim()).filter(Boolean),
@@ -1057,7 +1059,7 @@ function ThreeCXIntegrationCard() {
         <span style={{ fontSize: 12, color: status?.state === "active" ? "#16A34A" : "#6B7280" }}>{status?.state || "Not configured"}</span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        {[{ label: "Connection name", value: connectionName, set: setConnectionName, secret: false }, { label: "PBX HTTPS URL", value: pbxUrl, set: setPbxUrl, secret: false }, { label: "3CX Service Principal client ID", value: appId, set: setAppId, secret: false }, { label: "Programmable Extension / Route Point DN", value: routePointDn, set: setRoutePointDn, secret: false }, { label: "3CX client secret (write-only)", value: clientSecret, set: setClientSecret, secret: true }, { label: "Inbound DIDs (comma-separated)", value: dids, set: setDids, secret: false }, { label: "Transfer destinations (comma-separated)", value: transferDestinations, set: setTransferDestinations, secret: false }].map((field) => (
+        {[{ label: "Connection name", value: connectionName, set: setConnectionName, secret: false }, { label: "PBX HTTPS URL", value: pbxUrl, set: setPbxUrl, secret: false }, { label: "3CX Service Principal client ID (Extension Number)", value: appId, set: setAppId, secret: false }, { label: "Programmable Extension / Route Point DN (optional)", value: routePointDn, set: setRoutePointDn, secret: false }, { label: "3CX client secret / Extension Password (write-only)", value: clientSecret, set: setClientSecret, secret: true }, { label: "Inbound DIDs (comma-separated)", value: dids, set: setDids, secret: false }, { label: "Transfer destinations (comma-separated)", value: transferDestinations, set: setTransferDestinations, secret: false }].map((field) => (
           <label key={field.label} style={{ fontSize: 12, color: "#374151" }}>
             {field.label}
             <input value={field.value} onChange={(event) => field.set(event.target.value)} type={field.secret ? "password" : "text"} autoComplete={field.secret ? "new-password" : "off"} spellCheck={false} style={{ width: "100%", marginTop: 5, border: "1px solid #D1D5DB", borderRadius: 7, padding: "8px 10px", fontSize: 13 }} />
@@ -1084,10 +1086,10 @@ function ThreeCXIntegrationCard() {
       )}
       {status?.error && <div style={{ color: "#DC2626", fontSize: 12, marginTop: 10 }}>{status.error}</div>}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14 }}>
-        <span style={{ color: "#7A8BAD", fontSize: 12 }}>Re-authenticate before changes. The client ID and Route Point DN are separate; the client secret is write-only and cleared after submission.</span>
+        <span style={{ color: "#7A8BAD", fontSize: 12 }}>Re-authenticate before changes. The extension password is write-only, encrypted, and cleared after submission.</span>
         <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
           {status?.configured && <button type="button" onClick={disconnect} disabled={busy} style={{ background: "white", color: "#B91C1C", border: "1px solid #FCA5A5", borderRadius: 7, padding: "9px 12px", fontWeight: 600, opacity: busy ? 0.6 : 1 }}>{busy ? "Working…" : "Disconnect"}</button>}
-          <button onClick={save} disabled={busy || !clientSecret || !appId || !pbxUrl || !routePointDn || !failureAction || (failureAction === "transfer" && (!failureDestination || !transferDestinations.split(",").map((value) => value.trim()).includes(failureDestination)))} style={{ background: "#3B5BDB", color: "white", border: 0, borderRadius: 7, padding: "9px 16px", fontWeight: 600, opacity: busy ? 0.6 : 1 }}>{busy ? "Testing & saving..." : "Test & save 3CX"}</button>
+          <button onClick={save} disabled={busy || !clientSecret || !appId || !pbxUrl || !failureAction || (failureAction === "transfer" && (!failureDestination || !transferDestinations.split(",").map((value) => value.trim()).includes(failureDestination)))} style={{ background: "#3B5BDB", color: "white", border: 0, borderRadius: 7, padding: "9px 16px", fontWeight: 600, opacity: busy ? 0.6 : 1 }}>{busy ? "Testing & saving..." : "Test & save 3CX"}</button>
         </div>
       </div>
     </div>

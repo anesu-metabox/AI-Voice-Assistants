@@ -122,7 +122,12 @@ async def _getaddrinfo_bounded(host: str):
             _dns_resolution_slots.release()
 
 
-async def probe_pbx(url: str, app_id: str, app_secret: str) -> tuple[str, tuple[str, ...]]:
+async def probe_pbx(
+    url: str,
+    app_id: str,
+    app_secret: str,
+    require_web_api: bool = False,
+) -> tuple[str, tuple[str, ...]]:
     host, addresses = await resolve_public_endpoint(url)
     if not addresses:
         raise HTTPException(status_code=400, detail="PBX hostname has no usable address")
@@ -134,38 +139,49 @@ async def probe_pbx(url: str, app_id: str, app_secret: str) -> tuple[str, tuple[
             timeout=httpx.Timeout(5.0, connect=2.0), follow_redirects=False,
             trust_env=False, transport=transport,
         ) as client:
-            async with client.stream(
-                "POST",
-                token_url,
-                data={"client_id": app_id, "client_secret": app_secret, "grant_type": "client_credentials"},
-                headers={"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"},
-            ) as token_response:
-                if token_response.is_redirect or token_response.status_code in (401, 403):
-                    raise HTTPException(status_code=502, detail="3CX credentials were rejected")
-                if token_response.status_code >= 400:
-                    raise HTTPException(status_code=502, detail="3CX token exchange returned an error")
-                token_body = await _read_limited_response(token_response, _MAX_TOKEN_RESPONSE_BYTES)
             try:
-                token_payload = json.loads(token_body)
-            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                raise HTTPException(status_code=502, detail="3CX token exchange returned invalid data") from exc
-            access_token = str(token_payload.get("access_token") or "") if isinstance(token_payload, dict) else ""
-            if not access_token:
-                raise HTTPException(status_code=502, detail="3CX token exchange returned no access token")
-            async with client.stream(
-                "GET",
-                call_control_url,
-                headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
-            ) as response:
-                if response.is_redirect or response.status_code in (401, 403):
-                    raise HTTPException(status_code=502, detail="3CX credentials were rejected")
-                if response.status_code >= 400:
-                    raise HTTPException(status_code=502, detail="3CX connection test returned an error")
-                await _read_limited_response(response, _MAX_CALL_CONTROL_RESPONSE_BYTES)
+                async with client.stream(
+                    "POST",
+                    token_url,
+                    data={"client_id": app_id, "client_secret": app_secret, "grant_type": "client_credentials"},
+                    headers={"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"},
+                ) as token_response:
+                    if token_response.is_redirect or token_response.status_code in (401, 403):
+                        if require_web_api:
+                            raise HTTPException(status_code=502, detail="3CX credentials were rejected")
+                        return host, addresses
+                    if token_response.status_code >= 400:
+                        if require_web_api:
+                            raise HTTPException(status_code=502, detail="3CX token exchange returned an error")
+                        return host, addresses
+                    token_body = await _read_limited_response(token_response, _MAX_TOKEN_RESPONSE_BYTES)
+                try:
+                    token_payload = json.loads(token_body)
+                except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                    raise HTTPException(status_code=502, detail="3CX token exchange returned invalid data") from exc
+                access_token = str(token_payload.get("access_token") or "") if isinstance(token_payload, dict) else ""
+                if not access_token:
+                    raise HTTPException(status_code=502, detail="3CX token exchange returned no access token")
+                async with client.stream(
+                    "GET",
+                    call_control_url,
+                    headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+                ) as response:
+                    if response.is_redirect or response.status_code in (401, 403):
+                        raise HTTPException(status_code=502, detail="3CX credentials were rejected")
+                    if response.status_code >= 400:
+                        raise HTTPException(status_code=502, detail="3CX connection test returned an error")
+                    await _read_limited_response(response, _MAX_CALL_CONTROL_RESPONSE_BYTES)
+            except HTTPException:
+                raise
+            except (httpx.HTTPError, OSError, ValueError) as exc:
+                if require_web_api:
+                    raise HTTPException(status_code=502, detail="3CX connection test failed") from exc
     except HTTPException:
         raise
     except (httpx.HTTPError, OSError, ValueError) as exc:
-        raise HTTPException(status_code=502, detail="3CX connection test failed") from exc
+        if require_web_api:
+            raise HTTPException(status_code=502, detail="3CX connection test failed") from exc
     return host, addresses
 
 
