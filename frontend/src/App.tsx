@@ -1583,6 +1583,51 @@ function CompanyOperatingFields({
   onFaqEntriesChange: (entries: FAQEntry[]) => void;
   showFaq: boolean;
 }) {
+  const parseRules = (text: string) => text.split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 10);
+  const [escalationText, setEscalationText] = useState(escalationRules.join("\n"));
+  const [uploadNote, setUploadNote] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const uploadRef = useRef<HTMLInputElement>(null);
+
+  // Keep the raw text (spaces, blank lines) while typing; only replace it when the
+  // saved rules change from outside (e.g. the profile finished loading).
+  useEffect(() => {
+    if (parseRules(escalationText).join("\n") !== escalationRules.join("\n")) {
+      setEscalationText(escalationRules.join("\n"));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [escalationRules]);
+
+  const updateEscalation = (text: string) => {
+    setEscalationText(text);
+    onEscalationRulesChange(parseRules(text));
+  };
+
+  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 200 * 1024) {
+      setUploadNote({ text: "File is too large (max 200 KB).", type: "error" });
+      return;
+    }
+    try {
+      const content = (await file.text()).replace(/\r\n?/g, "\n").replace(/\u0000/g, "");
+      if (!content.trim()) {
+        setUploadNote({ text: "That file is empty.", type: "error" });
+        return;
+      }
+      const combined = escalationText.trim() ? `${escalationText.replace(/\s+$/, "")}\n${content}` : content;
+      const total = combined.split("\n").map((line) => line.trim()).filter(Boolean).length;
+      updateEscalation(combined);
+      setUploadNote({
+        text: total > 10 ? `Loaded ${file.name}. Only the first 10 lines are used (${total} found).` : `Loaded ${file.name}.`,
+        type: total > 10 ? "error" : "success",
+      });
+    } catch {
+      setUploadNote({ text: "Could not read that file.", type: "error" });
+    }
+  };
+
   return (
     <section aria-label="Company operating profile" className="space-y-5 border-t border-slate-100 pt-6">
       <div>
@@ -1613,15 +1658,33 @@ function CompanyOperatingFields({
         </div>
       </fieldset>
 
-      <Field label="Escalation guidance" hint="Guidance only; automated transfer is not available yet.">
+      <div>
+        <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+          <label htmlFor="escalation-guidance" className="text-[13px] font-semibold text-slate-700">Escalation guidance</label>
+          <div className="flex items-center gap-2">
+            <input ref={uploadRef} type="file" accept=".txt,.md,.csv,text/plain,text/markdown,text/csv" onChange={handleUpload} className="sr-only" tabIndex={-1} aria-label="Upload escalation guidance text file" />
+            <Button variant="soft" size="sm" icon={<Lu.Upload className="h-3.5 w-3.5" />} onClick={() => uploadRef.current?.click()}>
+              Upload text file
+            </Button>
+            {escalationText && (
+              <Button variant="ghost" size="sm" onClick={() => { updateEscalation(""); setUploadNote(null); }}>Clear</Button>
+            )}
+          </div>
+        </div>
         <textarea
-          rows={3}
-          value={escalationRules.join("\n")}
-          onChange={(event) => onEscalationRulesChange(event.target.value.split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 10))}
+          id="escalation-guidance"
+          rows={4}
+          value={escalationText}
+          onChange={(event) => updateEscalation(event.target.value)}
           placeholder="One company-specific escalation preference per line"
           className={cn(controlCls, "resize-y")}
         />
-      </Field>
+        <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-slate-500">
+          <span>One preference per line (max 10). Accepts .txt, .md or .csv. Guidance only; automated transfer is not available yet.</span>
+          <span className={cn("font-semibold", parseRules(escalationText).length >= 10 ? "text-amber-600" : "text-slate-400")}>{parseRules(escalationText).length}/10 lines</span>
+        </div>
+        {uploadNote && <div role="status" className={cn("mt-2 text-xs font-semibold", uploadNote.type === "success" ? "text-emerald-600" : "text-rose-600")}>{uploadNote.text}</div>}
+      </div>
 
       {showFaq && (
         <div>
