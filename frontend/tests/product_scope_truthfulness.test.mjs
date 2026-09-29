@@ -130,7 +130,7 @@ test("configured 3CX integrations can be explicitly confirmed and disconnected",
   assert.match(setup, /const disconnect = async/);
   assert.match(setup, /window\.confirm\(/);
   assert.match(setup, /method: "DELETE"/);
-  assert.match(setup, /status\?\.configured && <button[\s\S]*?: "Disconnect"/);
+  assert.match(setup, /status\?\.configured && <(button|Button)[\s\S]*?: "Disconnect"/);
   assert.match(setup, /RECENT_AUTHENTICATION_REQUIRED/);
   assert.match(setup, /setStatus\(\{ configured: false, state: "unconfigured" \}\)/);
 });
