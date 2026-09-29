@@ -17,6 +17,43 @@ def test_calendar_only_compiles_exact_calendar_tools_and_redirect():
     assert policy["redirectResponse"].startswith("I’m focused on your calendar")
     assert "company_instructions" not in policy["systemInstruction"]
     assert policy["companyInstructions"] == "Use a professional voice."
+    assert policy["languagePolicy"] == {
+        "defaultLanguage": "en",
+        "allowedLanguages": ["en"],
+    }
+
+
+def test_bilingual_language_policy_is_validated_and_compiled_as_immutable_runtime_behavior():
+    policy = compile_company_policy({
+        "capabilities": {"company_receptionist": {"enabled": True}},
+        "languagePolicy": {
+            "default_language": "fr-FR",
+            "allowed_languages": ["fr-FR", "fr-BE", "en"],
+        },
+    })
+
+    assert policy["platformPolicyVersion"] == "platform-v3"
+    assert policy["languagePolicy"] == {
+        "defaultLanguage": "fr-FR",
+        "allowedLanguages": ["fr-FR", "fr-BE", "en"],
+    }
+    assert "starts as fr-FR" in policy["runtimeBehaviorInstruction"]
+    assert "Company-provided instructions" in policy["runtimeBehaviorInstruction"]
+    assert policy["systemInstruction"].endswith(policy["runtimeBehaviorInstruction"])
+
+
+@pytest.mark.parametrize("language_policy", [
+    {"default_language": "es", "allowed_languages": ["es"]},
+    {"default_language": "fr-FR", "allowed_languages": []},
+    {"default_language": "fr-FR", "allowed_languages": ["en"]},
+    {"default_language": "fr-FR", "allowed_languages": ["fr-FR", "fr-FR"]},
+])
+def test_invalid_language_policy_fails_closed(language_policy):
+    with pytest.raises(CapabilityValidationError):
+        compile_company_policy({
+            "capabilities": {"company_receptionist": {"enabled": True}},
+            "languagePolicy": language_policy,
+        })
 
 
 def test_company_faq_can_override_calendar_only_scope_without_granting_tools():

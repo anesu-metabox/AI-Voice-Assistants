@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 import re
 from typing import Any, Final, Literal, Mapping
+import unicodedata
 
 
 _POLICY_PATH: Final[Path] = (
@@ -44,7 +45,7 @@ class AssistantPolicy:
 
 @dataclass(frozen=True)
 class ScopeDecision:
-    action: Literal["allow", "redirect"]
+    action: Literal["allow", "clarify", "redirect"]
     reason: Literal[
         "calendar_intent",
         "calendar_follow_up",
@@ -53,6 +54,8 @@ class ScopeDecision:
         "social",
         "hard_diversion",
         "off_topic",
+        "unsupported_language",
+        "unclear_input",
         "empty_input",
     ]
     calendar_context_active: bool
@@ -104,11 +107,26 @@ _COMPANY_QUERY_STOP_WORDS: Final[frozenset[str]] = frozenset({
     "give", "how", "i", "in", "is", "it", "me", "of", "on", "please",
     "tell", "the", "there", "to", "what", "when", "where", "which", "who",
     "you", "your", "we", "our", "company", "business", "about",
+    "a", "au", "aux", "avec", "ce", "ces", "dans", "de", "des", "du",
+    "elle", "en", "est", "et", "il", "je", "la", "le", "les", "me",
+    "nous", "ou", "pour", "que", "quel", "quelle", "quels", "quelles",
+    "qui", "sur", "un", "une", "vous", "votre", "vos", "notre", "nos",
+    "entreprise", "societe", "société", "restaurant", "pouvez", "dire",
 })
 
 
+def _fold_text(value: str) -> str:
+    return "".join(
+        character
+        for character in unicodedata.normalize("NFKD", value.casefold())
+        if not unicodedata.combining(character)
+    )
+
+
 def _content_tokens(value: str) -> set[str]:
-    tokens = set(re.findall(r"[a-z0-9]+", value.lower())) - _COMPANY_QUERY_STOP_WORDS
+    tokens = set(re.findall(r"[a-z0-9]+", _fold_text(value))) - {
+        _fold_text(word) for word in _COMPANY_QUERY_STOP_WORDS
+    }
     # Normalize a few common inflections without introducing a model or dependency.
     return {token[:-1] if token.endswith("s") and len(token) > 4 else token for token in tokens}
 
@@ -152,8 +170,8 @@ def _matches_approved_company_content(
     if (
         isinstance(hours, Mapping)
         and hours
-        and re.search(r"\b(hours?|open(?:ing)?|clos(?:e|ing))\b", text)
-        and query_tokens <= {"hour", "hours", "open", "opening", "clos", "close", "closing", "when"}
+        and re.search(r"\b(hours?|open(?:ing)?|clos(?:e|ing)|horaires?|ouvert(?:ure)?|ferme(?:ture)?)\b", _fold_text(text))
+        and query_tokens <= {"hour", "hours", "open", "opening", "clos", "close", "closing", "when", "horaire", "horaires", "ouvert", "ouverture", "ferme", "fermeture", "quand"}
     ):
         return True
     has_contact = any(
@@ -162,24 +180,24 @@ def _matches_approved_company_content(
     )
     if (
         has_contact
-        and re.search(r"\b(contact|support|email|phone)\b", text)
-        and query_tokens <= {"contact", "support", "email", "phone", "number"}
+        and re.search(r"\b(contact|support|email|phone|courriel|telephone|numero)\b", _fold_text(text))
+        and query_tokens <= {"contact", "support", "email", "phone", "number", "courriel", "telephone", "numero"}
     ):
         return True
     if (
         company_context.get("website_url")
-        and re.search(r"\b(website|web\s*site|url)\b", text)
+        and re.search(r"\b(website|web\s*site|site web|url)\b", _fold_text(text))
         and query_tokens <= {"website", "web", "site", "url"}
     ):
         return True
     if company_context.get("company_name") and re.search(
-        r"\b(company|business)\s+name\b|\bwho\s+are\s+you\b", text
-    ) and query_tokens <= {"company", "business", "name", "who"}:
+        r"\b(company|business)\s+name\b|\bwho\s+are\s+you\b|\bnom\s+(de\s+)?(l'entreprise|la societe|du restaurant)\b|\bqui etes-vous\b", _fold_text(text)
+    ) and query_tokens <= {"company", "business", "name", "who", "nom", "societe", "restaurant", "etes"}:
         return True
     if (
         company_context.get("timezone")
-        and re.search(r"\btime\s*zone\b", text)
-        and query_tokens <= {"time", "zone"}
+        and re.search(r"\btime\s*zone\b|\bfuseau\s*horaire\b", _fold_text(text))
+        and query_tokens <= {"time", "zone", "fuseau", "horaire"}
     ):
         return True
     return False
@@ -206,7 +224,16 @@ def classify_assistant_turn(
 
     text = user_input.strip().lower()
     if not text:
-        return ScopeDecision("redirect", "empty_input", False)
+        return ScopeDecision("clarify", "empty_input", calendar_context_active)
+
+    if _matches("unclear", text):
+        return ScopeDecision("clarify", "unclear_input", calendar_context_active)
+
+    if is_explicit_language_request(text) and detect_explicit_language_switch(text) is None:
+        return ScopeDecision("clarify", "unsupported_language", calendar_context_active)
+
+    if _matches("unsupportedLanguage", text):
+        return ScopeDecision("clarify", "unsupported_language", calendar_context_active)
 
     if _matches("hardDiversion", text):
         return ScopeDecision("redirect", "hard_diversion", False)
@@ -233,3 +260,54 @@ def classify_assistant_turn(
         return ScopeDecision("allow", "company_capability", False)
 
     return ScopeDecision("redirect", "off_topic", False)
+
+
+_LANGUAGE_SWITCH_PATTERNS: Final[tuple[tuple[str, tuple[re.Pattern[str], ...]], ...]] = (
+    (
+        "fr-BE",
+        (
+            re.compile(r"\b(?:speak|switch to|continue in|respond in|use)\s+(?:belgian french|french from belgium|french belgium)\b"),
+            re.compile(r"\b(?:parle|parlez|reponds|repondez|continue|continuez|passe|passez)\s+(?:en\s+)?francais\s+(?:belge|de\s+belgique)\b"),
+            re.compile(r"\b(?:en|dans un)\s+francais\s+(?:belge|de\s+belgique)\b"),
+            re.compile(r"^(?:belgian french|french from belgium|french belgium|francais belge|francais de belgique)$"),
+        ),
+    ),
+    (
+        "en",
+        (
+            re.compile(r"\b(?:speak|switch to|continue in|respond in|use)\s+english\b"),
+            re.compile(r"\b(?:parle|parlez|reponds|repondez|continue|continuez|passe|passez)\s+(?:en\s+)?anglais\b"),
+            re.compile(r"\b(?:in english|en anglais)\b"),
+            re.compile(r"^(?:english|anglais)$"),
+        ),
+    ),
+    (
+        "fr-FR",
+        (
+            re.compile(r"\b(?:speak|switch to|continue in|respond in|use)\s+(?:general\s+)?french\b"),
+            re.compile(r"\b(?:parle|parlez|reponds|repondez|continue|continuez|passe|passez)\s+(?:en\s+)?francais\b"),
+            re.compile(r"\b(?:in french|en francais)\b"),
+            re.compile(r"^(?:french|general french|francais)$"),
+        ),
+    ),
+)
+
+_EXPLICIT_LANGUAGE_REQUEST_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(r"\b(?:speak|switch to|continue in|respond in|use)\s+[a-z][a-z -]{1,30}\b"),
+    re.compile(r"\b(?:parle|parlez|reponds|repondez|continue|continuez|passe|passez)\s+(?:en\s+)?[a-z][a-z -]{1,30}\b"),
+)
+
+
+def detect_explicit_language_switch(user_input: str) -> str | None:
+    """Return an explicitly requested response mode without inferring from input language."""
+    text = _fold_text(user_input)
+    for language, patterns in _LANGUAGE_SWITCH_PATTERNS:
+        if any(pattern.search(text) for pattern in patterns):
+            return language
+    return None
+
+
+def is_explicit_language_request(user_input: str) -> bool:
+    """Return true for a clear request to use a language, supported or not."""
+    text = _fold_text(user_input).strip(" .!?\t\r\n")
+    return any(pattern.search(text) for pattern in _EXPLICIT_LANGUAGE_REQUEST_PATTERNS)
