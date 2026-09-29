@@ -1123,7 +1123,7 @@ type FAQEntry = { question: string; answer: string };
 const BUSINESS_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
 const EMPTY_ASSISTANT_DRAFT: OnboardingAssistantDraft = {
   assistant_name: "", voice_engine: "Aoede", inbound_greeting: "", system_prompt: "",
-  knowledge_base_notes: "", default_language: "en", allowed_languages: ["en"],
+  knowledge_base_notes: "", default_language: "en", allowed_languages: ["fr-FR", "fr-BE", "en"],
   tone: "friendly", business_hours: {}, escalation_rules: [],
   faq_entries: [], capabilities: { company_receptionist: false, company_faq: false, google_calendar: true },
 };
@@ -1144,7 +1144,7 @@ function readAllowedLanguages(value: unknown, defaultLanguage: ResponseLanguage)
     : [];
   const unique = Array.from(new Set(languages));
   if (!unique.includes(defaultLanguage)) unique.unshift(defaultLanguage);
-  return unique.length ? unique : [defaultLanguage];
+  return unique.length ? unique : ["fr-FR", "fr-BE", "en"];
 }
 
 function LanguagePolicyFields({
@@ -1620,7 +1620,7 @@ function AssistantConfigPage({ setPage, onTestDraft }: { setPage: (p: Page) => v
   const [systemPrompt, setSystemPrompt] = useState("");
   const [knowledgeBaseNotes, setKnowledgeBaseNotes] = useState("");
   const [defaultLanguage, setDefaultLanguage] = useState<ResponseLanguage>("en");
-  const [allowedLanguages, setAllowedLanguages] = useState<ResponseLanguage[]>(["en"]);
+  const [allowedLanguages, setAllowedLanguages] = useState<ResponseLanguage[]>(["fr-FR", "fr-BE", "en"]);
   const [tone, setTone] = useState<OnboardingAssistantDraft["tone"]>("friendly");
   const [businessHours, setBusinessHours] = useState<Record<string, string>>({});
   const [escalationRules, setEscalationRules] = useState<string[]>([]);

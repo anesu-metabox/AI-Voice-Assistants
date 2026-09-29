@@ -75,7 +75,7 @@ class AssistantConfigRequest(BaseModel):
     faq_entries: list[dict[str, str]] = Field(default_factory=list, max_length=20)
     default_language: Literal["fr-FR", "fr-BE", "en"] = "en"
     allowed_languages: list[Literal["fr-FR", "fr-BE", "en"]] = Field(
-        default_factory=lambda: ["en"], min_length=1, max_length=3
+        default_factory=lambda: ["fr-FR", "fr-BE", "en"], min_length=1, max_length=3
     )
     capabilities: dict[str, Any] = Field(default_factory=lambda: {"google_calendar": {"enabled": True}})
     is_deployed: bool = Field(default=False)

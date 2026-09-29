@@ -59,7 +59,8 @@ export function compileCompanyCapabilities(profile: {
     .map((id) => CAPABILITY_REGISTRY[id].requiredIntegration)
     .filter((value): value is "google_calendar" | "threecx" => Boolean(value));
   const defaultLanguage = profile.default_language ?? "en";
-  const allowedLanguages = profile.allowed_languages ?? [defaultLanguage];
+  const allowedLanguages = profile.allowed_languages ?? Array.from(SUPPORTED_RESPONSE_LANGUAGES);
+  if (!allowedLanguages.includes(defaultLanguage)) allowedLanguages.unshift(defaultLanguage);
   if (!SUPPORTED_RESPONSE_LANGUAGES.includes(defaultLanguage)) {
     throw new Error("Default language is not supported");
   }

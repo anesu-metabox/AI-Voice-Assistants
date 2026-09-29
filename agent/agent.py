@@ -476,8 +476,21 @@ class VoiceBotAgent(Agent):
         )
 
     def _instructions_for_language(self, language: str) -> str:
+        dialect_guidance = ""
+        if language == "fr-BE":
+            dialect_guidance = (
+                " Vous devez répondre en français belge authentique. Utilisez le vocabulaire et les tournures belges "
+                "(ex. 'septante' pour 70, 'nonante' pour 90, 's'il vous plaît', 'à tantôt', etc.)."
+            )
+        elif language == "fr-FR":
+            dialect_guidance = (
+                " Vous devez répondre en français général métropolitain. Utilisez la numération standard "
+                "(ex. 'soixante-dix', 'quatre-vingt-dix')."
+            )
+        elif language == "en":
+            dialect_guidance = " You must respond in natural, clear, fluent English."
         return (
-            f"{self._base_instructions}\n\nCURRENT RESPONSE MODE (server-authoritative): {language}. "
+            f"{self._base_instructions}\n\nCURRENT RESPONSE MODE (server-authoritative): {language}.{dialect_guidance} "
             "Respond only in this mode until the server processes an explicit allowed language switch."
         )
 
@@ -925,7 +938,7 @@ async def entrypoint(ctx: JobContext) -> None:
     redirect_response = CALENDAR_REDIRECT_RESPONSE
     inbound_greeting = ""
     active_default_language = "en"
-    active_allowed_languages = ["en"]
+    active_allowed_languages = ["fr-FR", "fr-BE", "en"]
     runtime_behavior_instruction = ""
     try:
         async with httpx.AsyncClient(

@@ -266,35 +266,37 @@ _LANGUAGE_SWITCH_PATTERNS: Final[tuple[tuple[str, tuple[re.Pattern[str], ...]], 
     (
         "fr-BE",
         (
-            re.compile(r"\b(?:speak|switch to|continue in|respond in|use)\s+(?:belgian french|french from belgium|french belgium)\b"),
-            re.compile(r"\b(?:parle|parlez|reponds|repondez|continue|continuez|passe|passez)\s+(?:en\s+)?francais\s+(?:belge|de\s+belgique)\b"),
-            re.compile(r"\b(?:en|dans un)\s+francais\s+(?:belge|de\s+belgique)\b"),
-            re.compile(r"^(?:belgian french|french from belgium|french belgium|francais belge|francais de belgique)$"),
+            re.compile(r"\b(?:speak|switch|continue|respond|use|talk|change)(?:\s+to|\s+in)?\s+(?:belgian french|french from belgium|french belgium)\b"),
+            re.compile(r"\b(?:parle|parlez|reponds|repondez|continue|continuez|passe|passez|pouvez-vous parler|parlez-vous)(?:\s+en|\s+le|\s+du)?\s+francais\s+(?:belge|de\s+belgique)\b"),
+            re.compile(r"\b(?:in|en|dans un)\s+francais\s+(?:belge|de\s+belgique)\b"),
+            re.compile(r"\b(?:belgian french|french from belgium|french belgium|francais belge|francais de belgique)\b"),
         ),
     ),
     (
         "en",
         (
-            re.compile(r"\b(?:speak|switch to|continue in|respond in|use)\s+english\b"),
-            re.compile(r"\b(?:parle|parlez|reponds|repondez|continue|continuez|passe|passez)\s+(?:en\s+)?anglais\b"),
+            re.compile(r"\b(?:speak|switch|continue|respond|use|talk|change)(?:\s+to|\s+in)?\s+english\b"),
+            re.compile(r"\b(?:can\s+we|can\s+you|could\s+you|please)?\s*(?:speak|talk|switch|continue|respond|use)\s+(?:in\s+)?english\b"),
+            re.compile(r"\b(?:parle|parlez|reponds|repondez|continue|continuez|passe|passez|pouvez-vous parler|parlez-vous)(?:\s+en|\s+le)?\s+anglais\b"),
             re.compile(r"\b(?:in english|en anglais)\b"),
-            re.compile(r"^(?:english|anglais)$"),
+            re.compile(r"\b(?:english|anglais)\b"),
         ),
     ),
     (
         "fr-FR",
         (
-            re.compile(r"\b(?:speak|switch to|continue in|respond in|use)\s+(?:general\s+)?french\b"),
-            re.compile(r"\b(?:parle|parlez|reponds|repondez|continue|continuez|passe|passez)\s+(?:en\s+)?francais\b"),
+            re.compile(r"\b(?:speak|switch|continue|respond|use|talk|change)(?:\s+to|\s+in)?\s+(?:general\s+)?french\b"),
+            re.compile(r"\b(?:can\s+we|can\s+you|could\s+you|please)?\s*(?:speak|talk|switch|continue|respond|use)\s+(?:in\s+)?(?:general\s+)?french\b"),
+            re.compile(r"\b(?:parle|parlez|reponds|repondez|continue|continuez|passe|passez|pouvez-vous parler|parlez-vous)(?:\s+en|\s+le)?\s+francais\b"),
             re.compile(r"\b(?:in french|en francais)\b"),
-            re.compile(r"^(?:french|general french|francais)$"),
+            re.compile(r"\b(?:french|general french|francais)\b"),
         ),
     ),
 )
 
 _EXPLICIT_LANGUAGE_REQUEST_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
-    re.compile(r"\b(?:speak|switch to|continue in|respond in|use)\s+[a-z][a-z -]{1,30}\b"),
-    re.compile(r"\b(?:parle|parlez|reponds|repondez|continue|continuez|passe|passez)\s+(?:en\s+)?[a-z][a-z -]{1,30}\b"),
+    re.compile(r"\b(?:speak|switch|continue|respond|use|talk|change)(?:\s+to|\s+in)?\s+[a-z][a-z -]{1,30}\b"),
+    re.compile(r"\b(?:parle|parlez|reponds|repondez|continue|continuez|passe|passez|pouvez-vous parler|parlez-vous)(?:\s+en|\s+le)?\s+[a-z][a-z -]{1,30}\b"),
 )
 
 
