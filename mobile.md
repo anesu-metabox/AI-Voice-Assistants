@@ -133,6 +133,7 @@ For a physical-device test against a laptop, replace `localhost` with a LAN-reac
 - **2026-09-29 23:35** — Stage 5 configuration pass added `mobile/.env.example` with the approved public-only variable set and extended validation for optional LiveKit `wss://` URLs. A safe fixture configuration passed validation; the real build remains correctly blocked until the two production HTTPS origins are supplied. No EAS project or signing identity is available locally.
 - **2026-09-29 23:50** — Completed the remaining repository-side release gates: `npx expo install --check`, public Expo config generation, `npm ci --dry-run --ignore-scripts`, and `git diff --check` all passed. Deployment URLs, EAS project identity, signing, and hardware remain external release gates.
 - **2026-09-29 23:58** — Stage 4 scope decision recorded: APK v1 uses explicit manual interruption; natural barge-in/VAD is deferred. Added production component wiring checks for `VoiceAssistant` → `useVoiceBot`, native audio setup/teardown, microphone publication, and manual controls. Hardware behavior remains pending.
+- **2026-09-30 13:05** — Expo preview build `e9e92091-803b-42c2-8a48-c65337994a9d` failed in Gradle `:app:mergeReleaseResources`: `mascot-1.png` and `mascot-2.png` were JPEG byte streams with `.png` names, so AAPT rejected them. Converted both assets to valid PNG files; mobile lint and 89 tests pass. A fresh EAS preview build is required before diagnosing runtime login behavior.
 
 ## Pre-APK production readiness
 
