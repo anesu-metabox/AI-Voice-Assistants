@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import VoxiMascot from '../components/VoxiMascot';
-import { apiService } from '../services/api';
+import { apiService, AssistantConfig, CompanyProfile } from '../services/api';
 
 const VOICE_MODELS = ['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'];
 const TONES = ['Professional', 'Friendly', 'Warm', 'Concise'];
@@ -125,6 +125,8 @@ export default function OnboardingScreen({
   const [selectedModel, setSelectedModel] = useState('Aoede');
   const [greeting, setGreeting] = useState('');
   const [selectedTone, setSelectedTone] = useState('Professional');
+  const [existingAssistantConfig, setExistingAssistantConfig] = useState<AssistantConfig | null>(null);
+  const [existingCompanyProfile, setExistingCompanyProfile] = useState<CompanyProfile | null>(null);
   // Google OAuth is intentionally deferred from the first APK. Do not advertise
   // Calendar as enabled by default until the native callback/session flow exists.
   const [capabilities, setCapabilities] = useState(['receptionist', 'faqs']);
@@ -134,6 +136,7 @@ export default function OnboardingScreen({
     // Preload from database if existing profile is available
     apiService.getCompanyProfile().then((comp) => {
       if (comp) {
+        setExistingCompanyProfile(comp);
         if (comp.company_name) setCompanyName(comp.company_name);
         if (comp.website_url) setWebsite(comp.website_url);
         if (comp.company_phone) setPhone(comp.company_phone);
@@ -143,6 +146,7 @@ export default function OnboardingScreen({
 
     apiService.getAssistantConfig().then((asst) => {
       if (asst) {
+        setExistingAssistantConfig(asst);
         if (asst.assistant_name) setAssistantName(asst.assistant_name);
         if (asst.voice_engine) setSelectedModel(asst.voice_engine);
         if (asst.inbound_greeting) setGreeting(asst.inbound_greeting);
@@ -150,6 +154,11 @@ export default function OnboardingScreen({
           const capTone = asst.tone.charAt(0).toUpperCase() + asst.tone.slice(1);
           setSelectedTone(capTone);
         }
+        setCapabilities([
+          ...(asst.capabilities.company_receptionist ? ['receptionist'] : []),
+          ...(asst.capabilities.company_faq ? ['faqs'] : []),
+          ...(asst.capabilities.google_calendar ? ['calendar'] : []),
+        ]);
       }
     }).catch(() => {});
   }, []);
@@ -166,6 +175,7 @@ export default function OnboardingScreen({
     try {
       setSaving(true);
       const companyResult = await apiService.saveCompanyProfile({
+        ...existingCompanyProfile,
         company_name: companyName,
         website_url: website,
         company_phone: phone,
@@ -177,21 +187,22 @@ export default function OnboardingScreen({
 
       const assistantResult = await apiService.saveAssistantConfig(
         {
+          ...existingAssistantConfig,
           assistant_name: assistantName,
           voice_engine: selectedModel,
           inbound_greeting: greeting,
           system_prompt: `You are ${assistantName}, a ${selectedTone.toLowerCase()} AI receptionist for ${companyName}.`,
-          knowledge_base_notes: '',
+          knowledge_base_notes: existingAssistantConfig?.knowledge_base_notes || '',
           tone: selectedTone.toLowerCase() as any,
-          business_hours: {
+          business_hours: existingAssistantConfig?.business_hours || {
             monday: '09:00 - 17:00',
             tuesday: '09:00 - 17:00',
             wednesday: '09:00 - 17:00',
             thursday: '09:00 - 17:00',
             friday: '09:00 - 17:00',
           },
-          escalation_rules: ['Transfer to human support for account escalation.'],
-          faq_entries: [],
+          escalation_rules: existingAssistantConfig?.escalation_rules || ['Transfer to human support for account escalation.'],
+          faq_entries: existingAssistantConfig?.faq_entries || [],
           capabilities: {
             company_receptionist: capabilities.includes('receptionist'),
             company_faq: capabilities.includes('faqs'),
