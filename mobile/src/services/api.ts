@@ -4,6 +4,14 @@
  * NO DIRECT DATABASE ACCESS (Rule of Engagement #3)
  */
 
+function requestOrigin(webBase: string): string {
+  try {
+    return new URL(webBase).origin;
+  } catch {
+    return webBase;
+  }
+}
+
 export interface BackendHealth {
   status: 'healthy' | 'unhealthy' | 'unreachable';
   service?: string;
@@ -149,21 +157,35 @@ class ApiService {
   private livekitUrl: string;
 
   constructor() {
+    // Expo replaces explicit EXPO_PUBLIC_* references at bundle time. Do not
+    // use process.env[key] here: Metro cannot inline dynamic environment
+    // lookups, which would make a release APK fall back to localhost.
+    const publicEnv: Record<string, string | undefined> = {
+      EXPO_PUBLIC_APP_URL: process.env.EXPO_PUBLIC_APP_URL,
+      EXPO_PUBLIC_BACKEND_URL: process.env.EXPO_PUBLIC_BACKEND_URL,
+      EXPO_PUBLIC_WEB_URL: process.env.EXPO_PUBLIC_WEB_URL,
+      EXPO_PUBLIC_LIVEKIT_TOKEN_ENDPOINT: process.env.EXPO_PUBLIC_LIVEKIT_TOKEN_ENDPOINT,
+      EXPO_PUBLIC_LIVEKIT_URL: process.env.EXPO_PUBLIC_LIVEKIT_URL,
+    };
     const getEnv = (key: string, fallback: string): string => {
-      if (typeof process !== 'undefined' && process.env && process.env[key]) {
-        return process.env[key] as string;
-      }
-      return fallback;
+      return publicEnv[key] || fallback;
     };
 
     this.backendUrl = getEnv('EXPO_PUBLIC_BACKEND_URL', 'http://localhost:8000').replace(/\/+$/, '');
-    this.tokenEndpoint = getEnv('EXPO_PUBLIC_TOKEN_ENDPOINT', 'http://localhost:3000/api/livekit-token');
+    const appUrl = getEnv(
+      'EXPO_PUBLIC_APP_URL',
+      getEnv('EXPO_PUBLIC_WEB_URL', 'http://localhost:3000')
+    ).replace(/\/+$/, '');
+    this.tokenEndpoint = getEnv(
+      'EXPO_PUBLIC_LIVEKIT_TOKEN_ENDPOINT',
+      `${appUrl}/api/livekit/token`
+    );
     this.livekitUrl = getEnv('EXPO_PUBLIC_LIVEKIT_URL', 'wss://ai-voice-assistant-vu6rr406.livekit.cloud');
   }
 
   public getWebBase(): string {
     if (this.tokenEndpoint) {
-      return this.tokenEndpoint.replace(/\/api\/livekit-token.*$/, '');
+      return this.tokenEndpoint.replace(/\/api\/livekit(?:\/token|-token).*$/, '');
     }
     return this.backendUrl;
   }
@@ -254,6 +276,7 @@ class ApiService {
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
+          Origin: requestOrigin(webBase),
         },
         credentials: 'include',
         body: JSON.stringify({ email, password, callbackURL }),
@@ -287,6 +310,7 @@ class ApiService {
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
+          Origin: requestOrigin(webBase),
         },
         credentials: 'include',
         body: JSON.stringify({ email, password, name: resolvedName, callbackURL }),
@@ -318,6 +342,7 @@ class ApiService {
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
+        Origin: requestOrigin(webBase),
       },
       credentials: 'include',
       body: JSON.stringify({ provider: 'google', callbackURL }),
@@ -342,6 +367,7 @@ class ApiService {
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
+          Origin: requestOrigin(webBase),
         },
         credentials: 'include',
         body: JSON.stringify({}),
@@ -419,7 +445,7 @@ class ApiService {
     const data = await response.json();
     return {
       token: data.token,
-      wsUrl: data.wsUrl || this.livekitUrl,
+      wsUrl: data.ws_url || data.wsUrl || this.livekitUrl,
       room: data.room || room,
       identity: data.identity || identity || 'mobile-user',
     };
@@ -430,16 +456,17 @@ class ApiService {
    */
   async executeTool(toolName: string, args: Record<string, any> = {}): Promise<ToolExecutionResponse> {
     try {
-      const response = await fetch(`${this.backendUrl}/tools/execute`, {
+      const response = await fetch(`${this.getWebBase()}/api/tools/execute`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          Origin: requestOrigin(this.getWebBase()),
         },
         credentials: 'include',
         body: JSON.stringify({
           tool_name: toolName,
-          arguments: args,
+          parameters: args,
         }),
         signal: AbortSignal.timeout(8000),
       });
@@ -467,16 +494,13 @@ class ApiService {
    */
   async getGoogleAuthStatus(): Promise<GoogleAuthStatus> {
     const webBase = this.getWebBase();
-    const endpoints = [
-      `${webBase}/auth/google/status`,
-      `${this.backendUrl}/auth/google/status`,
-    ];
+    const endpoints = [`${webBase}/auth/google/status`];
 
     for (const url of endpoints) {
       try {
         const res = await fetch(url, {
           method: 'GET',
-          headers: { 'Accept': 'application/json' },
+          headers: { 'Accept': 'application/json', Origin: requestOrigin(webBase) },
           credentials: 'include',
           signal: AbortSignal.timeout(4000),
         });
@@ -506,16 +530,13 @@ class ApiService {
    */
   async getGoogleAuthUrl(): Promise<string> {
     const webBase = this.getWebBase();
-    const endpoints = [
-      `${webBase}/auth/google/url`,
-      `${this.backendUrl}/auth/google/url`,
-    ];
+    const endpoints = [`${webBase}/auth/google/url`];
 
     for (const url of endpoints) {
       try {
         const res = await fetch(url, {
           method: 'GET',
-          headers: { 'Accept': 'application/json' },
+          headers: { 'Accept': 'application/json', Origin: requestOrigin(webBase) },
           credentials: 'include',
           signal: AbortSignal.timeout(5000),
         });
@@ -530,7 +551,7 @@ class ApiService {
       }
     }
 
-    return `${this.backendUrl}/auth/google/login`;
+    throw new Error('Google authorization URL was not available.');
   }
 
   /**
@@ -538,16 +559,13 @@ class ApiService {
    */
   async disconnectGoogleAuth(): Promise<{ status: string }> {
     const webBase = this.getWebBase();
-    const endpoints = [
-      `${webBase}/auth/google/disconnect`,
-      `${this.backendUrl}/auth/google/disconnect`,
-    ];
+    const endpoints = [`${webBase}/auth/google/disconnect`];
 
     for (const url of endpoints) {
       try {
         const res = await fetch(url, {
           method: 'POST',
-          headers: { 'Accept': 'application/json' },
+          headers: { 'Accept': 'application/json', Origin: requestOrigin(webBase) },
           credentials: 'include',
           signal: AbortSignal.timeout(5000),
         });
@@ -560,7 +578,7 @@ class ApiService {
       }
     }
 
-    return { status: 'disconnected' };
+    return { status: 'error' };
   }
 
   // ─── Company Profile & Assistant Configuration ───────────────────────────
@@ -570,10 +588,7 @@ class ApiService {
    */
   async getCompanyProfile(): Promise<CompanyProfile | null> {
     const webBase = this.getWebBase();
-    const endpoints = [
-      `${webBase}/api/company-profile`,
-      `${this.backendUrl}/company-profile`,
-    ];
+    const endpoints = [`${webBase}/api/company-profile`];
 
     for (const url of endpoints) {
       try {
@@ -599,16 +614,13 @@ class ApiService {
    */
   async saveCompanyProfile(profile: CompanyProfile): Promise<{ success: boolean; message?: string }> {
     const webBase = this.getWebBase();
-    const endpoints = [
-      `${webBase}/api/company-profile`,
-      `${this.backendUrl}/company-profile`,
-    ];
+    const endpoints = [`${webBase}/api/company-profile`];
 
     for (const url of endpoints) {
       try {
         const res = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', Origin: requestOrigin(webBase) },
           credentials: 'include',
           body: JSON.stringify(profile),
           signal: AbortSignal.timeout(5000),
@@ -628,10 +640,7 @@ class ApiService {
    */
   async getAssistantConfig(): Promise<AssistantConfig | null> {
     const webBase = this.getWebBase();
-    const endpoints = [
-      `${webBase}/api/assistant-config`,
-      `${this.backendUrl}/assistant-config`,
-    ];
+    const endpoints = [`${webBase}/api/assistant-config`];
 
     for (const url of endpoints) {
       try {
@@ -685,15 +694,12 @@ class ApiService {
     };
 
     if (deploy) {
-      const validateEndpoints = [
-        `${webBase}/api/assistant-config/validate`,
-        `${this.backendUrl}/assistant-config/validate`,
-      ];
+      const validateEndpoints = [`${webBase}/api/assistant-config/validate`];
       for (const vUrl of validateEndpoints) {
         try {
           const vRes = await fetch(vUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', Origin: requestOrigin(webBase) },
             credentials: 'include',
             body: JSON.stringify(payload),
             signal: AbortSignal.timeout(5000),
@@ -708,16 +714,13 @@ class ApiService {
       }
     }
 
-    const endpoints = [
-      `${webBase}/api/assistant-config`,
-      `${this.backendUrl}/assistant-config`,
-    ];
+    const endpoints = [`${webBase}/api/assistant-config`];
 
     for (const url of endpoints) {
       try {
         const res = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', Origin: requestOrigin(webBase) },
           credentials: 'include',
           body: JSON.stringify(payload),
           signal: AbortSignal.timeout(6000),
@@ -746,10 +749,7 @@ class ApiService {
    */
   async getAssistantVersions(): Promise<AssistantVersion[]> {
     const webBase = this.getWebBase();
-    const endpoints = [
-      `${webBase}/api/assistant-config/versions`,
-      `${this.backendUrl}/assistant-config/versions`,
-    ];
+    const endpoints = [`${webBase}/api/assistant-config/versions`];
 
     for (const url of endpoints) {
       try {
@@ -777,10 +777,7 @@ class ApiService {
    */
   async getThreeCXStatus(): Promise<ThreeCXStatus> {
     const webBase = this.getWebBase();
-    const endpoints = [
-      `${webBase}/api/integrations/3cx`,
-      `${this.backendUrl}/api/integrations/3cx`,
-    ];
+    const endpoints = [`${webBase}/api/integrations/3cx`];
 
     for (const url of endpoints) {
       try {
@@ -805,16 +802,13 @@ class ApiService {
    */
   async saveThreeCXConfig(payload: ThreeCXPayload): Promise<{ success: boolean; message?: string }> {
     const webBase = this.getWebBase();
-    const endpoints = [
-      `${webBase}/api/integrations/3cx`,
-      `${this.backendUrl}/api/integrations/3cx`,
-    ];
+    const endpoints = [`${webBase}/api/integrations/3cx`];
 
     for (const url of endpoints) {
       try {
         const res = await fetch(url, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', Origin: requestOrigin(webBase) },
           credentials: 'include',
           body: JSON.stringify(payload),
           signal: AbortSignal.timeout(6000),
@@ -832,7 +826,7 @@ class ApiService {
         // Fall through
       }
     }
-    return { success: true, message: '3CX configuration saved locally.' };
+    return { success: false, message: 'Could not reach the server to save the 3CX configuration.' };
   }
 
   /**
@@ -840,16 +834,13 @@ class ApiService {
    */
   async disconnectThreeCX(): Promise<{ success: boolean; message?: string }> {
     const webBase = this.getWebBase();
-    const endpoints = [
-      `${webBase}/api/integrations/3cx`,
-      `${this.backendUrl}/api/integrations/3cx`,
-    ];
+    const endpoints = [`${webBase}/api/integrations/3cx`];
 
     for (const url of endpoints) {
       try {
         const res = await fetch(url, {
           method: 'DELETE',
-          headers: { 'Accept': 'application/json' },
+          headers: { 'Accept': 'application/json', Origin: requestOrigin(webBase) },
           credentials: 'include',
           signal: AbortSignal.timeout(5000),
         });
@@ -860,7 +851,7 @@ class ApiService {
         // Fall through
       }
     }
-    return { success: true };
+    return { success: false, message: 'Could not reach the server to disconnect 3CX.' };
   }
 
   /**
@@ -868,17 +859,13 @@ class ApiService {
    */
   async getCallHistory(limit: number = 50): Promise<CallRecord[]> {
     const webBase = this.getWebBase();
-    const endpoints = [
-      `${webBase}/api/integrations/3cx/calls?limit=${limit}`,
-      `${this.backendUrl}/api/integrations/3cx/calls?limit=${limit}`,
-      `${this.backendUrl}/integrations/3cx/calls?limit=${limit}`,
-    ];
+    const endpoints = [`${webBase}/api/integrations/3cx/calls?limit=${limit}`];
 
     for (const url of endpoints) {
       try {
         const res = await fetch(url, {
           method: 'GET',
-          headers: { 'Accept': 'application/json' },
+          headers: { 'Accept': 'application/json', Origin: requestOrigin(webBase) },
           credentials: 'include',
           signal: AbortSignal.timeout(5000),
         });
@@ -910,7 +897,7 @@ class ApiService {
 
             return {
               id: c.id || `call_${index}_${start.getTime()}`,
-              did: c.did || '+1 800 555-0100',
+              did: c.did || '—',
               direction: (c.direction === 'outbound' ? 'outbound' : 'inbound') as 'inbound' | 'outbound',
               state: c.state || 'ended',
               status,
@@ -920,9 +907,9 @@ class ApiService {
               createdAt: c.createdAt || new Date().toISOString(),
               updatedAt: c.updatedAt || new Date().toISOString(),
               endedAt: c.endedAt || null,
-              pbxHost: c.pbxHost || 'pbx.apexglobal.com:5060',
-              routePointDn: c.routePointDn || 'RP_INBOUND_MAIN',
-              transcriptId: c.transcriptId || `sess_${start.getTime().toString(36)}`,
+              pbxHost: c.pbxHost || '—',
+              routePointDn: c.routePointDn || '—',
+              transcriptId: c.transcriptId || '',
             };
           });
         }
@@ -938,11 +925,7 @@ class ApiService {
    */
   async getTasks(limit: number = 20): Promise<TaskRecord[]> {
     const webBase = this.getWebBase();
-    const endpoints = [
-      `${webBase}/api/tasks?limit=${limit}`,
-      `${this.backendUrl}/api/tasks?limit=${limit}`,
-      `${this.backendUrl}/tasks?limit=${limit}`,
-    ];
+    const endpoints = [`${webBase}/api/tasks?limit=${limit}`];
 
     for (const url of endpoints) {
       try {
@@ -954,8 +937,23 @@ class ApiService {
         });
         if (res.ok) {
           const json = await res.json();
-          if (Array.isArray(json.tasks)) return json.tasks;
-          if (Array.isArray(json.data)) return json.data;
+          const rawTasks = Array.isArray(json)
+            ? json
+            : Array.isArray(json.tasks)
+              ? json.tasks
+              : Array.isArray(json.data)
+                ? json.data
+                : [];
+          return rawTasks.map((task: any) => ({
+            id: task.id || task.task_id,
+            title: task.title || '',
+            tool_name: task.tool_name || '',
+            status: task.status || 'pending',
+            output_result: task.output_result,
+            error_message: task.error_message,
+            created_at: task.created_at,
+            updated_at: task.updated_at,
+          }));
         }
       } catch {
         // Fall through
@@ -969,17 +967,13 @@ class ApiService {
    */
   async cancelTask(taskId: string): Promise<boolean> {
     const webBase = this.getWebBase();
-    const endpoints = [
-      `${webBase}/api/tasks/${taskId}/cancel`,
-      `${this.backendUrl}/api/tasks/${taskId}/cancel`,
-      `${this.backendUrl}/tasks/${taskId}/cancel`,
-    ];
+    const endpoints = [`${webBase}/api/tasks/${encodeURIComponent(taskId)}`];
 
     for (const url of endpoints) {
       try {
         const res = await fetch(url, {
           method: 'POST',
-          headers: { 'Accept': 'application/json' },
+          headers: { 'Accept': 'application/json', Origin: requestOrigin(webBase) },
           credentials: 'include',
           signal: AbortSignal.timeout(5000),
         });

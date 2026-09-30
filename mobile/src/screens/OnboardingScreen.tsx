@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Alert,
   ActivityIndicator,
   ScrollView,
   StyleSheet,
@@ -116,17 +117,17 @@ export default function OnboardingScreen({
   initialStep?: number;
 }) {
   const [step, setStep] = useState(initialStep);
-  const [companyName, setCompanyName] = useState('Apex Global');
-  const [website, setWebsite] = useState('https://apexglobal.com');
-  const [phone, setPhone] = useState('+1 800 555-0100');
-  const [email, setEmail] = useState('support@apexglobal.com');
-  const [assistantName, setAssistantName] = useState('Aoede');
+  const [companyName, setCompanyName] = useState('');
+  const [website, setWebsite] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [assistantName, setAssistantName] = useState('');
   const [selectedModel, setSelectedModel] = useState('Aoede');
-  const [greeting, setGreeting] = useState(
-    'Thank you for calling Apex Global! How can I assist you today?'
-  );
+  const [greeting, setGreeting] = useState('');
   const [selectedTone, setSelectedTone] = useState('Professional');
-  const [capabilities, setCapabilities] = useState(['receptionist', 'faqs', 'calendar']);
+  // Google OAuth is intentionally deferred from the first APK. Do not advertise
+  // Calendar as enabled by default until the native callback/session flow exists.
+  const [capabilities, setCapabilities] = useState(['receptionist', 'faqs']);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -157,16 +158,24 @@ export default function OnboardingScreen({
     setCapabilities((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
 
   const handlePublish = async () => {
+    if (!companyName.trim() || !assistantName.trim() || !greeting.trim()) {
+      Alert.alert('Missing information', 'Company name, assistant name, and greeting are required.');
+      return;
+    }
+
     try {
       setSaving(true);
-      await apiService.saveCompanyProfile({
+      const companyResult = await apiService.saveCompanyProfile({
         company_name: companyName,
         website_url: website,
         company_phone: phone,
         support_email: email,
       });
+      if (!companyResult.success) {
+        throw new Error(companyResult.message || 'Company profile could not be saved.');
+      }
 
-      await apiService.saveAssistantConfig(
+      const assistantResult = await apiService.saveAssistantConfig(
         {
           assistant_name: assistantName,
           voice_engine: selectedModel,
@@ -191,11 +200,17 @@ export default function OnboardingScreen({
         },
         true
       );
-    } catch {
-      // Continue even if local offline
+      if (!assistantResult.success) {
+        throw new Error(assistantResult.message || 'Assistant configuration could not be published.');
+      }
+      onDone();
+    } catch (error) {
+      Alert.alert(
+        'Setup not completed',
+        error instanceof Error ? error.message : 'The setup could not be saved. Please try again.',
+      );
     } finally {
       setSaving(false);
-      onDone();
     }
   };
 
@@ -226,9 +241,9 @@ export default function OnboardingScreen({
               <Text style={styles.sectionHeading}>Welcome to vocalist.ai</Text>
               <Text style={styles.sectionSub}>Let's set up your AI voice assistant workspace.</Text>
             </View>
-            <InputField label="Full Name" placeholder="Alex Chen" value="Alex Chen" />
-            <InputField label="Work Email" placeholder="alex@apexglobal.com" value="alex@apexglobal.com" />
-            <InputField label="Password" placeholder="Create a password" value="••••••••••" secureTextEntry />
+            <InputField label="Full Name" placeholder="Your name" value="" />
+            <InputField label="Work Email" placeholder="Your work email" value="" />
+            <InputField label="Password" placeholder="Create a password" value="" secureTextEntry />
           </View>
         )}
 
@@ -238,9 +253,9 @@ export default function OnboardingScreen({
               <Text style={styles.sectionHeading}>Company Profile</Text>
               <Text style={styles.sectionSub}>Your assistant will use this to represent your brand.</Text>
             </View>
-            <InputField label="Company Name" placeholder="Apex Global" value={companyName} onChangeText={setCompanyName} />
-            <InputField label="Website URL" placeholder="https://apexglobal.com" value={website} onChangeText={setWebsite} />
-            <InputField label="Company Phone" placeholder="+1 800 555-0100" value={phone} onChangeText={setPhone} />
+            <InputField label="Company Name" placeholder="Your company name" value={companyName} onChangeText={setCompanyName} />
+            <InputField label="Website URL" placeholder="https://your-company.example" value={website} onChangeText={setWebsite} />
+            <InputField label="Company Phone" placeholder="Optional phone number" value={phone} onChangeText={setPhone} />
             <InputField label="Support Email" placeholder="support@company.com" value={email} onChangeText={setEmail} />
           </View>
         )}
@@ -391,7 +406,10 @@ export default function OnboardingScreen({
           </View>
         ) : (
           <View style={styles.footerRow}>
-            <TouchableOpacity style={styles.backBtn}>
+            <TouchableOpacity
+              style={styles.backBtn}
+              onPress={() => Alert.alert('Drafts are not available', 'Complete the setup fields and publish the assistant to save this configuration.')}
+            >
               <Text style={[styles.backBtnText, { color: '#3B5BDB' }]}>Save Draft</Text>
             </TouchableOpacity>
             <TouchableOpacity

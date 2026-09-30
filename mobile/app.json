@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "Vocalist Assistant Ai",
-    "slug": "vocalist-assistant-mobile",
+  "owner": "metabox-ai-assistant",
+    "slug": "ai-voice-assistant-bot",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./src/assets/mascot-1.png",
@@ -32,12 +33,23 @@
         "MODIFY_AUDIO_SETTINGS",
         "BLUETOOTH",
         "BLUETOOTH_CONNECT",
-        "INTERNET"
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ],
+      "blockedPermissions": [
+        "android.permission.CAMERA"
       ]
     },
     "scheme": "vocalist-mobile",
+    "extra": {
+      "eas": {
+        "projectId": "9b37b150-b5d3-46da-a098-4f065538e9ed"
+      }
+    },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "@livekit/react-native-expo-plugin",
+      "@config-plugins/react-native-webrtc"
     ]
   }
 }

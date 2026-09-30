@@ -13,6 +13,8 @@ import {
 import { apiService, ThreeCXPayload, ThreeCXStatus } from '../services/api';
 import { useTheme } from '../context/ThemeContext';
 
+const GOOGLE_CALENDAR_OAUTH_ENABLED = false;
+
 // ─── Component 1: GoogleCalendarIntegrationCard (1:1 from frontend) ───────────
 
 function GoogleCalendarIntegrationCard() {
@@ -45,6 +47,13 @@ function GoogleCalendarIntegrationCard() {
   }, [checkStatus]);
 
   const handleConnect = async () => {
+    if (!GOOGLE_CALENDAR_OAUTH_ENABLED) {
+      Alert.alert(
+        'Google Calendar deferred',
+        'Email/password authentication is supported in this APK. Native Google authorization will be added in a later release.',
+      );
+      return;
+    }
     setBusy(true);
     try {
       const authUrl = await apiService.getGoogleAuthUrl();
@@ -53,8 +62,10 @@ function GoogleCalendarIntegrationCard() {
       } else {
         await Linking.openURL(authUrl);
       }
-    } catch {
-      // Fallback
+    } catch (error) {
+      Alert.alert('Google Calendar unavailable', error instanceof Error ? error.message : 'Could not start Google authorization.');
+      setBusy(false);
+      return;
     }
 
     let attempts = 0;
@@ -64,7 +75,7 @@ function GoogleCalendarIntegrationCard() {
       if (current.connected) {
         clearInterval(interval);
         setConnected(true);
-        setConnectedEmail(current.google_email || current.email || 'ops@apexglobal.com');
+        setConnectedEmail(current.google_email || current.email || null);
         setBusy(false);
       } else if (attempts > 12) {
         clearInterval(interval);
@@ -76,12 +87,14 @@ function GoogleCalendarIntegrationCard() {
   const handleDisconnect = async () => {
     setBusy(true);
     try {
-      await apiService.disconnectGoogleAuth();
+      const result = await apiService.disconnectGoogleAuth();
+      if (result.status === 'error') {
+        throw new Error('Google Calendar could not be disconnected.');
+      }
       setConnected(false);
       setConnectedEmail(null);
-    } catch {
-      setConnected(false);
-      setConnectedEmail(null);
+    } catch (error) {
+      Alert.alert('Disconnect failed', error instanceof Error ? error.message : 'Google Calendar could not be disconnected.');
     } finally {
       setBusy(false);
     }
@@ -144,13 +157,15 @@ function GoogleCalendarIntegrationCard() {
       ) : (
         <TouchableOpacity
           onPress={handleConnect}
-          disabled={busy}
-          style={[styles.btnConnectGoogle, { opacity: busy ? 0.6 : 1 }]}
+          disabled={busy || !GOOGLE_CALENDAR_OAUTH_ENABLED}
+          style={[styles.btnConnectGoogle, { opacity: busy || !GOOGLE_CALENDAR_OAUTH_ENABLED ? 0.6 : 1 }]}
         >
           {busy ? (
             <ActivityIndicator size="small" color="#FFFFFF" />
           ) : (
-            <Text style={styles.btnConnectGoogleText}>Connect Google Calendar</Text>
+            <Text style={styles.btnConnectGoogleText}>
+              {GOOGLE_CALENDAR_OAUTH_ENABLED ? 'Connect Google Calendar' : 'Google Calendar (coming later)'}
+            </Text>
           )}
         </TouchableOpacity>
       )}
@@ -245,7 +260,10 @@ function ThreeCXIntegrationCard() {
           onPress: async () => {
             setBusy(true);
             try {
-              await apiService.disconnectThreeCX();
+              const result = await apiService.disconnectThreeCX();
+              if (!result.success) {
+                throw new Error(result.message || '3CX could not be disconnected.');
+              }
               setStatus({ configured: false, state: 'unconfigured' });
               setConnectionName('');
               setPbxUrl('');

@@ -60,46 +60,26 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
 
   // ─── Company Setup State ──────────────────────────────────────────────────
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile>({
-    company_name: 'Apex Global Technologies',
-    website_url: 'https://apex-global.example.com',
-    company_phone: '+230 555-0199',
-    support_email: 'support@apex-global.example.com',
-    timezone: 'Indian/Mauritius',
+    company_name: '',
+    website_url: '',
+    company_phone: '',
+    support_email: '',
+    timezone: '',
   });
   const [isCompanySaving, setIsCompanySaving] = useState(false);
   const [companyStatusMsg, setCompanyStatusMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // ─── AI Assistant State ───────────────────────────────────────────────────
   const [assistantConfig, setAssistantConfig] = useState<AssistantConfig>({
-    assistant_name: 'Apex Voice Receptionist',
+    assistant_name: '',
     voice_engine: 'Aoede',
-    inbound_greeting: 'Hello! Thank you for calling Apex Global Technologies. How can I assist you today?',
-    system_prompt: 'You are the primary AI receptionist for Apex Global Technologies. Greet callers professionally, handle inquiries about business hours, company capabilities, and schedule calendar appointments.',
-    knowledge_base_notes: 'Apex Global Technologies specializes in AI voice automation, enterprise telephony integration, and real-time scheduling solutions. Office hours are Monday to Friday 9:00 AM to 5:00 PM (MUT).',
+    inbound_greeting: '',
+    system_prompt: '',
+    knowledge_base_notes: '',
     tone: 'friendly',
-    business_hours: {
-      monday: '09:00–17:00',
-      tuesday: '09:00–17:00',
-      wednesday: '09:00–17:00',
-      thursday: '09:00–17:00',
-      friday: '09:00–17:00',
-      saturday: 'Closed',
-      sunday: 'Closed',
-    },
-    escalation_rules: [
-      'If caller requests executive escalation, prompt for their callback number.',
-      'If emergency billing issue, offer priority ticket submission.',
-    ],
-    faq_entries: [
-      {
-        question: 'What are your support hours?',
-        answer: 'Support is available Monday through Friday from 9:00 AM to 5:00 PM MUT.',
-      },
-      {
-        question: 'How do I book a consultation?',
-        answer: 'I can directly schedule a consultation with our solutions team right now on Google Calendar.',
-      },
-    ],
+    business_hours: {},
+    escalation_rules: [],
+    faq_entries: [],
     capabilities: {
       company_receptionist: true,
       company_faq: true,
@@ -108,7 +88,7 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
     is_deployed: false,
   });
 
-  const [publishedVersion, setPublishedVersion] = useState<number | null>(1);
+  const [publishedVersion, setPublishedVersion] = useState<number | null>(null);
   const [isAssistantSaving, setIsAssistantSaving] = useState(false);
   const [assistantStatusMsg, setAssistantStatusMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [escalationInput, setEscalationInput] = useState(assistantConfig.escalation_rules.join('\n'));
@@ -156,7 +136,7 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
       if (res.success) {
         setCompanyStatusMsg({ text: 'Company profile saved to database successfully!', type: 'success' });
       } else {
-        setCompanyStatusMsg({ text: 'Company profile saved locally.', type: 'success' });
+        setCompanyStatusMsg({ text: res.message || 'Company profile could not be saved.', type: 'error' });
       }
       setTimeout(() => setCompanyStatusMsg(null), 4000);
     } catch {
@@ -188,6 +168,9 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
 
     try {
       const res = await apiService.saveAssistantConfig(updatedConfig, deploy);
+      if (!res.success) {
+        throw new Error(res.message || 'Assistant configuration could not be saved.');
+      }
       if (deploy) {
         setPublishedVersion(res.version || (publishedVersion ? publishedVersion + 1 : 1));
       }
@@ -200,8 +183,8 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
       setTimeout(() => setAssistantStatusMsg(null), 4000);
     } catch (e: any) {
       setAssistantStatusMsg({
-        text: e?.message || 'Configuration saved locally.',
-        type: 'success',
+        text: e?.message || 'Configuration could not be saved.',
+        type: 'error',
       });
       setTimeout(() => setAssistantStatusMsg(null), 4000);
     } finally {
