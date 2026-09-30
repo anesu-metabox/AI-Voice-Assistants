@@ -174,7 +174,7 @@ export default function DashboardScreen({
     calls: dayBuckets[day] || 0,
   }));
 
-  const companyName = company?.company_name || 'Apex Global';
+  const companyName = company?.company_name || 'Your company';
   const companyInitials = companyName
     .split(' ')
     .map((w) => w[0])
@@ -182,9 +182,9 @@ export default function DashboardScreen({
     .substring(0, 2)
     .toUpperCase() || 'AG';
 
-  const assistantName = assistant?.assistant_name || 'Aoede';
+  const assistantName = assistant?.assistant_name || 'Your assistant';
   const assistantTone = assistant?.tone ? `${assistant.tone.charAt(0).toUpperCase() + assistant.tone.slice(1)} tone` : 'Professional tone';
-  const voiceEngine = assistant?.voice_engine || 'Gemini 2.0 Flash';
+  const voiceEngine = assistant?.voice_engine || 'Not configured';
 
   return (
     <ScrollView

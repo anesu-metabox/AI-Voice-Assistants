@@ -1,12 +1,17 @@
 import React from 'react';
-import { Tabs, useRouter } from 'expo-router';
+import { Redirect, Tabs, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BottomTabBar from '../../src/components/BottomTabBar';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useAuth } from '../../src/context/AuthContext';
 
 export default function TabsLayout() {
   const router = useRouter();
   const { colors } = useTheme();
+  const { isLoading, isAuthenticated } = useAuth();
+
+  if (isLoading) return null;
+  if (!isAuthenticated) return <Redirect href="/splash" />;
 
   return (
     <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: colors.cardBg }}>

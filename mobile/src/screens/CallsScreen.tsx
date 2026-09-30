@@ -184,9 +184,9 @@ export default function CallsScreen() {
                   { label: 'Date & Time', value: selected.dateTime },
                   { label: 'Duration', value: selected.duration },
                   { label: 'State', value: selected.status },
-                  { label: 'PBX Host', value: selected.pbxHost || 'pbx.apexglobal.com:5060' },
-                  { label: 'Route Point DN', value: selected.routePointDn || 'RP_INBOUND_MAIN' },
-                  { label: 'Session ID', value: selected.transcriptId || String(selected.id) },
+                  { label: 'PBX Host', value: selected.pbxHost || '—' },
+                  { label: 'Route Point DN', value: selected.routePointDn || '—' },
+                  { label: 'Session ID', value: selected.transcriptId || '—' },
                 ].map((row) => (
                   <View key={row.label} style={[styles.detailRow, { borderBottomColor: colors.border }]}>
                     <Text style={[styles.detailLabel, { color: colors.textMuted }]}>{row.label}</Text>

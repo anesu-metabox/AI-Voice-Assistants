@@ -8,7 +8,7 @@ export default function DashboardTabRoute() {
   return (
     <DashboardScreen
       onQuickTest={() => router.push('/live-call')}
-      onConfigureAssistant={() => router.push({ pathname: '/onboarding', params: { step: '3' } })}
+      onConfigureAssistant={() => router.push({ pathname: '/setup', params: { step: '3' } })}
     />
   );
 }

@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   ScrollView,
   StyleSheet,
@@ -52,6 +51,12 @@ export default function SignInScreen({ onSuccess, onBack, initialMode = 'signin'
           setBusy(false);
           return;
         }
+        const session = await apiService.checkSession();
+        if (!session.authenticated) {
+          setError('Sign-in succeeded, but the session could not be established. Please retry.');
+          return;
+        }
+        onSuccess();
       } else {
         const res = await apiService.signUpEmail(email.trim(), password, name.trim());
         if (!res.success) {
@@ -70,22 +75,6 @@ export default function SignInScreen({ onSuccess, onBack, initialMode = 'signin'
     } catch (err) {
       setError((err as any)?.message || 'Authentication failed. Please check your connection.');
     } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleGoogleSignIn = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const url = await apiService.getGoogleSignInUrl();
-      if (typeof window !== 'undefined' && window.location) {
-        window.location.assign(url);
-      } else {
-        await Linking.openURL(url);
-      }
-    } catch (err) {
-      setError((err as any)?.message || 'Google sign-in is currently unavailable.');
       setBusy(false);
     }
   };
@@ -186,23 +175,6 @@ export default function SignInScreen({ onSuccess, onBack, initialMode = 'signin'
                   {mode === 'signin' ? 'Sign In' : 'Create Workspace'}
                 </Text>
               )}
-            </TouchableOpacity>
-
-            {/* Divider */}
-            <View style={styles.dividerRow}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>OR</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            {/* Google OAuth Button */}
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={handleGoogleSignIn}
-              disabled={busy}
-              style={styles.googleBtn}
-            >
-              <Text style={styles.googleBtnText}>Continue with Google</Text>
             </TouchableOpacity>
 
             {/* Toggle Mode */}
@@ -350,36 +322,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
-  },
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 18,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#334155',
-  },
-  dividerText: {
-    color: '#64748B',
-    fontSize: 11,
-    fontWeight: '600',
-    paddingHorizontal: 12,
-  },
-  googleBtn: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: '#475569',
-    borderRadius: 12,
-    paddingVertical: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  googleBtnText: {
-    color: '#F8FAFC',
-    fontSize: 14,
-    fontWeight: '600',
   },
   toggleBtn: {
     alignItems: 'center',

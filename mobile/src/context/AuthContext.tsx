@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 import { apiService, CompanyProfile, UserAccount } from '../services/api';
 
 interface AuthContextType {
@@ -51,6 +52,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refreshSession();
+  }, []);
+
+  // Re-check the server session whenever the native app returns to the
+  // foreground. This covers cookie restoration after Android process resume
+  // and prevents stale authenticated UI after a server-side expiry/sign-out.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void refreshSession();
+      }
+    });
+
+    return () => subscription.remove();
   }, []);
 
   const signOut = async () => {
