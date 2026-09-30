@@ -135,6 +135,7 @@ For a physical-device test against a laptop, replace `localhost` with a LAN-reac
 - **2026-09-29 23:58** — Stage 4 scope decision recorded: APK v1 uses explicit manual interruption; natural barge-in/VAD is deferred. Added production component wiring checks for `VoiceAssistant` → `useVoiceBot`, native audio setup/teardown, microphone publication, and manual controls. Hardware behavior remains pending.
 - **2026-09-30 13:05** — Expo preview build `e9e92091-803b-42c2-8a48-c65337994a9d` failed in Gradle `:app:mergeReleaseResources`: `mascot-1.png` and `mascot-2.png` were JPEG byte streams with `.png` names, so AAPT rejected them. Converted both assets to valid PNG files; mobile lint and 89 tests pass. A fresh EAS preview build is required before diagnosing runtime login behavior.
 - **2026-09-30 13:25** — Expo preview variables were inspected and contain the deployed app/API origins plus the LiveKit URL. The mobile login failure was traced to Next.js `isSameOriginMutation`: native React Native requests do not supply a browser `Origin` header, so email sign-in/sign-up/sign-out and other mutations were rejected as cross-origin. Mobile mutations now send the deployed app origin explicitly; the fix is ready for the next branch commit, and preview build `8f138464-a65b-44b6-ba1b-541ca67da552` is queued from `/mobile` using the prior asset fix.
+- **2026-09-30 13:40** — Preview build `8f138464-a65b-44b6-ba1b-541ca67da552` passed dependency installation but stopped at EAS configuration because `mobile/app.json` had no project linkage. Retrieved the existing Expo project ID `9b37b150-b5d3-46da-a098-4f065538e9ed` from the authenticated Expo project and added it with owner `metabox-ai-assistant`. The next build must use the latest commit containing both this linkage and the native-Origin login fix.
 
 ## Pre-APK production readiness
 
@@ -285,7 +286,7 @@ voice-session test protocol.
 - [ ] Confirm the active `LIVEKIT_URL`.
 - [ ] Verify frontend, API, worker, broker, Neon, Google OAuth, and LiveKit
   deployment environments from one approved commit.
-- [ ] Link the Expo EAS project and add the owner/project ID.
+- [x] Link the Expo EAS project and add the owner/project ID.
 - [ ] Confirm `com.vocalist.ai.mobile` as the permanent Android package ID.
 - [ ] Configure Android signing and build-number policy.
 - [ ] Install/authenticate EAS CLI or run the build through an authenticated
