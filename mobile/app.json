@@ -2,7 +2,7 @@
   "expo": {
     "name": "Vocalist Assistant Ai",
   "owner": "metabox-ai-assistant",
-    "slug": "vocalist-assistant-mobile",
+    "slug": "ai-voice-assistant-bot",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./src/assets/mascot-1.png",
