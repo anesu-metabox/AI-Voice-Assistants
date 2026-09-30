@@ -157,11 +157,18 @@ class ApiService {
   private livekitUrl: string;
 
   constructor() {
+    // Expo replaces explicit EXPO_PUBLIC_* references at bundle time. Do not
+    // use process.env[key] here: Metro cannot inline dynamic environment
+    // lookups, which would make a release APK fall back to localhost.
+    const publicEnv: Record<string, string | undefined> = {
+      EXPO_PUBLIC_APP_URL: process.env.EXPO_PUBLIC_APP_URL,
+      EXPO_PUBLIC_BACKEND_URL: process.env.EXPO_PUBLIC_BACKEND_URL,
+      EXPO_PUBLIC_WEB_URL: process.env.EXPO_PUBLIC_WEB_URL,
+      EXPO_PUBLIC_LIVEKIT_TOKEN_ENDPOINT: process.env.EXPO_PUBLIC_LIVEKIT_TOKEN_ENDPOINT,
+      EXPO_PUBLIC_LIVEKIT_URL: process.env.EXPO_PUBLIC_LIVEKIT_URL,
+    };
     const getEnv = (key: string, fallback: string): string => {
-      if (typeof process !== 'undefined' && process.env && process.env[key]) {
-        return process.env[key] as string;
-      }
-      return fallback;
+      return publicEnv[key] || fallback;
     };
 
     this.backendUrl = getEnv('EXPO_PUBLIC_BACKEND_URL', 'http://localhost:8000').replace(/\/+$/, '');
