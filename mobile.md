@@ -141,6 +141,7 @@ For a physical-device test against a laptop, replace `localhost` with a LAN-reac
 - **2026-09-30 14:11** — Production Android internal build `2088a824-21f6-48b8-a742-77fdfba8360f` started from commit `10b527f` and passed configuration, Expo Doctor, prebuild, JavaScript bundling, and Gradle startup. It is still compiling; APK installation and hardware login/session restoration remain pending.
 - **2026-09-30 14:30** — Expo build `2088a824-21f6-48b8-a742-77fdfba8360f` completed successfully as an Android APK (`com.vocalist.ai.mobile`, version `1.0.0 (1)`). Expo reports no build error and provides the internal-distribution install link. If TestApp.io reports a problem, first confirm it received this exact artifact/commit `10b527f`; installation and runtime authentication are separate device gates.
 - **2026-09-30 14:45** — Device screenshot showed `CLEARTEXT communication to localhost not permitted`. Root cause: `mobile/src/services/api.ts` read `process.env[key]` dynamically; Expo only inlines explicit `process.env.EXPO_PUBLIC_*` references, so the release bundle used its localhost fallbacks despite the Expo variables being configured. Replaced the dynamic lookup with explicit public-variable references in commit `80e08e4`; lint and all 89 mobile tests pass. A new APK is required.
+- **2026-09-30 14:52** — Corrected production APK build `98e3e973-9e0a-4874-9668-e267ddacbce8` was queued from commit `d2e2e41` with the explicit environment fix. It must replace the TestApp.io upload; do not reuse build `2088a824`.
 
 ## Pre-APK production readiness
 
