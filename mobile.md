@@ -136,6 +136,9 @@ For a physical-device test against a laptop, replace `localhost` with a LAN-reac
 - **2026-09-30 13:05** — Expo preview build `e9e92091-803b-42c2-8a48-c65337994a9d` failed in Gradle `:app:mergeReleaseResources`: `mascot-1.png` and `mascot-2.png` were JPEG byte streams with `.png` names, so AAPT rejected them. Converted both assets to valid PNG files; mobile lint and 89 tests pass. A fresh EAS preview build is required before diagnosing runtime login behavior.
 - **2026-09-30 13:25** — Expo preview variables were inspected and contain the deployed app/API origins plus the LiveKit URL. The mobile login failure was traced to Next.js `isSameOriginMutation`: native React Native requests do not supply a browser `Origin` header, so email sign-in/sign-up/sign-out and other mutations were rejected as cross-origin. Mobile mutations now send the deployed app origin explicitly; the fix is ready for the next branch commit, and preview build `8f138464-a65b-44b6-ba1b-541ca67da552` is queued from `/mobile` using the prior asset fix.
 - **2026-09-30 13:40** — Preview build `8f138464-a65b-44b6-ba1b-541ca67da552` passed dependency installation but stopped at EAS configuration because `mobile/app.json` had no project linkage. Retrieved the existing Expo project ID `9b37b150-b5d3-46da-a098-4f065538e9ed` from the authenticated Expo project and added it with owner `metabox-ai-assistant`. The next build must use the latest commit containing both this linkage and the native-Origin login fix.
+- **2026-09-30 14:07** — The next build `ece56292-baf5-4154-8f70-53d447db5ba0` reached EAS configuration but failed because the linked Expo project slug was `ai-voice-assistant-bot` while `app.json` still declared `vocalist-assistant-mobile`. Aligned the slug and pushed commit `10b527f`.
+- **2026-09-30 14:10** — Confirmed the Expo Preview and Production environments contain the approved public values: app `https://ai-voice-bot-production-6573.up.railway.app`, API `https://voice-api-production-0c80.up.railway.app`, and LiveKit `wss://ai-voice-assistant-vu6rr406.livekit.cloud`. No secret is in these public variables.
+- **2026-09-30 14:11** — Production Android internal build `2088a824-21f6-48b8-a742-77fdfba8360f` started from commit `10b527f` and passed configuration, Expo Doctor, prebuild, JavaScript bundling, and Gradle startup. It is still compiling; APK installation and hardware login/session restoration remain pending.
 
 ## Pre-APK production readiness
 
@@ -145,14 +148,15 @@ installation. The check rejects missing origins, localhost/loopback hosts,
 non-HTTPS release URLs, URL paths/query strings, and secret-looking
 `EXPO_PUBLIC_*` variables.
 
-Required public build variables (real values still pending deployment
-confirmation):
+Required public build variables (confirmed in Expo Preview and Production):
 
-- `EXPO_PUBLIC_APP_URL` — canonical HTTPS Next.js origin.
-- `EXPO_PUBLIC_BACKEND_URL` — public HTTPS Railway FastAPI origin used by the
+- `EXPO_PUBLIC_APP_URL=https://ai-voice-bot-production-6573.up.railway.app` — canonical HTTPS Next.js origin.
+- `EXPO_PUBLIC_BACKEND_URL=https://voice-api-production-0c80.up.railway.app` — public HTTPS Railway FastAPI origin used by the
   non-voice mobile API screens.
 - `EXPO_PUBLIC_LIVEKIT_TOKEN_ENDPOINT` — optional complete override; normally
   `${EXPO_PUBLIC_APP_URL}/api/livekit/token`.
+- `EXPO_PUBLIC_LIVEKIT_URL=wss://ai-voice-assistant-vu6rr406.livekit.cloud` — retained
+  only as the legacy fallback; the authenticated token response remains authoritative.
 
 The APK must never receive `BACKEND_URL` private hostnames,
 `CREDENTIAL_BROKER_URL`, database/Neon URLs, LiveKit API credentials, Gemini
@@ -163,8 +167,8 @@ be verified or removed before production distribution.
 
 Release gates still pending:
 
-1. Replace the two placeholder origins with confirmed deployed HTTPS URLs and
-   verify DNS/TLS, `/health`, and `/health/db`.
+1. Confirm the recorded deployed HTTPS origins remain reachable and verify DNS/TLS,
+   `/health`, and `/health/db`.
 2. Confirm Next.js `BACKEND_URL`, `APP_ORIGIN`, Neon Auth, Google OAuth callback,
    and shared session-context secret configuration.
 3. Confirm the API, private broker, LiveKit worker, and booking worker are on
@@ -281,9 +285,9 @@ voice-session test protocol.
 - [x] Document the release-only public environment contract in `mobile/.env.example`.
 - [x] Validate optional `EXPO_PUBLIC_LIVEKIT_URL` as a credential-free `wss://`
   origin when supplied.
-- [ ] Supply and verify the real `EXPO_PUBLIC_APP_URL`.
-- [ ] Supply and verify the real `EXPO_PUBLIC_BACKEND_URL`.
-- [ ] Confirm the active `LIVEKIT_URL`.
+- [x] Supply and verify the real `EXPO_PUBLIC_APP_URL` in Expo Preview and Production.
+- [x] Supply and verify the real `EXPO_PUBLIC_BACKEND_URL` in Expo Preview and Production.
+- [x] Confirm the active LiveKit URL in Expo Preview and Production.
 - [ ] Verify frontend, API, worker, broker, Neon, Google OAuth, and LiveKit
   deployment environments from one approved commit.
 - [x] Link the Expo EAS project and add the owner/project ID.
