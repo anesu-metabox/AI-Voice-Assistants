@@ -4,6 +4,14 @@
  * NO DIRECT DATABASE ACCESS (Rule of Engagement #3)
  */
 
+function requestOrigin(webBase: string): string {
+  try {
+    return new URL(webBase).origin;
+  } catch {
+    return webBase;
+  }
+}
+
 export interface BackendHealth {
   status: 'healthy' | 'unhealthy' | 'unreachable';
   service?: string;
@@ -261,6 +269,7 @@ class ApiService {
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
+          Origin: requestOrigin(webBase),
         },
         credentials: 'include',
         body: JSON.stringify({ email, password, callbackURL }),
@@ -294,6 +303,7 @@ class ApiService {
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
+          Origin: requestOrigin(webBase),
         },
         credentials: 'include',
         body: JSON.stringify({ email, password, name: resolvedName, callbackURL }),
@@ -325,6 +335,7 @@ class ApiService {
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
+        Origin: requestOrigin(webBase),
       },
       credentials: 'include',
       body: JSON.stringify({ provider: 'google', callbackURL }),
@@ -349,6 +360,7 @@ class ApiService {
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
+          Origin: requestOrigin(webBase),
         },
         credentials: 'include',
         body: JSON.stringify({}),
@@ -442,6 +454,7 @@ class ApiService {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          Origin: requestOrigin(this.getWebBase()),
         },
         credentials: 'include',
         body: JSON.stringify({
@@ -480,7 +493,7 @@ class ApiService {
       try {
         const res = await fetch(url, {
           method: 'GET',
-          headers: { 'Accept': 'application/json' },
+          headers: { 'Accept': 'application/json', Origin: requestOrigin(webBase) },
           credentials: 'include',
           signal: AbortSignal.timeout(4000),
         });
@@ -516,7 +529,7 @@ class ApiService {
       try {
         const res = await fetch(url, {
           method: 'GET',
-          headers: { 'Accept': 'application/json' },
+          headers: { 'Accept': 'application/json', Origin: requestOrigin(webBase) },
           credentials: 'include',
           signal: AbortSignal.timeout(5000),
         });
@@ -545,7 +558,7 @@ class ApiService {
       try {
         const res = await fetch(url, {
           method: 'POST',
-          headers: { 'Accept': 'application/json' },
+          headers: { 'Accept': 'application/json', Origin: requestOrigin(webBase) },
           credentials: 'include',
           signal: AbortSignal.timeout(5000),
         });
@@ -600,7 +613,7 @@ class ApiService {
       try {
         const res = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', Origin: requestOrigin(webBase) },
           credentials: 'include',
           body: JSON.stringify(profile),
           signal: AbortSignal.timeout(5000),
@@ -679,7 +692,7 @@ class ApiService {
         try {
           const vRes = await fetch(vUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', Origin: requestOrigin(webBase) },
             credentials: 'include',
             body: JSON.stringify(payload),
             signal: AbortSignal.timeout(5000),
@@ -700,7 +713,7 @@ class ApiService {
       try {
         const res = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', Origin: requestOrigin(webBase) },
           credentials: 'include',
           body: JSON.stringify(payload),
           signal: AbortSignal.timeout(6000),
@@ -788,7 +801,7 @@ class ApiService {
       try {
         const res = await fetch(url, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', Origin: requestOrigin(webBase) },
           credentials: 'include',
           body: JSON.stringify(payload),
           signal: AbortSignal.timeout(6000),
@@ -820,7 +833,7 @@ class ApiService {
       try {
         const res = await fetch(url, {
           method: 'DELETE',
-          headers: { 'Accept': 'application/json' },
+          headers: { 'Accept': 'application/json', Origin: requestOrigin(webBase) },
           credentials: 'include',
           signal: AbortSignal.timeout(5000),
         });
@@ -845,7 +858,7 @@ class ApiService {
       try {
         const res = await fetch(url, {
           method: 'GET',
-          headers: { 'Accept': 'application/json' },
+          headers: { 'Accept': 'application/json', Origin: requestOrigin(webBase) },
           credentials: 'include',
           signal: AbortSignal.timeout(5000),
         });
@@ -953,7 +966,7 @@ class ApiService {
       try {
         const res = await fetch(url, {
           method: 'POST',
-          headers: { 'Accept': 'application/json' },
+          headers: { 'Accept': 'application/json', Origin: requestOrigin(webBase) },
           credentials: 'include',
           signal: AbortSignal.timeout(5000),
         });
