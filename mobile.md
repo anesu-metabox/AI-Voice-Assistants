@@ -139,6 +139,7 @@ For a physical-device test against a laptop, replace `localhost` with a LAN-reac
 - **2026-09-30 14:07** — The next build `ece56292-baf5-4154-8f70-53d447db5ba0` reached EAS configuration but failed because the linked Expo project slug was `ai-voice-assistant-bot` while `app.json` still declared `vocalist-assistant-mobile`. Aligned the slug and pushed commit `10b527f`.
 - **2026-09-30 14:10** — Confirmed the Expo Preview and Production environments contain the approved public values: app `https://ai-voice-bot-production-6573.up.railway.app`, API `https://voice-api-production-0c80.up.railway.app`, and LiveKit `wss://ai-voice-assistant-vu6rr406.livekit.cloud`. No secret is in these public variables.
 - **2026-09-30 14:11** — Production Android internal build `2088a824-21f6-48b8-a742-77fdfba8360f` started from commit `10b527f` and passed configuration, Expo Doctor, prebuild, JavaScript bundling, and Gradle startup. It is still compiling; APK installation and hardware login/session restoration remain pending.
+- **2026-09-30 14:30** — Expo build `2088a824-21f6-48b8-a742-77fdfba8360f` completed successfully as an Android APK (`com.vocalist.ai.mobile`, version `1.0.0 (1)`). Expo reports no build error and provides the internal-distribution install link. If TestApp.io reports a problem, first confirm it received this exact artifact/commit `10b527f`; installation and runtime authentication are separate device gates.
 
 ## Pre-APK production readiness
 
