@@ -147,6 +147,7 @@ For a physical-device test against a laptop, replace `localhost` with a LAN-reac
 - **2026-09-30 15:08** — Synchronized APK build `e342e4ea-a2a9-4928-baeb-8e1f232bd51e` queued from commit `290a4d4` with both the localhost environment fix and profile-preservation fix. This is the artifact to install after it succeeds.
 - **2026-10-01** — Verified the signed-in routing gate: it previously checked only `company_profile.company_name`, while the sign-in route separately repeated that incomplete check. Mobile now loads company profile, assistant configuration, and profile versions together; existing users with a published web assistant go directly to the dashboard, and only incomplete workspaces go to setup. Lint and all 89 mobile tests pass.
 - **2026-10-01** — Latest APK build `d861e11d-247e-42b9-8fc4-b96badc8a646` queued from commit `abe6163`, including the setup-bypass gate. This is the build to install for the existing-account flow.
+- **2026-10-01** — Inspected GitHub `develop`: merge commit `c749827` includes the updated mobile frontend design (`ab8753c`), keyboard-aware forms, new branding/assets, auth/layout updates, dashboard/settings refresh, and the tier 1–4 mobile test suite. Local mobile lint, 89 tests, Expo dependency check, public config generation, and diff check pass. Expo production Android build `e0750a3d-5e27-4756-a85a-a4c8d0cd9fda` is queued from `develop`/`c749827`.
 
 ## Pre-APK production readiness
 
