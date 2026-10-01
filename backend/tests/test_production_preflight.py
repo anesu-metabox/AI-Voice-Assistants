@@ -115,6 +115,39 @@ def test_broker_runtime_checks_key_shape_without_echoing_key():
     assert {item["check"]: item["status"] for item in findings}["broker_encryption_key_shape"] == "FAIL"
 
 
+def test_enabled_calendar_mirror_requires_bounded_settings_and_schema_probe():
+    policy = load_json(DEFAULT_POLICY)
+    encoded_key = "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE="
+    env = {
+        key_name: "configured"
+        for key_name in policy["services"]["Credential Broker"]["required"]
+    }
+    env.update({
+        "APP_ENV": "production",
+        "DATABASE_URL": "postgresql://voice_runtime:pw@db.example.invalid/app",
+        "RUNTIME_DB_ROLE": "voice_runtime",
+        "CREDENTIAL_ENCRYPTION_KEY": encoded_key,
+        "CALENDAR_MIRROR_ENABLED": "true",
+        "CALENDAR_MIRROR_MAX_STALENESS_SECONDS": "30",
+        "CALENDAR_MIRROR_RECONCILE_INTERVAL_SECONDS": "30",
+        "CALENDAR_MIRROR_ACTIVE_TENANT_TTL_SECONDS": "3600",
+    })
+
+    findings = validate_runtime_environment("broker", env, policy)
+    checks = {item["check"]: item["status"] for item in findings}
+    assert checks["calendar_mirror_flag_shape"] == "PASS"
+    assert checks["calendar_mirror_schema_migration"] == "UNKNOWN"
+    assert checks[
+        "calendar_mirror_setting:CALENDAR_MIRROR_RECONCILE_INTERVAL_SECONDS"
+    ] == "PASS"
+
+    env["CALENDAR_MIRROR_RECONCILE_INTERVAL_SECONDS"] = "3"
+    findings = validate_runtime_environment("broker", env, policy)
+    assert {
+        item["check"]: item["status"] for item in findings
+    }["calendar_mirror_setting:CALENDAR_MIRROR_RECONCILE_INTERVAL_SECONDS"] == "FAIL"
+
+
 def test_booking_worker_requires_its_separate_queue_only_database_identity():
     policy = load_json(DEFAULT_POLICY)
     names = policy["services"]["Calendar Booking Worker"]["required"]

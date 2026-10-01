@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import KeyboardAwareScrollView from '../components/KeyboardAwareScrollView';
 import VoxiMascot from '../components/VoxiMascot';
 import { apiService } from '../services/api';
 
@@ -228,7 +229,7 @@ export default function OnboardingScreen({
       </View>
 
       {/* Content */}
-      <ScrollView
+      <KeyboardAwareScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardDismissMode="on-drag"
@@ -378,7 +379,7 @@ export default function OnboardingScreen({
             </View>
           </View>
         )}
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       {/* Action footer */}
       <View style={styles.footer}>

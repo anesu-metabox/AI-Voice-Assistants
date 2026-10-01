@@ -119,6 +119,7 @@ async def process_booking_request(
             "duration_minutes": payload["duration_minutes"],
             "timezone": payload["timezone"],
             "business_hours": payload.get("business_hours"),
+            "fresh": True,
         })
         if availability.get("status") == "needs_reconnect":
             await _write_result(pool, job, "needs_reconnect", message="Reconnect the calendar account to finish this booking.", delay_seconds=1800)

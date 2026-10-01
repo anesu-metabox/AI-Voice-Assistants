@@ -26,20 +26,33 @@ export function BookingUpdateCenter({ enabled }: { enabled: boolean }) {
     if (!enabled) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let delay = 4000;
     const refresh = async () => {
+      let hasActiveRequest = false;
       try {
         const response = await fetch("/api/bookings", { credentials: "include", cache: "no-store" });
         if (response.ok) {
           const body = await response.json();
-          if (!stopped) setRequests(Array.isArray(body.requests) ? body.requests : []);
+          const next = Array.isArray(body.requests) ? body.requests : [];
+          hasActiveRequest = next.some((request: BookingNotice) => ["pending", "running", "needs_reconnect"].includes(request.status));
+          if (!stopped) setRequests(next);
         }
       } catch {
         // Keep the last confirmed state visible if a status refresh is offline.
       }
-      if (!stopped) timer = setTimeout(refresh, 8000);
+      if (!stopped && hasActiveRequest) {
+        timer = setTimeout(refresh, delay);
+        delay = Math.min(delay * 2, 30000);
+      }
     };
+    const handleBookingCreated = () => { delay = 4000; void refresh(); };
+    window.addEventListener("booking-request-created", handleBookingCreated);
     void refresh();
-    return () => { stopped = true; if (timer) clearTimeout(timer); };
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      window.removeEventListener("booking-request-created", handleBookingCreated);
+    };
   }, [enabled]);
 
   if (!enabled || requests.length === 0) return null;

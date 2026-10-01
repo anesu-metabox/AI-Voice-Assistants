@@ -35,20 +35,34 @@ def assert_database_branch_is_safe(*, allow_protected: bool = False) -> None:
     """Prevent local/test processes from opening the project's protected branch."""
     environment = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower()
     branch_from_env = os.getenv("NEON_BRANCH", "").strip()
+    branch_name_from_env = os.getenv("NEON_BRANCH_NAME", "").strip()
     branch_from_link = ""
+    branch_name_from_link = ""
     link_path = _root_dir / ".neon"
     if link_path.exists():
         try:
             link = json.loads(link_path.read_text(encoding="utf-8"))
             value = link.get("branch", "") if isinstance(link, dict) else ""
             branch_from_link = value.strip() if isinstance(value, str) else ""
+            name_value = link.get("branchName", "") if isinstance(link, dict) else ""
+            branch_name_from_link = (
+                name_value.strip() if isinstance(name_value, str) else ""
+            )
         except (OSError, json.JSONDecodeError) as exc:
             raise RuntimeError("Unable to verify the linked Neon branch; database access refused") from exc
 
     if branch_from_env and branch_from_link and branch_from_env.casefold() != branch_from_link.casefold():
         raise RuntimeError("NEON_BRANCH does not match the linked Neon branch; database access refused")
+    if (
+        branch_name_from_env
+        and branch_name_from_link
+        and branch_name_from_env.casefold() != branch_name_from_link.casefold()
+    ):
+        raise RuntimeError(
+            "NEON_BRANCH_NAME does not match the linked Neon branch name; database access refused"
+        )
 
-    branch = branch_from_env or branch_from_link
+    branch = branch_name_from_env or branch_name_from_link or branch_from_env or branch_from_link
     if not branch:
         raise RuntimeError("NEON_BRANCH must explicitly identify the database target; database access refused")
     if (

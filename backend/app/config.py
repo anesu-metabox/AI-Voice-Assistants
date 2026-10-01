@@ -41,6 +41,40 @@ class Settings(BaseSettings):
     trigger_api_key: str = Field(default="", validation_alias="TRIGGER_API_KEY")
     credential_broker_url: str = Field(default="http://127.0.0.1:8001", validation_alias="CREDENTIAL_BROKER_URL")
     credential_broker_shared_secret: str = Field(default="", validation_alias="CREDENTIAL_BROKER_SHARED_SECRET")
+    calendar_availability_cache_ttl_seconds: float = Field(
+        default=15.0,
+        ge=0.0,
+        le=60.0,
+        validation_alias="CALENDAR_AVAILABILITY_CACHE_TTL_SECONDS",
+    )
+    calendar_events_cache_ttl_seconds: float = Field(
+        default=10.0,
+        ge=0.0,
+        le=60.0,
+        validation_alias="CALENDAR_EVENTS_CACHE_TTL_SECONDS",
+    )
+    calendar_mirror_enabled: bool = Field(
+        default=False,
+        validation_alias="CALENDAR_MIRROR_ENABLED",
+    )
+    calendar_mirror_max_staleness_seconds: int = Field(
+        default=30,
+        ge=5,
+        le=300,
+        validation_alias="CALENDAR_MIRROR_MAX_STALENESS_SECONDS",
+    )
+    calendar_mirror_reconcile_interval_seconds: int = Field(
+        default=30,
+        ge=10,
+        le=300,
+        validation_alias="CALENDAR_MIRROR_RECONCILE_INTERVAL_SECONDS",
+    )
+    calendar_mirror_active_tenant_ttl_seconds: int = Field(
+        default=3600,
+        ge=60,
+        le=86400,
+        validation_alias="CALENDAR_MIRROR_ACTIVE_TENANT_TTL_SECONDS",
+    )
 
     @property
     def cors_origins_list(self) -> List[str]:

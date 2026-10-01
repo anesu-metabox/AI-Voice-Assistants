@@ -306,7 +306,7 @@ export default function TaskDeck() {
       <View style={styles.cardsList}>
         {filteredTasks.length === 0 ? (
           <View style={[styles.emptyBox, { backgroundColor: colors.cardBg, borderColor: colors.border }]}>
-            <Text style={{ fontSize: 24, marginBottom: 8 }}>⚡</Text>
+
             <Text style={[styles.emptyTitle, { color: colors.textHeading }]}>
               No Background Tasks Queued
             </Text>

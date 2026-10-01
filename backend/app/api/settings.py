@@ -128,7 +128,6 @@ async def fetch_company_profile(
         context = verify_session_context(verified_context_header)
         if context is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authenticated context required")
-        await ensure_company(context.company_id, context.auth_subject)
         profile = await get_company_profile(user_id=context.company_id)
         return {"status": "success", "data": profile}
     except HTTPException:
@@ -344,7 +343,7 @@ async def generate_livekit_token(
                 dispatch = await lk_api.agent_dispatch.create_dispatch(
                     CreateAgentDispatchRequest(
                         room=room_name,
-                        agent_name="calendar-assistant",
+                        agent_name=os.getenv("LIVEKIT_AGENT_NAME", "calendar-assistant"),
                         metadata=dispatch_metadata,
                     )
                 )

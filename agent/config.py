@@ -25,6 +25,27 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-live")
 GEMINI_API_VERSION = os.getenv("GEMINI_API_VERSION", "v1beta")
 GEMINI_VOICE = os.getenv("GEMINI_VOICE", "Aoede")
+GEMINI_RECOVERY_ENABLED = os.getenv("GEMINI_RECOVERY_ENABLED", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+GEMINI_RECOVERY_DELAYS_SECONDS = os.getenv(
+    "GEMINI_RECOVERY_DELAYS_SECONDS", "0,1,2,4,8"
+)
+try:
+    GEMINI_RECOVERY_COOLDOWN_SECONDS = max(
+        1.0, min(float(os.getenv("GEMINI_RECOVERY_COOLDOWN_SECONDS", "30")), 300.0)
+    )
+except (TypeError, ValueError):
+    GEMINI_RECOVERY_COOLDOWN_SECONDS = 30.0
+try:
+    AGENT_HEARTBEAT_SECONDS = max(
+        1.0, min(float(os.getenv("AGENT_HEARTBEAT_SECONDS", "5")), 30.0)
+    )
+except (TypeError, ValueError):
+    AGENT_HEARTBEAT_SECONDS = 5.0
 
 # Tool Dispatching Backend Endpoint
 BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")

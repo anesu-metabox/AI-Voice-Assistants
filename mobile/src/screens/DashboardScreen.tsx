@@ -13,6 +13,7 @@ import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import MetricCard from '../components/MetricCard';
 import BarChart, { DayActivity } from '../components/BarChart';
 import VoxiMascot from '../components/VoxiMascot';
+import VocalistLogo from '../components/VocalistLogo';
 import TaskDeck from '../components/TaskDeck';
 import { useTheme } from '../context/ThemeContext';
 import {
@@ -174,14 +175,10 @@ export default function DashboardScreen({
     calls: dayBuckets[day] || 0,
   }));
 
-  const companyName = company?.company_name || 'Your company';
-  const companyInitials = companyName
-    .split(' ')
-    .map((w) => w[0])
-    .join('')
-    .substring(0, 2)
-    .toUpperCase() || 'AG';
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
+  const companyName = company?.company_name || 'Your company';
   const assistantName = assistant?.assistant_name || 'Your assistant';
   const assistantTone = assistant?.tone ? `${assistant.tone.charAt(0).toUpperCase() + assistant.tone.slice(1)} tone` : 'Professional tone';
   const voiceEngine = assistant?.voice_engine || 'Not configured';
@@ -201,26 +198,19 @@ export default function DashboardScreen({
       }
     >
       {/* Top App Bar */}
-      <View style={[styles.topBar, { backgroundColor: colors.cardBg, borderBottomColor: colors.border }]}>
-        {/* Company badge */}
-        <LinearGradient
-          colors={['#3B5BDB', '#4F46E5']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.companyBadge}
-        >
-          <Text style={styles.companyBadgeText}>{companyInitials}</Text>
-        </LinearGradient>
-
+      <View style={styles.topBar}>
+        <VocalistLogo size={38} />
         <View style={styles.companyInfo}>
-          <Text style={[styles.companyName, { color: colors.textHeading }]}>{companyName}</Text>
-          <Text style={[styles.companyPlan, { color: colors.textMuted }]}>workspace · Enterprise</Text>
+          <Text style={[styles.companyName, { color: colors.textHeading }]} numberOfLines={1}>
+            {companyName}
+          </Text>
+          <Text style={[styles.companyPlan, { color: colors.textMuted }]}>Workspace</Text>
         </View>
 
-        {/* Theme Toggle Button */}
         <TouchableOpacity
           onPress={toggleTheme}
-          style={[styles.themeBtn, { backgroundColor: colors.cardSecondary, borderColor: colors.border }]}
+          accessibilityLabel="Toggle light and dark mode"
+          style={[styles.themeBtn, { backgroundColor: colors.cardBg, borderColor: colors.border }]}
         >
           {theme === 'dark' ? (
             <Svg width="16" height="16" viewBox="0 0 24 24">
@@ -247,32 +237,48 @@ export default function DashboardScreen({
           )}
         </TouchableOpacity>
 
-        {/* Bell notification */}
-        <TouchableOpacity style={styles.bellBtn} onPress={onRefresh}>
+        <TouchableOpacity
+          style={[styles.themeBtn, { backgroundColor: colors.cardBg, borderColor: colors.border }]}
+          onPress={onRefresh}
+          accessibilityLabel="Refresh"
+        >
           <BellIcon color={colors.textMuted} />
           {loading && <View style={[styles.bellDot, { borderColor: colors.cardBg }]} />}
         </TouchableOpacity>
-
-        {/* Avatar */}
-        <LinearGradient
-          colors={['#06B6D4', '#3B5BDB']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.avatar}
-        >
-          <Text style={styles.avatarText}>{companyInitials}</Text>
-        </LinearGradient>
       </View>
 
       {/* Body Content */}
       <View style={styles.body}>
         {/* Greeting */}
         <View>
-          <Text style={[styles.greetingTitle, { color: colors.textHeading }]}>Live Assistant Status 👋</Text>
-          <Text style={[styles.greetingSub, { color: colors.textMuted }]}>
-            {assistantName} is connected and handling inbound voice sessions.
-          </Text>
+          <Text style={[styles.greetingSub, { color: colors.textMuted }]}>{greeting}</Text>
+          <Text style={[styles.greetingTitle, { color: colors.textHeading }]}>Live assistant status</Text>
         </View>
+
+        {/* Hero assistant card */}
+        <TouchableOpacity activeOpacity={0.92} onPress={onConfigureAssistant} style={styles.assistantCardWrapper}>
+          <LinearGradient
+            colors={colors.isDark ? ['#1E2A6B', '#3B2A8C'] : ['#3B5BDB', '#6D4AE0']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.assistantCard}
+          >
+            <View style={styles.mascotWrap}>
+              <VoxiMascot size={56} animated={false} />
+            </View>
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text style={styles.assistantName} numberOfLines={1}>{assistantName}</Text>
+              <View style={styles.publishedBadge}>
+                <View style={styles.liveDot} />
+                <Text style={styles.publishedText}>Ready</Text>
+              </View>
+              <Text style={styles.assistantTone} numberOfLines={1}>{voiceEngine} · {assistantTone}</Text>
+            </View>
+            <TouchableOpacity activeOpacity={0.85} onPress={onQuickTest} style={styles.quickTestBtn}>
+              <Text style={styles.quickTestText}>Test call</Text>
+            </TouchableOpacity>
+          </LinearGradient>
+        </TouchableOpacity>
 
         {/* Metric Cards 2x2 Grid */}
         <View style={styles.metricsGrid}>
@@ -335,36 +341,6 @@ export default function DashboardScreen({
           <BarChart data={weeklyActivity} />
         </View>
 
-        {/* Active Assistant Card */}
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPress={onConfigureAssistant}
-          style={styles.assistantCardWrapper}
-        >
-          <LinearGradient
-            colors={['#1e1b4b', '#1e3a8a']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.assistantCard}
-          >
-            <View style={{ width: 52, height: 52 }}>
-              <VoxiMascot size={52} animated={false} />
-            </View>
-            <View style={{ flex: 1, gap: 2 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-                <Text style={styles.assistantName}>{assistantName}</Text>
-                <View style={styles.publishedBadge}>
-                  <Text style={styles.publishedText}>Live Engine Ready</Text>
-                </View>
-              </View>
-              <Text style={styles.assistantTone}>{voiceEngine} · {assistantTone}</Text>
-            </View>
-            <TouchableOpacity activeOpacity={0.85} onPress={onQuickTest} style={styles.quickTestBtn}>
-              <Text style={styles.quickTestText}>Quick Test ▶</Text>
-            </TouchableOpacity>
-          </LinearGradient>
-        </TouchableOpacity>
-
         {/* Task Execution Deck */}
         <TaskDeck />
       </View>
@@ -382,8 +358,8 @@ const styles = StyleSheet.create({
   },
   topBar: {
     paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
+    paddingTop: 16,
+    paddingBottom: 6,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
@@ -413,7 +389,7 @@ const styles = StyleSheet.create({
   themeBtn: {
     width: 34,
     height: 34,
-    borderRadius: 17,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -445,16 +421,18 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   body: {
-    padding: 16,
-    gap: 16,
+    padding: 20,
+    gap: 18,
   },
   greetingTitle: {
-    fontSize: 22,
+    fontSize: 26,
     fontWeight: '800',
-    marginBottom: 2,
+    letterSpacing: -0.5,
   },
   greetingSub: {
     fontSize: 13,
+    fontWeight: '500',
+    marginBottom: 2,
   },
   metricsGrid: {
     gap: 10,
@@ -469,9 +447,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 1,
   },
   chartHeader: {
     flexDirection: 'row',
@@ -518,7 +496,11 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   publishedBadge: {
-    paddingHorizontal: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 99,
     backgroundColor: 'rgba(34, 197, 94, 0.2)',
@@ -530,6 +512,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#22C55E',
   },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#4ADE80' },
+  mascotWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   assistantTone: {
     fontSize: 11,
     color: 'rgba(255,255,255,0.6)',
@@ -540,7 +532,7 @@ const styles = StyleSheet.create({
     borderRadius: 99,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.25)',
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(255,255,255,0.22)',
   },
   quickTestText: {
     fontSize: 12,

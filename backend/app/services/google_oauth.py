@@ -5,7 +5,10 @@ Communicates asynchronously via httpx to avoid blocking the event loop.
 """
 
 from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
+import asyncio
 import base64
+from collections import OrderedDict
 import json
 import hashlib
 import hmac
@@ -15,6 +18,7 @@ import secrets
 import time
 from typing import Any, Dict, Optional
 import urllib.parse
+import weakref
 
 import httpx
 
@@ -22,8 +26,61 @@ from ..config import settings
 from db.tokens import delete_oauth_tokens, get_oauth_tokens, save_oauth_tokens
 from db.oauth_states import consume_oauth_state, save_oauth_state
 from .http_client import get_http_client
+from .latency import log_latency, measured
 
 logger = logging.getLogger("voice_bot.services.google_oauth")
+
+
+@dataclass(frozen=True)
+class _CachedAccessToken:
+    value: str
+    expires_at: datetime
+
+
+_MAX_ACCESS_TOKEN_CACHE_ENTRIES = 512
+_access_token_cache: OrderedDict[str, _CachedAccessToken] = OrderedDict()
+_access_token_cache_lock = asyncio.Lock()
+_token_refresh_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
+
+
+async def cache_access_token(user_id: str, value: str, expires_at: datetime) -> None:
+    """Keep provider access tokens only in broker memory and only until expiry."""
+    if not value:
+        return
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    async with _access_token_cache_lock:
+        _access_token_cache[user_id] = _CachedAccessToken(value=value, expires_at=expires_at)
+        _access_token_cache.move_to_end(user_id)
+        while len(_access_token_cache) > _MAX_ACCESS_TOKEN_CACHE_ENTRIES:
+            _access_token_cache.popitem(last=False)
+
+
+async def invalidate_access_token_cache(user_id: str) -> None:
+    async with _access_token_cache_lock:
+        _access_token_cache.pop(user_id, None)
+
+
+async def clear_access_token_cache() -> None:
+    async with _access_token_cache_lock:
+        _access_token_cache.clear()
+        _token_refresh_locks.clear()
+
+
+async def _cached_access_token(user_id: str, now: datetime) -> str | None:
+    async with _access_token_cache_lock:
+        cached = _access_token_cache.get(user_id)
+        if cached and cached.expires_at > now + timedelta(seconds=60):
+            _access_token_cache.move_to_end(user_id)
+            return cached.value
+        if cached:
+            _access_token_cache.pop(user_id, None)
+        return None
+
+
+async def _refresh_lock(user_id: str) -> asyncio.Lock:
+    async with _access_token_cache_lock:
+        return _token_refresh_locks.setdefault(user_id, asyncio.Lock())
 
 
 def _google_client_secret() -> str:
@@ -169,48 +226,81 @@ async def get_valid_access_token(user_id: str) -> Optional[str]:
     Retrieve an active Google access token for user_id.
     Automatically refreshes the token using the refresh_token if expired or within 60s of expiration.
     """
-    token_record = await get_oauth_tokens(user_id=user_id, provider="google")
-    if not token_record:
-        logger.debug("No OAuth token found for company")
-        return None
-
-    expires_at = token_record["expires_at"]
     now = datetime.now(timezone.utc)
+    started_at = time.perf_counter()
+    cached = await _cached_access_token(user_id, now)
+    if cached:
+        log_latency(logger, "oauth_access_token", started_at, outcome="hit")
+        return cached
 
-    # Check if token is still valid with a 60-second safety cushion
-    if expires_at > (now + timedelta(seconds=60)):
-        return token_record["access_token"]
+    refresh_lock = await _refresh_lock(user_id)
+    async with refresh_lock:
+        now = datetime.now(timezone.utc)
+        cached = await _cached_access_token(user_id, now)
+        if cached:
+            log_latency(logger, "oauth_access_token", started_at, outcome="coalesced")
+            return cached
 
-    # Token is expired or expiring soon; refresh it
-    refresh_token = token_record.get("refresh_token")
-    if not refresh_token:
-        logger.warning("Google access token expired and no refresh token is stored")
-        return None
+        token_record = await measured(
+            logger,
+            "oauth_token_database",
+            get_oauth_tokens(user_id=user_id, provider="google"),
+        )
+        if not token_record:
+            logger.debug("No OAuth token found for company")
+            log_latency(logger, "oauth_access_token", started_at, outcome="missing")
+            return None
 
-    logger.info("Google access token expired. Refreshing with Google")
-    new_tokens = await refresh_access_token(refresh_token)
-    if not new_tokens or "access_token" not in new_tokens:
-        logger.error("Failed to refresh Google access token")
-        return None
+        expires_at = token_record["expires_at"]
 
-    new_access_token = new_tokens["access_token"]
-    expires_in = new_tokens.get("expires_in", 3600)
-    new_expires_at = now + timedelta(seconds=expires_in)
-    new_refresh = new_tokens.get("refresh_token") or refresh_token
+        # Check if token is still valid with a 60-second safety cushion.
+        if expires_at > (now + timedelta(seconds=60)):
+            await cache_access_token(user_id, token_record["access_token"], expires_at)
+            log_latency(logger, "oauth_access_token", started_at, outcome="database")
+            return token_record["access_token"]
 
-    await save_oauth_tokens(
-        user_id=user_id,
-        provider="google",
-        access_token=new_access_token,
-        refresh_token=new_refresh,
-        expires_at=new_expires_at,
-        scope=new_tokens.get("scope"),
-        google_subject=token_record.get("google_subject"),
-        google_email=token_record.get("google_email"),
-    )
+        # Token is expired or expiring soon; refresh it once per company.
+        refresh_token = token_record.get("refresh_token")
+        if not refresh_token:
+            logger.warning("Google access token expired and no refresh token is stored")
+            log_latency(logger, "oauth_access_token", started_at, outcome="expired")
+            return None
 
-    logger.info("Google access token refreshed and updated")
-    return new_access_token
+        logger.info("Google access token expired. Refreshing with Google")
+        new_tokens = await measured(
+            logger,
+            "oauth_token_refresh",
+            refresh_access_token(refresh_token),
+        )
+        if not new_tokens or "access_token" not in new_tokens:
+            logger.error("Failed to refresh Google access token")
+            log_latency(logger, "oauth_access_token", started_at, outcome="refresh_failed")
+            return None
+
+        new_access_token = new_tokens["access_token"]
+        expires_in = new_tokens.get("expires_in", 3600)
+        new_expires_at = now + timedelta(seconds=expires_in)
+        new_refresh = new_tokens.get("refresh_token") or refresh_token
+
+        await measured(
+            logger,
+            "oauth_token_persist",
+            save_oauth_tokens(
+                user_id=user_id,
+                provider="google",
+                access_token=new_access_token,
+                refresh_token=new_refresh,
+                expires_at=new_expires_at,
+                scope=new_tokens.get("scope"),
+                google_subject=token_record.get("google_subject"),
+                google_email=token_record.get("google_email"),
+            ),
+        )
+        await cache_access_token(user_id, new_access_token, new_expires_at)
+
+        logger.info("Google access token refreshed and updated")
+        log_latency(logger, "oauth_access_token", started_at, outcome="refreshed")
+        return new_access_token
 
 
 async def refresh_access_token(refresh_token: str) -> Optional[Dict[str, Any]]:
@@ -237,6 +327,7 @@ async def revoke_and_disconnect(user_id: str) -> bool:
     Revoke the stored token at Google's servers and remove it from the PostgreSQL database.
     Always cleans up local database records even if Google token revocation fails or decryption fails.
     """
+    await invalidate_access_token_cache(user_id)
     token_record = await get_oauth_tokens(user_id=user_id, provider="google")
     if token_record:
         token_to_revoke = token_record.get("refresh_token") or token_record.get("access_token")

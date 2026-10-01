@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -12,6 +11,7 @@ import {
 } from 'react-native';
 import { apiService, ThreeCXPayload, ThreeCXStatus } from '../services/api';
 import { useTheme } from '../context/ThemeContext';
+import KeyboardAwareScrollView from '../components/KeyboardAwareScrollView';
 
 const GOOGLE_CALENDAR_OAUTH_ENABLED = false;
 
@@ -569,7 +569,7 @@ export default function IntegrationsScreen() {
   const { colors } = useTheme();
 
   return (
-    <ScrollView
+    <KeyboardAwareScrollView
       style={[styles.container, { backgroundColor: colors.bg }]}
       contentContainerStyle={styles.contentContainer}
       showsVerticalScrollIndicator={false}
@@ -598,7 +598,7 @@ export default function IntegrationsScreen() {
       </View>
 
       <View style={{ height: 90 }} />
-    </ScrollView>
+    </KeyboardAwareScrollView>
   );
 }
 

@@ -138,6 +138,9 @@ export async function executeBackendTool(
     });
 
     const data = await res.json();
+    if (toolName === "book_event" && typeof window !== "undefined" && data?.status !== "error") {
+      window.dispatchEvent(new Event("booking-request-created"));
+    }
     return data;
   } catch (err: any) {
     logSafeFailure("Calendar tool request failed", err);

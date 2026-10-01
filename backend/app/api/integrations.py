@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field, model_validator
 
@@ -11,6 +14,7 @@ from db.companies import ensure_company
 from db.audit import record_integration_event
 from db.integration_limits import consume_integration_action_budget
 from db.threecx import delete_threecx_integration, get_threecx_integration, list_threecx_call_sessions
+from db.tokens import get_oauth_connection_metadata
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
@@ -82,8 +86,11 @@ async def _enforce_threecx_budget(company_id: str, action: str) -> None:
 @router.get("/3cx")
 async def get_3cx(verified_context_header: str | None = Header(default=None, alias="X-Verified-Session-Context")):
     context = await _context(verified_context_header)
-    await ensure_company(context.company_id, context.auth_subject)
     row = await get_threecx_integration(context.company_id)
+    return _serialize_threecx(row)
+
+
+def _serialize_threecx(row: dict | None) -> dict:
     if not row:
         return {"configured": False, "state": "unconfigured"}
     return {
@@ -109,7 +116,6 @@ async def list_3cx_calls(
     verified_context_header: str | None = Header(default=None, alias="X-Verified-Session-Context"),
 ):
     context = await _context(verified_context_header)
-    await ensure_company(context.company_id, context.auth_subject)
     rows = await list_threecx_call_sessions(company_id=context.company_id, limit=limit)
     return {
         "calls": [
@@ -124,6 +130,29 @@ async def list_3cx_calls(
             for row in rows
         ]
     }
+
+
+@router.get("/status")
+async def integration_status(
+    verified_context_header: str | None = Header(default=None, alias="X-Verified-Session-Context"),
+):
+    """Load all integration status metadata with one authenticated request."""
+    context = await _context(verified_context_header)
+    threecx_row, google_row = await asyncio.gather(
+        get_threecx_integration(context.company_id),
+        get_oauth_connection_metadata(user_id=context.company_id, provider="google"),
+    )
+    google = {"connected": bool(google_row), "provider": "google"}
+    if google_row:
+        now = datetime.now(timezone.utc)
+        google.update({
+            "expires_at": google_row["expires_at"].isoformat(),
+            "is_expired": google_row["expires_at"] < now,
+            "can_refresh": bool(google_row.get("has_refresh_token")),
+            "scope": google_row.get("scope"),
+            "google_email": google_row.get("google_email"),
+        })
+    return {"google": google, "threeCx": _serialize_threecx(threecx_row)}
 
 
 @router.post("/3cx/test")

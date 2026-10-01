@@ -255,8 +255,19 @@ async def google_auth_status(verified_context_header: str | None = Header(defaul
     is_expired = tokens["expires_at"] < now
     has_refresh = bool(tokens.get("has_refresh_token"))
 
+    connection_state = (
+        "connected"
+        if not is_expired
+        else "refreshable"
+        if has_refresh
+        else "reconnect_required"
+    )
     return {
-        "connected": True,
+        # Keep the legacy boolean compatible with existing clients, while
+        # exposing whether the stored access token needs a broker refresh.
+        "connected": connection_state != "reconnect_required",
+        "connection_state": connection_state,
+        "usable": connection_state in {"connected", "refreshable"},
         "provider": "google",
         "expires_at": tokens["expires_at"].isoformat(),
         "is_expired": is_expired,

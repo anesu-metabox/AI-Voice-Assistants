@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { Appearance } from 'react-native';
 
 export type ThemeMode = 'dark' | 'light';
 
@@ -27,48 +28,48 @@ export interface ThemeColors {
 
 const darkColors: ThemeColors = {
   isDark: true,
-  bg: '#0A0E1F',
-  cardBg: '#111C33',
-  cardSecondary: '#16223F',
-  cardHover: '#1A294C',
-  border: '#1E293B',
-  borderLight: '#2A3B5C',
-  textHeading: '#F8FAFC',
-  textBody: '#E2E8F0',
-  textMuted: '#94A3B8',
-  textSubtle: '#64748B',
-  statusBarBg: '#0A0E1F',
-  statusBarText: '#F8FAFC',
-  tabBarBg: '#0D1526',
-  tabBarBorder: '#1E293B',
-  tabBarActive: '#38BDF8',
-  tabBarInactive: '#64748B',
-  accent: '#06B6D4',
-  primary: '#3B5BDB',
-  pillBg: 'rgba(59,91,219,0.2)',
+  bg: '#0B1120',
+  cardBg: '#131B2E',
+  cardSecondary: '#1A243B',
+  cardHover: '#212D49',
+  border: '#232F4A',
+  borderLight: '#31415F',
+  textHeading: '#F1F5F9',
+  textBody: '#D5DDEA',
+  textMuted: '#93A1B8',
+  textSubtle: '#66748C',
+  statusBarBg: '#0B1120',
+  statusBarText: '#F1F5F9',
+  tabBarBg: '#0F1729',
+  tabBarBorder: '#232F4A',
+  tabBarActive: '#7C9CFF',
+  tabBarInactive: '#66748C',
+  accent: '#22D3EE',
+  primary: '#4F6BFF',
+  pillBg: 'rgba(79,107,255,0.18)',
 };
 
 const lightColors: ThemeColors = {
   isDark: false,
-  bg: '#F8FAFC',
+  bg: '#F4F6FB',
   cardBg: '#FFFFFF',
-  cardSecondary: '#F1F5F9',
-  cardHover: '#E8ECF4',
-  border: '#E8ECF4',
-  borderLight: '#CBD5E1',
-  textHeading: '#0D1526',
-  textBody: '#1E293B',
-  textMuted: '#64748B',
-  textSubtle: '#94A3B8',
-  statusBarBg: '#FFFFFF',
-  statusBarText: '#0D1526',
+  cardSecondary: '#EEF1F8',
+  cardHover: '#E5EAF4',
+  border: '#E3E8F2',
+  borderLight: '#CBD3E3',
+  textHeading: '#0F172A',
+  textBody: '#27334A',
+  textMuted: '#5B6A83',
+  textSubtle: '#8593AB',
+  statusBarBg: '#F4F6FB',
+  statusBarText: '#0F172A',
   tabBarBg: '#FFFFFF',
-  tabBarBorder: '#E8ECF4',
-  tabBarActive: '#2563EB',
-  tabBarInactive: '#9CA3AF',
-  accent: '#4F46E5',
+  tabBarBorder: '#E3E8F2',
+  tabBarActive: '#3B5BDB',
+  tabBarInactive: '#8593AB',
+  accent: '#0891B2',
   primary: '#3B5BDB',
-  pillBg: 'rgba(59,91,219,0.08)',
+  pillBg: 'rgba(59,91,219,0.10)',
 };
 
 interface ThemeContextType {
@@ -90,17 +91,20 @@ const THEME_STORAGE_KEY = 'vocalist_theme';
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setThemeState] = useState<ThemeMode>(() => {
     try {
-      const saved = localStorage.getItem(THEME_STORAGE_KEY);
+      // localStorage only exists on web; on native this safely falls through
+      const ls = (globalThis as any).localStorage;
+      const saved = ls?.getItem(THEME_STORAGE_KEY);
       if (saved === 'dark' || saved === 'light') return saved;
     } catch {
-      //Ignore localStorage access restrictions
+      // Ignore storage access restrictions
     }
-    return 'dark'; //Executive Dark Mode by default
+    // Follow the phone's system appearance by default
+    return Appearance.getColorScheme() === 'light' ? 'light' : 'dark';
   });
 
   useEffect(() => {
     try {
-      localStorage.setItem(THEME_STORAGE_KEY, theme);
+      (globalThis as any).localStorage?.setItem(THEME_STORAGE_KEY, theme);
     } catch {
       // Ignore
     }

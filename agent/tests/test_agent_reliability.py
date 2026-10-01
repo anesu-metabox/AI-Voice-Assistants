@@ -23,6 +23,24 @@ class AgentReliabilityTests(unittest.TestCase):
     def test_company_profile_fetch_is_isolated_from_required_snapshot(self) -> None:
         self.assertIn("Optional company profile fetch failed or timed out", AGENT_SOURCE)
 
+    def test_required_profile_and_company_profile_fetch_in_parallel(self) -> None:
+        self.assertIn("runtime_result, company_result = await asyncio.gather(", AGENT_SOURCE)
+        self.assertIn('"X-Request-ID": profile_bootstrap_trace_id', AGENT_SOURCE)
+        self.assertIn("stage=agent_profile_bootstrap", AGENT_SOURCE)
+
+    def test_gemini_recovery_does_not_regenerate_partial_replies(self) -> None:
+        recovery_source = (
+            Path(__file__).parents[1] / "gemini_recovery.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("regenerate_on_swap=False", recovery_source)
+        self.assertIn("session_resumption", AGENT_SOURCE)
+        self.assertIn("context_window_compression", AGENT_SOURCE)
+
+    def test_worker_broadcasts_lifecycle_and_heartbeat_state(self) -> None:
+        self.assertIn("AgentLifecyclePublisher", AGENT_SOURCE)
+        self.assertIn('lifecycle.transition("ready"', AGENT_SOURCE)
+        self.assertIn('"provider_connection_error"', AGENT_SOURCE)
+
 
 if __name__ == "__main__":
     unittest.main()

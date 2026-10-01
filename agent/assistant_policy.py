@@ -61,6 +61,38 @@ class ScopeDecision:
     calendar_context_active: bool
 
 
+@dataclass(frozen=True)
+class CompanyFactMatch:
+    kind: str
+    value: Any
+    confidence: float
+
+
+@dataclass(frozen=True)
+class _CompiledFaqEntry:
+    question: str
+    answer: str
+    folded_question: str
+    tokens: frozenset[str]
+
+
+@dataclass(frozen=True)
+class _CompiledReferencePassage:
+    value: str
+    tokens: frozenset[str]
+
+
+@dataclass(frozen=True)
+class CompanyFactIndex:
+    faq_entries: tuple[_CompiledFaqEntry, ...]
+    reference_passages: tuple[_CompiledReferencePassage, ...]
+    business_hours: Mapping[str, Any] | None
+    contact: Mapping[str, str]
+    website_url: str
+    company_name: str
+    timezone: str
+
+
 def _load_policy() -> AssistantPolicy:
     raw = json.loads(_POLICY_PATH.read_text(encoding="utf-8"))
     allowed_tools = tuple(raw["allowedTools"])
@@ -123,84 +155,199 @@ def _fold_text(value: str) -> str:
     )
 
 
+_FOLDED_COMPANY_QUERY_STOP_WORDS: Final[frozenset[str]] = frozenset(
+    _fold_text(word) for word in _COMPANY_QUERY_STOP_WORDS
+)
+_COMPANY_TOKEN_ALIASES: Final[Mapping[str, str]] = {
+    "opening": "open",
+    "closing": "close",
+    "opened": "open",
+    "closed": "close",
+    "horaires": "horaire",
+}
+
+
 def _content_tokens(value: str) -> set[str]:
-    tokens = set(re.findall(r"[a-z0-9]+", _fold_text(value))) - {
-        _fold_text(word) for word in _COMPANY_QUERY_STOP_WORDS
+    tokens = set(re.findall(r"[a-z0-9]+", _fold_text(value))) - _FOLDED_COMPANY_QUERY_STOP_WORDS
+    return {
+        _COMPANY_TOKEN_ALIASES.get(
+            token, token[:-1] if token.endswith("s") and len(token) > 4 else token
+        )
+        for token in tokens
     }
-    # Normalize a few common inflections without introducing a model or dependency.
-    return {token[:-1] if token.endswith("s") and len(token) > 4 else token for token in tokens}
+
+
+def _looks_like_reference_heading(value: str) -> bool:
+    """Recognize a bounded section heading without treating arbitrary prose as one."""
+    first_line = str(value).splitlines()[0].split("(", 1)[0].strip(" -:0123456789")
+    letters = "".join(character for character in first_line if character.isalpha())
+    return len(letters) >= 4 and letters.upper() == letters
+
+
+def compile_company_fact_index(
+    company_context: Mapping[str, Any] | None,
+) -> CompanyFactIndex | None:
+    """Compile bounded immutable company facts once per published session."""
+    if not company_context:
+        return None
+
+    faq_entries: list[_CompiledFaqEntry] = []
+    entries = company_context.get("faq_entries", [])
+    if isinstance(entries, list):
+        for entry in entries[:20]:
+            if not isinstance(entry, Mapping):
+                continue
+            question = entry.get("question")
+            answer = entry.get("answer")
+            if not isinstance(question, str) or not isinstance(answer, str):
+                continue
+            bounded_question = question[:240]
+            tokens = frozenset(_content_tokens(bounded_question))
+            if len(tokens) < 2:
+                continue
+            faq_entries.append(
+                _CompiledFaqEntry(
+                    question=bounded_question,
+                    answer=answer[:1200],
+                    folded_question=_fold_text(bounded_question).strip(),
+                    tokens=tokens,
+                )
+            )
+
+    reference_passages: list[_CompiledReferencePassage] = []
+    notes = company_context.get("knowledge_base_notes")
+    if isinstance(notes, str) and notes.strip():
+        passages = [
+            passage.strip()
+            for passage in re.split(
+                r"\n{2,}|(?<=[.!?])\s+(?=[A-ZÀ-Ö])", notes[:16000]
+            )
+            if passage.strip()
+        ]
+        for passage in passages[:40]:
+            bounded_passage = passage[:1200]
+            tokens = frozenset(_content_tokens(bounded_passage))
+            if tokens:
+                reference_passages.append(
+                    _CompiledReferencePassage(bounded_passage, tokens)
+                )
+
+    hours = company_context.get("business_hours")
+    business_hours = dict(hours) if isinstance(hours, Mapping) and hours else None
+    contact = {
+        key: str(company_context[key])
+        for key in ("support_email", "phone", "company_phone")
+        if isinstance(company_context.get(key), str)
+        and str(company_context[key]).strip()
+    }
+    return CompanyFactIndex(
+        faq_entries=tuple(faq_entries),
+        reference_passages=tuple(reference_passages),
+        business_hours=business_hours,
+        contact=contact,
+        website_url=(
+            str(company_context.get("website_url"))[:2048]
+            if company_context.get("website_url")
+            else ""
+        ),
+        company_name=(
+            str(company_context.get("company_name"))[:255]
+            if company_context.get("company_name")
+            else ""
+        ),
+        timezone=(
+            str(company_context.get("timezone"))[:64]
+            if company_context.get("timezone")
+            else ""
+        ),
+    )
+
+
+def match_approved_company_fact(
+    text: str,
+    company_context: Mapping[str, Any] | None = None,
+    *,
+    compiled_index: CompanyFactIndex | None = None,
+) -> CompanyFactMatch | None:
+    """Return one strong, bounded approved fact match or fail closed."""
+    index = compiled_index or compile_company_fact_index(company_context)
+    if index is None:
+        return None
+    query_tokens = _content_tokens(text)
+    folded = _fold_text(text).strip()
+    best: CompanyFactMatch | None = None
+
+    for entry in index.faq_entries:
+        reference_tokens = entry.tokens
+        overlap = len(query_tokens & reference_tokens)
+        confidence = min(
+            overlap / len(reference_tokens),
+            overlap / max(1, len(query_tokens)),
+        )
+        if folded == entry.folded_question:
+            confidence = 1.0
+        strong_overlap = overlap >= 2 or (overlap == 1 and len(query_tokens) == 1)
+        if strong_overlap and confidence >= 0.5 and (
+            best is None or confidence > best.confidence
+        ):
+            best = CompanyFactMatch(
+                "faq",
+                {"question": entry.question, "answer": entry.answer},
+                confidence,
+            )
+
+    for passage in index.reference_passages:
+        passage_tokens = passage.tokens
+        overlap = len(query_tokens & passage_tokens)
+        query_coverage = overlap / max(1, len(query_tokens))
+        single_heading_match = (
+            len(query_tokens) == 1
+            and overlap == 1
+            and _looks_like_reference_heading(passage.value)
+        )
+        if (overlap >= 2 and query_coverage >= 0.7) or single_heading_match:
+            confidence = min(0.95, query_coverage)
+            if best is None or confidence > best.confidence:
+                best = CompanyFactMatch("reference", passage.value, confidence)
+
+    if best is not None:
+        return best
+
+    if (
+        index.business_hours
+        and re.search(r"\b(hours?|open(?:ing)?|clos(?:e|ing)|horaires?|ouvert(?:ure)?|ferme(?:ture)?)\b", folded)
+        and query_tokens <= {"hour", "hours", "open", "opening", "clos", "close", "closing", "horaire", "horaires", "ouvert", "ouverture", "ferme", "fermeture", "quand"}
+    ):
+        return CompanyFactMatch("business_hours", dict(index.business_hours), 1.0)
+    if index.contact and re.search(r"\b(contact|support|email|phone|courriel|telephone|numero)\b", folded) and query_tokens <= {"contact", "support", "email", "phone", "number", "courriel", "telephone", "numero"}:
+        return CompanyFactMatch("contact", dict(index.contact), 1.0)
+    if index.website_url and re.search(r"\b(website|web\s*site|site web|url)\b", folded) and query_tokens <= {"website", "web", "site", "url"}:
+        return CompanyFactMatch("website", index.website_url, 1.0)
+    if index.company_name and re.search(
+        r"\b(company|business)\s+name\b|\bwho\s+are\s+you\b|\bnom\s+(de\s+)?(l'entreprise|la societe|du restaurant)\b|\bqui etes-vous\b",
+        folded,
+    ) and query_tokens <= {"company", "business", "name", "who", "nom", "societe", "restaurant", "etes"}:
+        return CompanyFactMatch("company_name", index.company_name, 1.0)
+    if index.timezone and re.search(r"\btime\s*zone\b|\bfuseau\s*horaire\b", folded) and query_tokens <= {"time", "zone", "fuseau", "horaire"}:
+        return CompanyFactMatch("timezone", index.timezone, 1.0)
+    return None
 
 
 def _matches_approved_company_content(
     text: str,
     enabled_capabilities: set[str],
     company_context: Mapping[str, Any] | None,
+    company_fact_index: CompanyFactIndex | None = None,
 ) -> bool:
     """Allow only FAQ matches or questions about configured company facts."""
-    if not company_context:
-        return False
-
-    if "company_faq" in enabled_capabilities:
-        query_tokens = _content_tokens(text)
-        entries = company_context.get("faq_entries", [])
-        if isinstance(entries, list):
-            for entry in entries[:20]:
-                if not isinstance(entry, Mapping):
-                    continue
-                question = entry.get("question")
-                answer = entry.get("answer")
-                if not isinstance(question, str) or not isinstance(answer, str):
-                    continue
-                reference_tokens = _content_tokens(question)
-                if len(reference_tokens) < 2:
-                    continue
-                overlap = len(query_tokens & reference_tokens)
-                if (
-                    overlap >= 2
-                    and overlap / len(reference_tokens) >= 0.5
-                    and overlap / max(1, len(query_tokens)) >= 0.65
-                ):
-                    return True
-
-    if not ({"company_faq", "company_receptionist"} & enabled_capabilities):
-        return False
-
-    query_tokens = _content_tokens(text)
-    hours = company_context.get("business_hours")
-    if (
-        isinstance(hours, Mapping)
-        and hours
-        and re.search(r"\b(hours?|open(?:ing)?|clos(?:e|ing)|horaires?|ouvert(?:ure)?|ferme(?:ture)?)\b", _fold_text(text))
-        and query_tokens <= {"hour", "hours", "open", "opening", "clos", "close", "closing", "when", "horaire", "horaires", "ouvert", "ouverture", "ferme", "fermeture", "quand"}
-    ):
-        return True
-    has_contact = any(
-        isinstance(company_context.get(key), str) and company_context[key].strip()
-        for key in ("support_email", "phone", "company_phone")
+    match = match_approved_company_fact(
+        text, company_context, compiled_index=company_fact_index
     )
-    if (
-        has_contact
-        and re.search(r"\b(contact|support|email|phone|courriel|telephone|numero)\b", _fold_text(text))
-        and query_tokens <= {"contact", "support", "email", "phone", "number", "courriel", "telephone", "numero"}
-    ):
-        return True
-    if (
-        company_context.get("website_url")
-        and re.search(r"\b(website|web\s*site|site web|url)\b", _fold_text(text))
-        and query_tokens <= {"website", "web", "site", "url"}
-    ):
-        return True
-    if company_context.get("company_name") and re.search(
-        r"\b(company|business)\s+name\b|\bwho\s+are\s+you\b|\bnom\s+(de\s+)?(l'entreprise|la societe|du restaurant)\b|\bqui etes-vous\b", _fold_text(text)
-    ) and query_tokens <= {"company", "business", "name", "who", "nom", "societe", "restaurant", "etes"}:
-        return True
-    if (
-        company_context.get("timezone")
-        and re.search(r"\btime\s*zone\b|\bfuseau\s*horaire\b", _fold_text(text))
-        and query_tokens <= {"time", "zone", "fuseau", "horaire"}
-    ):
-        return True
-    return False
+    if match is None:
+        return False
+    if match.kind in {"faq", "reference"}:
+        return "company_faq" in enabled_capabilities
+    return bool({"company_faq", "company_receptionist"} & enabled_capabilities)
 
 
 def classify_assistant_turn(
@@ -208,6 +355,7 @@ def classify_assistant_turn(
     calendar_context_active: bool = False,
     company_capabilities: dict[str, object] | None = None,
     company_context: Mapping[str, Any] | None = None,
+    company_fact_index: CompanyFactIndex | None = None,
 ) -> ScopeDecision:
     if company_capabilities is None:
         enabled_capabilities = {"google_calendar"}
@@ -255,7 +403,7 @@ def classify_assistant_turn(
         return ScopeDecision("redirect", "calendar_unavailable", False)
 
     if company_scope_enabled and _matches_approved_company_content(
-        text, enabled_capabilities, company_context
+        text, enabled_capabilities, company_context, company_fact_index
     ):
         return ScopeDecision("allow", "company_capability", False)
 

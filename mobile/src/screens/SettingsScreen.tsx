@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -17,6 +16,7 @@ import {
   FAQEntry,
 } from '../services/api';
 import { useTheme } from '../context/ThemeContext';
+import KeyboardAwareScrollView from '../components/KeyboardAwareScrollView';
 
 type SettingsView = 'hub' | 'company-setup' | 'assistant-config';
 
@@ -157,9 +157,9 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
     setAssistantStatusMsg(null);
 
     const rules = escalationInput
-      .split('\n')
-      .map((l) => l.trim())
-      .filter(Boolean);
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
 
     const updatedConfig: AssistantConfig = {
       ...assistantConfig,
@@ -176,8 +176,8 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
       }
       setAssistantStatusMsg({
         text: deploy
-          ? 'Assistant profile published. New sessions will use this version.'
-          : 'Assistant draft saved.',
+            ? 'Assistant profile published. New sessions will use this version.'
+            : 'Assistant draft saved.',
         type: 'success',
       });
       setTimeout(() => setAssistantStatusMsg(null), 4000);
@@ -224,19 +224,19 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
   // ═════════════════════════════════════════════════════════════════════════════
   if (currentView === 'company-setup') {
     return (
-      <ScrollView
-        style={[styles.container, { backgroundColor: colors.bg }]}
-        contentContainerStyle={styles.contentContainer}
-        showsVerticalScrollIndicator={false}
-        keyboardDismissMode="on-drag"
-        keyboardShouldPersistTaps="handled"
-      >
+        <KeyboardAwareScrollView
+            style={[styles.container, { backgroundColor: colors.bg }]}
+            contentContainerStyle={styles.contentContainer}
+            showsVerticalScrollIndicator={false}
+            keyboardDismissMode="on-drag"
+            keyboardShouldPersistTaps="handled"
+        >
           {/* Sub-screen Navigation Bar */}
           <View style={[styles.subScreenHeader, { backgroundColor: colors.cardBg, borderBottomColor: colors.border }]}>
             <TouchableOpacity
-              onPress={() => setCurrentView('hub')}
-              style={styles.backButton}
-              activeOpacity={0.7}
+                onPress={() => setCurrentView('hub')}
+                style={styles.backButton}
+                activeOpacity={0.7}
             >
               <Text style={styles.backButtonText}>← Settings</Text>
             </TouchableOpacity>
@@ -255,24 +255,24 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
 
             {/* Status Message */}
             {companyStatusMsg && (
-              <View
-                style={[
-                  styles.statusBanner,
-                  {
-                    backgroundColor: companyStatusMsg.type === 'success' ? '#DCFCE7' : '#FEE2E2',
-                    borderColor: companyStatusMsg.type === 'success' ? '#86EFAC' : '#FCA5A5',
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.statusBannerText,
-                    { color: companyStatusMsg.type === 'success' ? '#166534' : '#991B1B' },
-                  ]}
+                <View
+                    style={[
+                      styles.statusBanner,
+                      {
+                        backgroundColor: companyStatusMsg.type === 'success' ? '#DCFCE7' : '#FEE2E2',
+                        borderColor: companyStatusMsg.type === 'success' ? '#86EFAC' : '#FCA5A5',
+                      },
+                    ]}
                 >
-                  {companyStatusMsg.text}
-                </Text>
-              </View>
+                  <Text
+                      style={[
+                        styles.statusBannerText,
+                        { color: companyStatusMsg.type === 'success' ? '#166534' : '#991B1B' },
+                      ]}
+                  >
+                    {companyStatusMsg.text}
+                  </Text>
+                </View>
             )}
 
             {/* Main Company Profile Card (1:1 from frontend) */}
@@ -283,11 +283,11 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
               <View style={styles.inputGroup}>
                 <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Company Name</Text>
                 <TextInput
-                  value={companyProfile.company_name}
-                  onChangeText={(val) => setCompanyProfile((prev) => ({ ...prev, company_name: val }))}
-                  placeholder="Your company name"
-                  placeholderTextColor={colors.textMuted}
-                  style={[styles.inputField, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading }]}
+                    value={companyProfile.company_name}
+                    onChangeText={(val) => setCompanyProfile((prev) => ({ ...prev, company_name: val }))}
+                    placeholder="Your company name"
+                    placeholderTextColor={colors.textMuted}
+                    style={[styles.inputField, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading }]}
                 />
               </View>
 
@@ -295,13 +295,13 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
               <View style={styles.inputGroup}>
                 <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Website URL</Text>
                 <TextInput
-                  value={companyProfile.website_url || ''}
-                  onChangeText={(val) => setCompanyProfile((prev) => ({ ...prev, website_url: val }))}
-                  placeholder="https://your-company.example"
-                  placeholderTextColor={colors.textMuted}
-                  autoCapitalize="none"
-                  keyboardType="url"
-                  style={[styles.inputField, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading }]}
+                    value={companyProfile.website_url || ''}
+                    onChangeText={(val) => setCompanyProfile((prev) => ({ ...prev, website_url: val }))}
+                    placeholder="https://your-company.example"
+                    placeholderTextColor={colors.textMuted}
+                    autoCapitalize="none"
+                    keyboardType="url"
+                    style={[styles.inputField, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading }]}
                 />
               </View>
 
@@ -310,25 +310,25 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
                 <View style={[styles.inputGroup, { flex: 1 }]}>
                   <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Company Phone</Text>
                   <TextInput
-                    value={companyProfile.company_phone || ''}
-                    onChangeText={(val) => setCompanyProfile((prev) => ({ ...prev, company_phone: val }))}
-                    placeholder="+230 ..."
-                    placeholderTextColor={colors.textMuted}
-                    keyboardType="phone-pad"
-                    style={[styles.inputField, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading }]}
+                      value={companyProfile.company_phone || ''}
+                      onChangeText={(val) => setCompanyProfile((prev) => ({ ...prev, company_phone: val }))}
+                      placeholder="+230 ..."
+                      placeholderTextColor={colors.textMuted}
+                      keyboardType="phone-pad"
+                      style={[styles.inputField, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading }]}
                   />
                 </View>
 
                 <View style={[styles.inputGroup, { flex: 1 }]}>
                   <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Support Email</Text>
                   <TextInput
-                    value={companyProfile.support_email || ''}
-                    onChangeText={(val) => setCompanyProfile((prev) => ({ ...prev, support_email: val }))}
-                    placeholder="support@your-company.example"
-                    placeholderTextColor={colors.textMuted}
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                    style={[styles.inputField, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading }]}
+                      value={companyProfile.support_email || ''}
+                      onChangeText={(val) => setCompanyProfile((prev) => ({ ...prev, support_email: val }))}
+                      placeholder="support@your-company.example"
+                      placeholderTextColor={colors.textMuted}
+                      autoCapitalize="none"
+                      keyboardType="email-address"
+                      style={[styles.inputField, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading }]}
                   />
                 </View>
               </View>
@@ -340,22 +340,22 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
                   {TIMEZONE_OPTIONS.map((tz) => {
                     const isSelected = (companyProfile.timezone || 'Indian/Mauritius') === tz.value;
                     return (
-                      <TouchableOpacity
-                        key={tz.value}
-                        onPress={() => setCompanyProfile((prev) => ({ ...prev, timezone: tz.value }))}
-                        style={[
-                          styles.tzOption,
-                          {
-                            backgroundColor: isSelected ? 'rgba(59,91,219,0.12)' : colors.bg,
-                            borderColor: isSelected ? '#3B5BDB' : colors.border,
-                          },
-                        ]}
-                      >
-                        <Text style={[styles.tzOptionText, { color: isSelected ? '#3B5BDB' : colors.textHeading }]}>
-                          {isSelected ? '● ' : '○ '}
-                          {tz.label}
-                        </Text>
-                      </TouchableOpacity>
+                        <TouchableOpacity
+                            key={tz.value}
+                            onPress={() => setCompanyProfile((prev) => ({ ...prev, timezone: tz.value }))}
+                            style={[
+                              styles.tzOption,
+                              {
+                                backgroundColor: isSelected ? 'rgba(59,91,219,0.12)' : colors.bg,
+                                borderColor: isSelected ? '#3B5BDB' : colors.border,
+                              },
+                            ]}
+                        >
+                          <Text style={[styles.tzOptionText, { color: isSelected ? '#3B5BDB' : colors.textHeading }]}>
+                            {isSelected ? '● ' : '○ '}
+                            {tz.label}
+                          </Text>
+                        </TouchableOpacity>
                     );
                   })}
                 </View>
@@ -364,21 +364,21 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
               {/* Action Buttons (1:1 Cancel & Save Changes) */}
               <View style={styles.buttonRow}>
                 <TouchableOpacity
-                  onPress={() => setCurrentView('hub')}
-                  style={[styles.btnSecondary, { borderColor: colors.border, backgroundColor: colors.bg }]}
+                    onPress={() => setCurrentView('hub')}
+                    style={[styles.btnSecondary, { borderColor: colors.border, backgroundColor: colors.bg }]}
                 >
                   <Text style={[styles.btnSecondaryText, { color: colors.textHeading }]}>Cancel</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  onPress={handleSaveCompany}
-                  disabled={isCompanySaving}
-                  style={styles.btnPrimary}
+                    onPress={handleSaveCompany}
+                    disabled={isCompanySaving}
+                    style={styles.btnPrimary}
                 >
                   {isCompanySaving ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
+                      <ActivityIndicator size="small" color="#FFFFFF" />
                   ) : (
-                    <Text style={styles.btnPrimaryText}>Save Changes</Text>
+                      <Text style={styles.btnPrimaryText}>Save Changes</Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -414,7 +414,7 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
             </View>
           </View>
           <View style={{ height: 90 }} />
-        </ScrollView>
+        </KeyboardAwareScrollView>
     );
   }
 
@@ -423,19 +423,19 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
   // ═════════════════════════════════════════════════════════════════════════════
   if (currentView === 'assistant-config') {
     return (
-      <ScrollView
-        style={[styles.container, { backgroundColor: colors.bg }]}
-        contentContainerStyle={styles.contentContainer}
-        showsVerticalScrollIndicator={false}
-        keyboardDismissMode="on-drag"
-        keyboardShouldPersistTaps="handled"
-      >
+        <KeyboardAwareScrollView
+            style={[styles.container, { backgroundColor: colors.bg }]}
+            contentContainerStyle={styles.contentContainer}
+            showsVerticalScrollIndicator={false}
+            keyboardDismissMode="on-drag"
+            keyboardShouldPersistTaps="handled"
+        >
           {/* Sub-screen Navigation Bar */}
           <View style={[styles.subScreenHeader, { backgroundColor: colors.cardBg, borderBottomColor: colors.border }]}>
             <TouchableOpacity
-              onPress={() => setCurrentView('hub')}
-              style={styles.backButton}
-              activeOpacity={0.7}
+                onPress={() => setCurrentView('hub')}
+                style={styles.backButton}
+                activeOpacity={0.7}
             >
               <Text style={styles.backButtonText}>← Settings</Text>
             </TouchableOpacity>
@@ -454,24 +454,24 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
 
             {/* Status Message Banner */}
             {assistantStatusMsg && (
-              <View
-                style={[
-                  styles.statusBanner,
-                  {
-                    backgroundColor: assistantStatusMsg.type === 'success' ? '#DCFCE7' : '#FEE2E2',
-                    borderColor: assistantStatusMsg.type === 'success' ? '#86EFAC' : '#FCA5A5',
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.statusBannerText,
-                    { color: assistantStatusMsg.type === 'success' ? '#166534' : '#991B1B' },
-                  ]}
+                <View
+                    style={[
+                      styles.statusBanner,
+                      {
+                        backgroundColor: assistantStatusMsg.type === 'success' ? '#DCFCE7' : '#FEE2E2',
+                        borderColor: assistantStatusMsg.type === 'success' ? '#86EFAC' : '#FCA5A5',
+                      },
+                    ]}
                 >
-                  {assistantStatusMsg.text}
-                </Text>
-              </View>
+                  <Text
+                      style={[
+                        styles.statusBannerText,
+                        { color: assistantStatusMsg.type === 'success' ? '#166534' : '#991B1B' },
+                      ]}
+                  >
+                    {assistantStatusMsg.text}
+                  </Text>
+                </View>
             )}
 
             {/* Main AI Model & Prompt Configuration Card */}
@@ -481,9 +481,9 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
                   AI Model & Prompt Configuration
                 </Text>
                 {publishedVersion && (
-                  <View style={styles.versionBadge}>
-                    <Text style={styles.versionBadgeText}>v{publishedVersion} Published</Text>
-                  </View>
+                    <View style={styles.versionBadge}>
+                      <Text style={styles.versionBadgeText}>v{publishedVersion} Published</Text>
+                    </View>
                 )}
               </View>
 
@@ -491,11 +491,11 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
               <View style={styles.inputGroup}>
                 <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Assistant Identifier</Text>
                 <TextInput
-                  value={assistantConfig.assistant_name}
-                  onChangeText={(val) => setAssistantConfig((prev) => ({ ...prev, assistant_name: val }))}
-                  placeholder="Name this assistant for your company"
-                  placeholderTextColor={colors.textMuted}
-                  style={[styles.inputField, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading }]}
+                    value={assistantConfig.assistant_name}
+                    onChangeText={(val) => setAssistantConfig((prev) => ({ ...prev, assistant_name: val }))}
+                    placeholder="Name this assistant for your company"
+                    placeholderTextColor={colors.textMuted}
+                    style={[styles.inputField, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading }]}
                 />
               </View>
 
@@ -506,25 +506,25 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
                   {VOICE_OPTIONS.map((v) => {
                     const isSelected = assistantConfig.voice_engine === v.id;
                     return (
-                      <TouchableOpacity
-                        key={v.id}
-                        onPress={() => setAssistantConfig((prev) => ({ ...prev, voice_engine: v.id }))}
-                        style={[
-                          styles.voiceCard,
-                          {
-                            backgroundColor: isSelected ? 'rgba(59,91,219,0.12)' : colors.bg,
-                            borderColor: isSelected ? '#3B5BDB' : colors.border,
-                          },
-                        ]}
-                      >
-                        <View style={styles.voiceHeaderRow}>
-                          <Text style={[styles.voiceName, { color: isSelected ? '#3B5BDB' : colors.textHeading }]}>
-                            🎙️ {v.name}
-                          </Text>
-                          {isSelected && <Text style={styles.selectedCheckMark}>✓</Text>}
-                        </View>
-                        <Text style={[styles.voiceDesc, { color: colors.textMuted }]}>{v.desc}</Text>
-                      </TouchableOpacity>
+                        <TouchableOpacity
+                            key={v.id}
+                            onPress={() => setAssistantConfig((prev) => ({ ...prev, voice_engine: v.id }))}
+                            style={[
+                              styles.voiceCard,
+                              {
+                                backgroundColor: isSelected ? 'rgba(59,91,219,0.12)' : colors.bg,
+                                borderColor: isSelected ? '#3B5BDB' : colors.border,
+                              },
+                            ]}
+                        >
+                          <View style={styles.voiceHeaderRow}>
+                            <Text style={[styles.voiceName, { color: isSelected ? '#3B5BDB' : colors.textHeading }]}>
+                              🎙️ {v.name}
+                            </Text>
+                            {isSelected && <Text style={styles.selectedCheckMark}>✓</Text>}
+                          </View>
+                          <Text style={[styles.voiceDesc, { color: colors.textMuted }]}>{v.desc}</Text>
+                        </TouchableOpacity>
                     );
                   })}
                 </View>
@@ -534,12 +534,12 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
               <View style={styles.inputGroup}>
                 <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Inbound Greeting Phrase</Text>
                 <TextInput
-                  value={assistantConfig.inbound_greeting}
-                  onChangeText={(val) => setAssistantConfig((prev) => ({ ...prev, inbound_greeting: val }))}
-                  maxLength={500}
-                  placeholder="Write the greeting your callers should hear"
-                  placeholderTextColor={colors.textMuted}
-                  style={[styles.inputField, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading }]}
+                    value={assistantConfig.inbound_greeting}
+                    onChangeText={(val) => setAssistantConfig((prev) => ({ ...prev, inbound_greeting: val }))}
+                    maxLength={500}
+                    placeholder="Write the greeting your callers should hear"
+                    placeholderTextColor={colors.textMuted}
+                    style={[styles.inputField, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading }]}
                 />
               </View>
 
@@ -549,13 +549,13 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
                   System Instructions (AI Prompt)
                 </Text>
                 <TextInput
-                  value={assistantConfig.system_prompt}
-                  onChangeText={(val) => setAssistantConfig((prev) => ({ ...prev, system_prompt: val }))}
-                  multiline
-                  numberOfLines={5}
-                  placeholder="Describe your company, services, tone, and approved operating rules. Platform security and tool permissions remain enforced."
-                  placeholderTextColor={colors.textMuted}
-                  style={[styles.inputFieldMultiline, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading, minHeight: 95 }]}
+                    value={assistantConfig.system_prompt}
+                    onChangeText={(val) => setAssistantConfig((prev) => ({ ...prev, system_prompt: val }))}
+                    multiline
+                    numberOfLines={5}
+                    placeholder="Describe your company, services, tone, and approved operating rules. Platform security and tool permissions remain enforced."
+                    placeholderTextColor={colors.textMuted}
+                    style={[styles.inputFieldMultiline, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading, minHeight: 95 }]}
                 />
               </View>
 
@@ -567,28 +567,28 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
 
                 {/* Company Receptionist */}
                 <TouchableOpacity
-                  onPress={() =>
-                    setAssistantConfig((prev) => ({
-                      ...prev,
-                      capabilities: {
-                        ...prev.capabilities,
-                        company_receptionist: !prev.capabilities.company_receptionist,
-                      },
-                    }))
-                  }
-                  style={styles.capItemRow}
+                    onPress={() =>
+                        setAssistantConfig((prev) => ({
+                          ...prev,
+                          capabilities: {
+                            ...prev.capabilities,
+                            company_receptionist: !prev.capabilities.company_receptionist,
+                          },
+                        }))
+                    }
+                    style={styles.capItemRow}
                 >
                   <View
-                    style={[
-                      styles.checkBoxSquare,
-                      {
-                        backgroundColor: assistantConfig.capabilities.company_receptionist ? '#3B5BDB' : 'transparent',
-                        borderColor: assistantConfig.capabilities.company_receptionist ? '#3B5BDB' : colors.border,
-                      },
-                    ]}
+                      style={[
+                        styles.checkBoxSquare,
+                        {
+                          backgroundColor: assistantConfig.capabilities.company_receptionist ? '#3B5BDB' : 'transparent',
+                          borderColor: assistantConfig.capabilities.company_receptionist ? '#3B5BDB' : colors.border,
+                        },
+                      ]}
                   >
                     {assistantConfig.capabilities.company_receptionist && (
-                      <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '800' }}>✓</Text>
+                        <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '800' }}>✓</Text>
                     )}
                   </View>
                   <View style={{ flex: 1 }}>
@@ -601,28 +601,28 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
 
                 {/* Company FAQs */}
                 <TouchableOpacity
-                  onPress={() =>
-                    setAssistantConfig((prev) => ({
-                      ...prev,
-                      capabilities: {
-                        ...prev.capabilities,
-                        company_faq: !prev.capabilities.company_faq,
-                      },
-                    }))
-                  }
-                  style={styles.capItemRow}
+                    onPress={() =>
+                        setAssistantConfig((prev) => ({
+                          ...prev,
+                          capabilities: {
+                            ...prev.capabilities,
+                            company_faq: !prev.capabilities.company_faq,
+                          },
+                        }))
+                    }
+                    style={styles.capItemRow}
                 >
                   <View
-                    style={[
-                      styles.checkBoxSquare,
-                      {
-                        backgroundColor: assistantConfig.capabilities.company_faq ? '#3B5BDB' : 'transparent',
-                        borderColor: assistantConfig.capabilities.company_faq ? '#3B5BDB' : colors.border,
-                      },
-                    ]}
+                      style={[
+                        styles.checkBoxSquare,
+                        {
+                          backgroundColor: assistantConfig.capabilities.company_faq ? '#3B5BDB' : 'transparent',
+                          borderColor: assistantConfig.capabilities.company_faq ? '#3B5BDB' : colors.border,
+                        },
+                      ]}
                   >
                     {assistantConfig.capabilities.company_faq && (
-                      <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '800' }}>✓</Text>
+                        <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '800' }}>✓</Text>
                     )}
                   </View>
                   <View style={{ flex: 1 }}>
@@ -635,28 +635,28 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
 
                 {/* Google Calendar */}
                 <TouchableOpacity
-                  onPress={() =>
-                    setAssistantConfig((prev) => ({
-                      ...prev,
-                      capabilities: {
-                        ...prev.capabilities,
-                        google_calendar: !prev.capabilities.google_calendar,
-                      },
-                    }))
-                  }
-                  style={styles.capItemRow}
+                    onPress={() =>
+                        setAssistantConfig((prev) => ({
+                          ...prev,
+                          capabilities: {
+                            ...prev.capabilities,
+                            google_calendar: !prev.capabilities.google_calendar,
+                          },
+                        }))
+                    }
+                    style={styles.capItemRow}
                 >
                   <View
-                    style={[
-                      styles.checkBoxSquare,
-                      {
-                        backgroundColor: assistantConfig.capabilities.google_calendar ? '#3B5BDB' : 'transparent',
-                        borderColor: assistantConfig.capabilities.google_calendar ? '#3B5BDB' : colors.border,
-                      },
-                    ]}
+                      style={[
+                        styles.checkBoxSquare,
+                        {
+                          backgroundColor: assistantConfig.capabilities.google_calendar ? '#3B5BDB' : 'transparent',
+                          borderColor: assistantConfig.capabilities.google_calendar ? '#3B5BDB' : colors.border,
+                        },
+                      ]}
                   >
                     {assistantConfig.capabilities.google_calendar && (
-                      <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '800' }}>✓</Text>
+                        <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '800' }}>✓</Text>
                     )}
                   </View>
                   <View style={{ flex: 1 }}>
@@ -686,21 +686,21 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
                     {TONE_OPTIONS.map((t) => {
                       const isSelected = assistantConfig.tone === t;
                       return (
-                        <TouchableOpacity
-                          key={t}
-                          onPress={() => setAssistantConfig((prev) => ({ ...prev, tone: t }))}
-                          style={[
-                            styles.tonePill,
-                            {
-                              backgroundColor: isSelected ? '#3B5BDB' : colors.bg,
-                              borderColor: isSelected ? '#3B5BDB' : colors.border,
-                            },
-                          ]}
-                        >
-                          <Text style={[styles.tonePillText, { color: isSelected ? '#FFFFFF' : colors.textMuted }]}>
-                            {t.charAt(0).toUpperCase() + t.slice(1)}
-                          </Text>
-                        </TouchableOpacity>
+                          <TouchableOpacity
+                              key={t}
+                              onPress={() => setAssistantConfig((prev) => ({ ...prev, tone: t }))}
+                              style={[
+                                styles.tonePill,
+                                {
+                                  backgroundColor: isSelected ? '#3B5BDB' : colors.bg,
+                                  borderColor: isSelected ? '#3B5BDB' : colors.border,
+                                },
+                              ]}
+                          >
+                            <Text style={[styles.tonePillText, { color: isSelected ? '#FFFFFF' : colors.textMuted }]}>
+                              {t.charAt(0).toUpperCase() + t.slice(1)}
+                            </Text>
+                          </TouchableOpacity>
                       );
                     })}
                   </View>
@@ -713,23 +713,23 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
                   </Text>
                   <View style={styles.daysGrid}>
                     {BUSINESS_DAYS.map((day) => (
-                      <View key={day} style={styles.dayGridRow}>
-                        <Text style={[styles.dayLabel, { color: colors.textMuted }]}>
-                          {day.charAt(0).toUpperCase() + day.slice(1, 3)}
-                        </Text>
-                        <TextInput
-                          value={assistantConfig.business_hours[day] || ''}
-                          onChangeText={(val) =>
-                            setAssistantConfig((prev) => ({
-                              ...prev,
-                              business_hours: { ...prev.business_hours, [day]: val },
-                            }))
-                          }
-                          placeholder="Closed or 09:00–17:00"
-                          placeholderTextColor={colors.textMuted}
-                          style={[styles.dayInput, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading }]}
-                        />
-                      </View>
+                        <View key={day} style={styles.dayGridRow}>
+                          <Text style={[styles.dayLabel, { color: colors.textMuted }]}>
+                            {day.charAt(0).toUpperCase() + day.slice(1, 3)}
+                          </Text>
+                          <TextInput
+                              value={assistantConfig.business_hours[day] || ''}
+                              onChangeText={(val) =>
+                                  setAssistantConfig((prev) => ({
+                                    ...prev,
+                                    business_hours: { ...prev.business_hours, [day]: val },
+                                  }))
+                              }
+                              placeholder="Closed or 09:00–17:00"
+                              placeholderTextColor={colors.textMuted}
+                              style={[styles.dayInput, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading }]}
+                          />
+                        </View>
                     ))}
                   </View>
                 </View>
@@ -738,13 +738,13 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
                 <View style={styles.inputGroup}>
                   <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Escalation guidance</Text>
                   <TextInput
-                    value={escalationInput}
-                    onChangeText={setEscalationInput}
-                    multiline
-                    numberOfLines={3}
-                    placeholder="One company-specific escalation preference per line"
-                    placeholderTextColor={colors.textMuted}
-                    style={[styles.inputFieldMultiline, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading, minHeight: 65 }]}
+                      value={escalationInput}
+                      onChangeText={setEscalationInput}
+                      multiline
+                      numberOfLines={3}
+                      placeholder="One company-specific escalation preference per line"
+                      placeholderTextColor={colors.textMuted}
+                      style={[styles.inputFieldMultiline, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading, minHeight: 65 }]}
                   />
                   <Text style={[styles.helperNote, { color: colors.textMuted }]}>
                     Guidance only; automated transfer is not available yet.
@@ -753,57 +753,57 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
 
                 {/* Approved FAQs (1:1 Conditional on company_faq) */}
                 {assistantConfig.capabilities.company_faq && (
-                  <View style={styles.faqSection}>
-                    <View style={styles.faqHeaderRow}>
-                      <Text style={[styles.inputLabel, { color: colors.textHeading }]}>Approved FAQs</Text>
-                      <TouchableOpacity
-                        onPress={handleAddFaq}
-                        disabled={assistantConfig.faq_entries.length >= 20}
-                        style={styles.addFaqButton}
-                      >
-                        <Text style={styles.addFaqButtonText}>+ Add FAQ</Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {assistantConfig.faq_entries.map((entry, index) => (
-                      <View
-                        key={index}
-                        style={[styles.faqCard, { backgroundColor: colors.bg, borderColor: colors.border }]}
-                      >
-                        <View style={styles.faqCardTop}>
-                          <Text style={[styles.faqCardIndex, { color: colors.textMuted }]}>
-                            Question #{index + 1}
-                          </Text>
-                          <TouchableOpacity onPress={() => handleRemoveFaq(index)}>
-                            <Text style={styles.removeFaqText}>Remove FAQ</Text>
-                          </TouchableOpacity>
-                        </View>
-
-                        <TextInput
-                          maxLength={240}
-                          value={entry.question}
-                          onChangeText={(val) => handleUpdateFaq(index, 'question', val)}
-                          placeholder="Question"
-                          placeholderTextColor={colors.textMuted}
-                          style={[styles.inputField, { backgroundColor: colors.cardBg, borderColor: colors.border, color: colors.textHeading, marginBottom: 8 }]}
-                        />
-                        <TextInput
-                          maxLength={1200}
-                          multiline
-                          numberOfLines={2}
-                          value={entry.answer}
-                          onChangeText={(val) => handleUpdateFaq(index, 'answer', val)}
-                          placeholder="Approved answer"
-                          placeholderTextColor={colors.textMuted}
-                          style={[styles.inputFieldMultiline, { backgroundColor: colors.cardBg, borderColor: colors.border, color: colors.textHeading, minHeight: 50 }]}
-                        />
+                    <View style={styles.faqSection}>
+                      <View style={styles.faqHeaderRow}>
+                        <Text style={[styles.inputLabel, { color: colors.textHeading }]}>Approved FAQs</Text>
+                        <TouchableOpacity
+                            onPress={handleAddFaq}
+                            disabled={assistantConfig.faq_entries.length >= 20}
+                            style={styles.addFaqButton}
+                        >
+                          <Text style={styles.addFaqButtonText}>+ Add FAQ</Text>
+                        </TouchableOpacity>
                       </View>
-                    ))}
 
-                    <Text style={[styles.helperNote, { color: colors.textMuted }]}>
-                      Only answers from this approved list and company reference notes may be used for company FAQs.
-                    </Text>
-                  </View>
+                      {assistantConfig.faq_entries.map((entry, index) => (
+                          <View
+                              key={index}
+                              style={[styles.faqCard, { backgroundColor: colors.bg, borderColor: colors.border }]}
+                          >
+                            <View style={styles.faqCardTop}>
+                              <Text style={[styles.faqCardIndex, { color: colors.textMuted }]}>
+                                Question #{index + 1}
+                              </Text>
+                              <TouchableOpacity onPress={() => handleRemoveFaq(index)}>
+                                <Text style={styles.removeFaqText}>Remove FAQ</Text>
+                              </TouchableOpacity>
+                            </View>
+
+                            <TextInput
+                                maxLength={240}
+                                value={entry.question}
+                                onChangeText={(val) => handleUpdateFaq(index, 'question', val)}
+                                placeholder="Question"
+                                placeholderTextColor={colors.textMuted}
+                                style={[styles.inputField, { backgroundColor: colors.cardBg, borderColor: colors.border, color: colors.textHeading, marginBottom: 8 }]}
+                            />
+                            <TextInput
+                                maxLength={1200}
+                                multiline
+                                numberOfLines={2}
+                                value={entry.answer}
+                                onChangeText={(val) => handleUpdateFaq(index, 'answer', val)}
+                                placeholder="Approved answer"
+                                placeholderTextColor={colors.textMuted}
+                                style={[styles.inputFieldMultiline, { backgroundColor: colors.cardBg, borderColor: colors.border, color: colors.textHeading, minHeight: 50 }]}
+                            />
+                          </View>
+                      ))}
+
+                      <Text style={[styles.helperNote, { color: colors.textMuted }]}>
+                        Only answers from this approved list and company reference notes may be used for company FAQs.
+                      </Text>
+                    </View>
                 )}
 
                 {/* Approved Company Reference Notes */}
@@ -812,14 +812,14 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
                     Approved company reference notes
                   </Text>
                   <TextInput
-                    numberOfLines={4}
-                    maxLength={16000}
-                    multiline
-                    value={assistantConfig.knowledge_base_notes}
-                    onChangeText={(val) => setAssistantConfig((prev) => ({ ...prev, knowledge_base_notes: val }))}
-                    placeholder="Enter company facts and approved answers. File upload is not available yet."
-                    placeholderTextColor={colors.textMuted}
-                    style={[styles.inputFieldMultiline, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading, minHeight: 75 }]}
+                      numberOfLines={4}
+                      maxLength={16000}
+                      multiline
+                      value={assistantConfig.knowledge_base_notes}
+                      onChangeText={(val) => setAssistantConfig((prev) => ({ ...prev, knowledge_base_notes: val }))}
+                      placeholder="Enter company facts and approved answers. File upload is not available yet."
+                      placeholderTextColor={colors.textMuted}
+                      style={[styles.inputFieldMultiline, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.textHeading, minHeight: 75 }]}
                   />
                 </View>
               </View>
@@ -828,9 +828,9 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
               <View style={styles.actionToolbar}>
                 <View style={styles.actionToolbarTopRow}>
                   <TouchableOpacity
-                    onPress={() => handleSaveAssistant(false)}
-                    disabled={isAssistantSaving}
-                    style={[styles.btnOutlineBlue, { borderColor: '#3B5BDB', backgroundColor: colors.bg }]}
+                      onPress={() => handleSaveAssistant(false)}
+                      disabled={isAssistantSaving}
+                      style={[styles.btnOutlineBlue, { borderColor: '#3B5BDB', backgroundColor: colors.bg }]}
                   >
                     <Text style={[styles.btnOutlineBlueText, { color: '#3B5BDB' }]}>
                       Save & test draft
@@ -838,9 +838,9 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    onPress={() => handleSaveAssistant(false)}
-                    disabled={isAssistantSaving}
-                    style={[styles.btnOutlineGray, { borderColor: colors.border, backgroundColor: colors.bg }]}
+                      onPress={() => handleSaveAssistant(false)}
+                      disabled={isAssistantSaving}
+                      style={[styles.btnOutlineGray, { borderColor: colors.border, backgroundColor: colors.bg }]}
                   >
                     <Text style={[styles.btnOutlineGrayText, { color: colors.textHeading }]}>
                       Save Draft
@@ -849,21 +849,21 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
                 </View>
 
                 <TouchableOpacity
-                  onPress={() => handleSaveAssistant(true)}
-                  disabled={isAssistantSaving}
-                  style={styles.btnPublish}
+                    onPress={() => handleSaveAssistant(true)}
+                    disabled={isAssistantSaving}
+                    style={styles.btnPublish}
                 >
                   {isAssistantSaving ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
+                      <ActivityIndicator size="small" color="#FFFFFF" />
                   ) : (
-                    <Text style={styles.btnPublishText}>Publish Assistant Profile</Text>
+                      <Text style={styles.btnPublishText}>Publish Assistant Profile</Text>
                   )}
                 </TouchableOpacity>
               </View>
             </View>
           </View>
           <View style={{ height: 90 }} />
-        </ScrollView>
+        </KeyboardAwareScrollView>
     );
   }
 
@@ -871,25 +871,25 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
   // MAIN SETTINGS HUB (OVERVIEW ROOT)
   // ═════════════════════════════════════════════════════════════════════════════
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: colors.bg }]}
-      contentContainerStyle={styles.contentContainer}
-      showsVerticalScrollIndicator={false}
-      keyboardDismissMode="on-drag"
-      keyboardShouldPersistTaps="handled"
-    >
+      <KeyboardAwareScrollView
+          style={[styles.container, { backgroundColor: colors.bg }]}
+          contentContainerStyle={styles.contentContainer}
+          showsVerticalScrollIndicator={false}
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+      >
         {/* Profile Header Banner */}
         <LinearGradient
-          colors={['#1e1b4b', '#1e3a8a']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.profileHeader}
-        >
-          <LinearGradient
-            colors={['#06B6D4', '#3B5BDB']}
+            colors={['#1e1b4b', '#1e3a8a']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={styles.profileAvatar}
+            style={styles.profileHeader}
+        >
+          <LinearGradient
+              colors={['#06B6D4', '#3B5BDB']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.profileAvatar}
           >
             <Text style={styles.profileAvatarText}>EJ</Text>
           </LinearGradient>
@@ -913,13 +913,10 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
 
             {/* Company Setup Card */}
             <TouchableOpacity
-              onPress={() => setCurrentView('company-setup')}
-              style={[styles.portalCard, { backgroundColor: colors.cardBg, borderColor: colors.border }]}
-              activeOpacity={0.75}
+                onPress={() => setCurrentView('company-setup')}
+                style={[styles.portalCard, { backgroundColor: colors.cardBg, borderColor: colors.border }]}
+                activeOpacity={0.75}
             >
-              <View style={[styles.portalIconBox, { backgroundColor: 'rgba(59,91,219,0.12)', borderColor: 'rgba(59,91,219,0.3)' }]}>
-                <Text style={{ fontSize: 22 }}>🏢</Text>
-              </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.portalHeading, { color: colors.textHeading }]}>Company Setup</Text>
                 <Text style={[styles.portalSub, { color: colors.textMuted }]}>
@@ -931,13 +928,10 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
 
             {/* AI Assistant Configuration Card */}
             <TouchableOpacity
-              onPress={() => setCurrentView('assistant-config')}
-              style={[styles.portalCard, { backgroundColor: colors.cardBg, borderColor: colors.border }]}
-              activeOpacity={0.75}
+                onPress={() => setCurrentView('assistant-config')}
+                style={[styles.portalCard, { backgroundColor: colors.cardBg, borderColor: colors.border }]}
+                activeOpacity={0.75}
             >
-              <View style={[styles.portalIconBox, { backgroundColor: 'rgba(99,102,241,0.12)', borderColor: 'rgba(99,102,241,0.3)' }]}>
-                <Text style={{ fontSize: 22 }}>🤖</Text>
-              </View>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Text style={[styles.portalHeading, { color: colors.textHeading }]}>
@@ -960,29 +954,28 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
             <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Display & Appearance</Text>
             <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.border }]}>
               <View style={styles.themeRow}>
-                <Text style={{ fontSize: 22 }}>{theme === 'dark' ? '🌙' : '☀️'}</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.itemLabel, { color: colors.textHeading }]}>
                     {theme === 'dark' ? 'Executive Dark Theme' : 'Executive Light Theme'}
                   </Text>
                   <Text style={[styles.itemSub, { color: colors.textMuted }]}>
                     {theme === 'dark'
-                      ? 'Deep slate & navy with cyan accents'
-                      : 'Crisp high-contrast daylight aesthetic'}
+                        ? 'Deep slate & navy with cyan accents'
+                        : 'Crisp high-contrast daylight aesthetic'}
                   </Text>
                 </View>
                 <TouchableOpacity
-                  onPress={toggleTheme}
-                  style={[
-                    styles.switchTrack,
-                    { backgroundColor: theme === 'dark' ? '#3B5BDB' : '#CBD5E1' },
-                  ]}
+                    onPress={toggleTheme}
+                    style={[
+                      styles.switchTrack,
+                      { backgroundColor: theme === 'dark' ? '#3B5BDB' : '#CBD5E1' },
+                    ]}
                 >
                   <View
-                    style={[
-                      styles.switchThumb,
-                      { left: theme === 'dark' ? 22 : 3 },
-                    ]}
+                      style={[
+                        styles.switchThumb,
+                        { left: theme === 'dark' ? 22 : 3 },
+                      ]}
                   />
                 </TouchableOpacity>
               </View>
@@ -997,7 +990,6 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
             <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.border }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={{ fontSize: 16 }}>⚡</Text>
                   <Text style={[styles.itemLabel, { color: colors.textHeading }]}>Target Turnaround</Text>
                 </View>
                 <Text style={{ color: '#22C55E', fontWeight: '800', fontFamily: 'monospace' }}>
@@ -1018,7 +1010,6 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
             </Text>
             <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.border }]}>
               <View style={styles.settingItemRow}>
-                <Text style={{ fontSize: 18 }}>🎙️</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.itemLabel, { color: colors.textHeading }]}>Primary Voice Model</Text>
                   <Text style={[styles.itemSub, { color: colors.textMuted }]}>
@@ -1028,7 +1019,6 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
               </View>
               <View style={[styles.itemDivider, { backgroundColor: colors.border }]} />
               <View style={styles.settingItemRow}>
-                <Text style={{ fontSize: 18 }}>🌐</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.itemLabel, { color: colors.textHeading }]}>LiveKit Cloud Server</Text>
                   <Text style={[styles.itemSub, { color: colors.textMuted }]}>{apiService.getLiveKitUrl()}</Text>
@@ -1036,7 +1026,6 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
               </View>
               <View style={[styles.itemDivider, { backgroundColor: colors.border }]} />
               <View style={styles.settingItemRow}>
-                <Text style={{ fontSize: 18 }}>🔌</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.itemLabel, { color: colors.textHeading }]}>FastAPI Dispatcher</Text>
                   <Text style={[styles.itemSub, { color: colors.textMuted }]}>{apiService.getBackendUrl()}</Text>
@@ -1044,7 +1033,6 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
               </View>
               <View style={[styles.itemDivider, { backgroundColor: colors.border }]} />
               <View style={styles.settingItemRow}>
-                <Text style={{ fontSize: 18 }}>🌿</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.itemLabel, { color: colors.textHeading }]}>Active Feature Branch</Text>
                   <Text style={[styles.itemSub, { color: colors.textMuted }]}>feat/mobile-app-init (develop target)</Text>
@@ -1061,12 +1049,11 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
             <View style={[styles.card, { backgroundColor: colors.cardBg, borderColor: colors.border }]}>
               {/* Company & AI Setup */}
               <TouchableOpacity
-                onPress={() => onSetupPress?.()}
-                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: colors.border, marginBottom: 12, paddingBottom: 12 }}
-                activeOpacity={0.7}
+                  onPress={() => onSetupPress?.()}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: colors.border, marginBottom: 12, paddingBottom: 12 }}
+                  activeOpacity={0.7}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <Text style={{ fontSize: 18 }}>⚙️</Text>
                   <View>
                     <Text style={[styles.itemLabel, { color: colors.textHeading }]}>Company & AI Setup</Text>
                     <Text style={[styles.itemSub, { color: colors.textMuted }]}>Re-configure your workspace & assistant</Text>
@@ -1076,15 +1063,14 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
               </TouchableOpacity>
               {/* Sign Out */}
               <TouchableOpacity
-                onPress={async () => {
-                  await apiService.signOut();
-                  onSignOut?.();
-                }}
-                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4 }}
-                activeOpacity={0.7}
+                  onPress={async () => {
+                    await apiService.signOut();
+                    onSignOut?.();
+                  }}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4 }}
+                  activeOpacity={0.7}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <Text style={{ fontSize: 18 }}>🚪</Text>
                   <View>
                     <Text style={[styles.itemLabel, { color: '#EF4444' }]}>Sign Out of Workspace</Text>
                     <Text style={[styles.itemSub, { color: colors.textMuted }]}>End your authenticated Neon session</Text>
@@ -1096,7 +1082,7 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
           </View>
         </View>
         <View style={{ height: 90 }} />
-      </ScrollView>
+      </KeyboardAwareScrollView>
   );
 }
 
