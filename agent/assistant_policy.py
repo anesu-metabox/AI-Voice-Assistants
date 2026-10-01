@@ -139,11 +139,19 @@ _COMPANY_QUERY_STOP_WORDS: Final[frozenset[str]] = frozenset({
     "give", "how", "i", "in", "is", "it", "me", "of", "on", "please",
     "tell", "the", "there", "to", "what", "when", "where", "which", "who",
     "you", "your", "we", "our", "company", "business", "about",
+    "have", "has", "had", "having", "if", "would", "should", "will", "shall",
+    "may", "might", "must", "want", "wanted", "wants", "need", "needed", "needs",
+    "know", "find", "get", "got", "provide", "share", "see",
+    "offer", "offers", "offering", "available", "info", "information",
+    "any", "some", "all", "much", "many", "more", "most", "also", "just",
     "a", "au", "aux", "avec", "ce", "ces", "dans", "de", "des", "du",
     "elle", "en", "est", "et", "il", "je", "la", "le", "les", "me",
     "nous", "ou", "pour", "que", "quel", "quelle", "quels", "quelles",
     "qui", "sur", "un", "une", "vous", "votre", "vos", "notre", "nos",
     "entreprise", "societe", "société", "restaurant", "pouvez", "dire",
+    "avez", "avons", "ont", "avoir", "besoin", "voulez", "veut", "voudrais",
+    "savoir", "trouver", "donner", "fournir", "voir", "proposez", "proposer",
+    "disponible", "disponibles", "infos", "informations",
 })
 
 
@@ -164,6 +172,42 @@ _COMPANY_TOKEN_ALIASES: Final[Mapping[str, str]] = {
     "opened": "open",
     "closed": "close",
     "horaires": "horaire",
+    "parking": "park",
+    "parks": "park",
+    "parkings": "park",
+    "stationnement": "park",
+    "stationner": "park",
+    "pricing": "price",
+    "prices": "price",
+    "prix": "price",
+    "tarifs": "price",
+    "tarif": "price",
+    "cost": "price",
+    "costs": "price",
+    "location": "locate",
+    "located": "locate",
+    "address": "locate",
+    "adresse": "locate",
+    "directions": "locate",
+    "direction": "locate",
+    "wifi": "wifi",
+    "internet": "wifi",
+    "wi-fi": "wifi",
+    "menus": "menu",
+    "carte": "menu",
+    "policy": "policy",
+    "policies": "policy",
+    "politique": "policy",
+    "regles": "policy",
+    "rule": "policy",
+    "rules": "policy",
+    "service": "serve",
+    "services": "serve",
+    "serving": "serve",
+    "payment": "pay",
+    "payments": "pay",
+    "paiement": "pay",
+    "paiements": "pay",
 }
 
 
@@ -178,10 +222,25 @@ def _content_tokens(value: str) -> set[str]:
 
 
 def _looks_like_reference_heading(value: str) -> bool:
-    """Recognize a bounded section heading without treating arbitrary prose as one."""
-    first_line = str(value).splitlines()[0].split("(", 1)[0].strip(" -:0123456789")
+    """Recognize a bounded section heading or bullet item title without treating arbitrary prose as one."""
+    first_line = str(value).splitlines()[0].split("(", 1)[0].strip(" -:*•#0123456789.")
     letters = "".join(character for character in first_line if character.isalpha())
-    return len(letters) >= 4 and letters.upper() == letters
+    if len(letters) < 3:
+        return False
+    # All caps heading
+    if letters.upper() == letters:
+        return True
+    # Colon-delimited label/heading (e.g. "Parking: free on site", "1. Office Location: Floor 2")
+    raw_first_line = str(value).splitlines()[0].strip()
+    if ":" in raw_first_line:
+        heading_prefix = raw_first_line.split(":", 1)[0].strip(" -:*•#0123456789.")
+        if 3 <= len(heading_prefix) <= 40:
+            return True
+    # Short title phrase (up to 4 words and 30 characters)
+    words = first_line.split()
+    if len(words) <= 4 and len(first_line) <= 30:
+        return True
+    return False
 
 
 def compile_company_fact_index(
@@ -217,14 +276,13 @@ def compile_company_fact_index(
     reference_passages: list[_CompiledReferencePassage] = []
     notes = company_context.get("knowledge_base_notes")
     if isinstance(notes, str) and notes.strip():
-        passages = [
-            passage.strip()
-            for passage in re.split(
-                r"\n{2,}|(?<=[.!?])\s+(?=[A-ZÀ-Ö])", notes[:16000]
-            )
-            if passage.strip()
-        ]
-        for passage in passages[:40]:
+        # Split on double newlines, bullet points, numbered lists, or sentence boundaries
+        raw_chunks = re.split(
+            r"\n{2,}|\n(?=\s*[-*•]|\s*\d+[.)])|(?<=[.!?])\s+(?=[A-ZÀ-Ö])",
+            notes[:16000],
+        )
+        passages = [chunk.strip() for chunk in raw_chunks if chunk.strip()]
+        for passage in passages[:60]:
             bounded_passage = passage[:1200]
             tokens = frozenset(_content_tokens(bounded_passage))
             if tokens:
@@ -296,6 +354,14 @@ def match_approved_company_fact(
                 confidence,
             )
 
+    # Allow explicit inquiries about notes / reference materials
+    if index.reference_passages and (
+        re.search(r"\b(reference|notes?|knowledge|doc(?:s|ument)?|information)\b", folded)
+        and query_tokens <= {"reference", "note", "knowledge", "doc", "document", "info", "information", "check", "verify", "consulter"}
+    ):
+        first_passage = index.reference_passages[0].value
+        return CompanyFactMatch("reference", first_passage, 1.0)
+
     for passage in index.reference_passages:
         passage_tokens = passage.tokens
         overlap = len(query_tokens & passage_tokens)
@@ -305,7 +371,15 @@ def match_approved_company_fact(
             and overlap == 1
             and _looks_like_reference_heading(passage.value)
         )
-        if (overlap >= 2 and query_coverage >= 0.7) or single_heading_match:
+        # Bounded match: either >=2 overlapping content tokens covering >=50% of query,
+        # or >=1 token for single-token queries on headings/bullets,
+        # or >=3 tokens overlap on longer queries with at least 40% coverage
+        strong_passage_match = (
+            (overlap >= 2 and query_coverage >= 0.5)
+            or (overlap >= 3 and query_coverage >= 0.4)
+            or single_heading_match
+        )
+        if strong_passage_match:
             confidence = min(0.95, query_coverage)
             if best is None or confidence > best.confidence:
                 best = CompanyFactMatch("reference", passage.value, confidence)
@@ -339,14 +413,14 @@ def _matches_approved_company_content(
     company_context: Mapping[str, Any] | None,
     company_fact_index: CompanyFactIndex | None = None,
 ) -> bool:
-    """Allow only FAQ matches or questions about configured company facts."""
+    """Allow FAQ matches or questions about configured company facts & reference notes."""
     match = match_approved_company_fact(
         text, company_context, compiled_index=company_fact_index
     )
     if match is None:
         return False
     if match.kind in {"faq", "reference"}:
-        return "company_faq" in enabled_capabilities
+        return bool({"company_faq", "company_receptionist"} & enabled_capabilities)
     return bool({"company_faq", "company_receptionist"} & enabled_capabilities)
 
 

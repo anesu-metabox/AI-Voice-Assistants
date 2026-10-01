@@ -111,6 +111,45 @@ def test_reference_heading_matches_single_topic_questions():
     assert "FULL MENU" in match.value
 
 
+def test_reference_notes_match_natural_phrasings_and_receptionist_scope():
+    notes_context = {
+        "knowledge_base_notes": (
+            "Parking: Free parking available on site behind the main building.\n"
+            "- WiFi: Network 'GuestWiFi' password 'Welcome2026'.\n"
+            "Office Location: Level 2, Harbour Front Building, Port Louis.\n"
+            "Pricing Details: Standard consultation is $100 per hour."
+        )
+    }
+    # Natural phrasings
+    q1 = match_approved_company_fact("Do you have free parking?", notes_context)
+    assert q1 is not None and "Free parking" in q1.value
+
+    q2 = match_approved_company_fact("Where can I park?", notes_context)
+    assert q2 is not None and "Free parking" in q2.value
+
+    q3 = match_approved_company_fact("What is the WiFi password?", notes_context)
+    assert q3 is not None and "GuestWiFi" in q3.value
+
+    q4 = match_approved_company_fact("Where is the office located?", notes_context)
+    assert q4 is not None and "Harbour Front" in q4.value
+
+    q5 = match_approved_company_fact("What are your prices?", notes_context)
+    assert q5 is not None and "consultation is $100" in q5.value
+
+    q6 = match_approved_company_fact("Check your notes", notes_context)
+    assert q6 is not None and q6.kind == "reference"
+
+    # Receptionist capability alone can access reference notes
+    receptionist_only = {"company_receptionist": {"enabled": True, "tools": []}}
+    decision = classify_assistant_turn(
+        "Do you have free parking?",
+        company_capabilities=receptionist_only,
+        company_context=notes_context,
+    )
+    assert decision.action == "allow"
+    assert decision.reason == "company_capability"
+
+
 def test_company_fact_index_is_compiled_once_and_reused_without_raw_context():
     index = compile_company_fact_index(COMPANY_CONTEXT)
     assert index is not None
