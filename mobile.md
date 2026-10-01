@@ -145,6 +145,7 @@ For a physical-device test against a laptop, replace `localhost` with a LAN-reac
 - **2026-09-30 15:05** — Audited web/mobile assistant synchronization. Both clients use the authenticated `/api/assistant-config` source, but the mobile onboarding flow could republish a web profile while clearing notes, system prompt, business hours, FAQs, escalation rules, and capability flags. Onboarding now loads and preserves the complete existing company/assistant profile and only changes the fields edited in that flow. Lint and all 89 mobile tests pass; a new APK is required for this sync fix.
 - **2026-09-30 15:08** — Synchronized APK build `e342e4ea-a2a9-4928-baeb-8e1f232bd51e` queued from commit `290a4d4` with both the localhost environment fix and profile-preservation fix. This is the artifact to install after it succeeds.
 - **2026-10-01** — Verified the signed-in routing gate: it previously checked only `company_profile.company_name`, while the sign-in route separately repeated that incomplete check. Mobile now loads company profile, assistant configuration, and profile versions together; existing users with a published web assistant go directly to the dashboard, and only incomplete workspaces go to setup. Lint and all 89 mobile tests pass.
+- **2026-10-01** — Latest APK build `d861e11d-247e-42b9-8fc4-b96badc8a646` queued from commit `abe6163`, including the setup-bypass gate. This is the build to install for the existing-account flow.
 
 ## Pre-APK production readiness
 
