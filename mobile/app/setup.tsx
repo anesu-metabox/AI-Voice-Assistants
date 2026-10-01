@@ -19,11 +19,18 @@ export default function SetupPage() {
     router.replace('/(tabs)');
   };
 
+  const handleSkip = () => {
+    // This is intentionally read-only. Web configuration remains authoritative
+    // and mobile must not create or publish an overriding profile.
+    router.replace('/(tabs)');
+  };
+
   return (
     <SafeAreaView edges={['top', 'bottom']} style={{ flex: 1, backgroundColor: '#F8FAFC' }}>
       <OnboardingScreen
         initialStep={isNaN(initialStep) ? 2 : initialStep}
         onDone={handleDone}
+        onSkip={handleSkip}
       />
     </SafeAreaView>
   );

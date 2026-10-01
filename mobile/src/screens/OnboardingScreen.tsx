@@ -112,9 +112,11 @@ function InputField({
 
 export default function OnboardingScreen({
   onDone,
+  onSkip,
   initialStep = 1,
 }: {
   onDone: () => void;
+  onSkip?: () => void;
   initialStep?: number;
 }) {
   const [step, setStep] = useState(initialStep);
@@ -383,6 +385,16 @@ export default function OnboardingScreen({
 
       {/* Action footer */}
       <View style={styles.footer}>
+        {onSkip && (
+          <TouchableOpacity
+            activeOpacity={0.7}
+            disabled={saving}
+            onPress={onSkip}
+            style={styles.skipSetupButton}
+          >
+            <Text style={styles.skipSetupText}>Already configured on web? Skip setup</Text>
+          </TouchableOpacity>
+        )}
         {step < 3 ? (
           <View style={styles.footerRow}>
             {step > 1 && (
@@ -605,6 +617,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#E8ECF4',
+  },
+  skipSetupButton: {
+    alignItems: 'center',
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  skipSetupText: {
+    color: '#3B5BDB',
+    fontSize: 13,
+    fontWeight: '600',
   },
   footerRow: {
     flexDirection: 'row',
