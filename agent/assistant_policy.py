@@ -276,12 +276,26 @@ def compile_company_fact_index(
     reference_passages: list[_CompiledReferencePassage] = []
     notes = company_context.get("knowledge_base_notes")
     if isinstance(notes, str) and notes.strip():
-        # Split on double newlines, bullet points, numbered lists, or sentence boundaries
+        # Split on double newlines, bullet points, or line boundaries, avoiding splitting digits
         raw_chunks = re.split(
-            r"\n{2,}|\n(?=\s*[-*•]|\s*\d+[.)])|(?<=[.!?])\s+(?=[A-ZÀ-Ö])",
+            r"\n{2,}|\n(?=\s*[-*•]|\s*\d+[.)])",
             notes[:16000],
         )
-        passages = [chunk.strip() for chunk in raw_chunks if chunk.strip()]
+        passages: list[str] = []
+        for chunk in raw_chunks:
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            lines = [line.strip() for line in chunk.splitlines() if line.strip()]
+            for line in lines:
+                if len(line) > 160:
+                    sub = re.split(
+                        r"(?<=[!?])\s+(?=[A-ZÀ-Ö])|(?<!\b[A-Za-z0-9])(?<=\.)\s+(?=[A-ZÀ-Ö])",
+                        line,
+                    )
+                    passages.extend([item.strip() for item in sub if item.strip()])
+                else:
+                    passages.append(line)
         for passage in passages[:60]:
             bounded_passage = passage[:1200]
             tokens = frozenset(_content_tokens(bounded_passage))
@@ -357,7 +371,11 @@ def match_approved_company_fact(
     # Allow explicit inquiries about notes / reference materials
     if index.reference_passages and (
         re.search(r"\b(reference|notes?|knowledge|doc(?:s|ument)?|information)\b", folded)
-        and query_tokens <= {"reference", "note", "knowledge", "doc", "document", "info", "information", "check", "verify", "consulter"}
+        and query_tokens <= {
+            "reference", "note", "knowledge", "base", "doc", "document",
+            "info", "information", "check", "verify", "consulter",
+            "say", "tell", "read", "look", "at", "access", "acces", "have"
+        }
     ):
         first_passage = index.reference_passages[0].value
         return CompanyFactMatch("reference", first_passage, 1.0)

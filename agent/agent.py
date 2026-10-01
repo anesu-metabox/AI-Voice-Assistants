@@ -1093,6 +1093,12 @@ async def entrypoint(ctx: JobContext) -> None:
                 active_instructions += format_company_operating_profile(
                     profile, include_faq_entries=False
                 )
+                kb_notes = str(profile.get("knowledge_base_notes") or "").strip()
+                if kb_notes:
+                    active_instructions += format_untrusted_company_context(
+                        "APPROVED COMPANY REFERENCE NOTES",
+                        {"notes": kb_notes[:8000]},
+                    )
 
             try:
                 if isinstance(company_result, BaseException):
@@ -1101,7 +1107,14 @@ async def entrypoint(ctx: JobContext) -> None:
                 if comp_resp.status_code == 200:
                     comp_data = comp_resp.json().get("data", {})
                     if isinstance(comp_data, dict):
+                        # Merge company profile without clobbering knowledge_base_notes or faq_entries
+                        saved_notes = company_scope_context.get("knowledge_base_notes")
+                        saved_faqs = company_scope_context.get("faq_entries")
                         company_scope_context.update(comp_data)
+                        if saved_notes and not comp_data.get("knowledge_base_notes"):
+                            company_scope_context["knowledge_base_notes"] = saved_notes
+                        if saved_faqs and not comp_data.get("faq_entries"):
+                            company_scope_context["faq_entries"] = saved_faqs
                     session_timezone = session_context.timezone or str(comp_data.get("timezone") or "")[:64]
                     if session_timezone:
                         company_scope_context["timezone"] = session_timezone

@@ -139,6 +139,19 @@ def test_reference_notes_match_natural_phrasings_and_receptionist_scope():
     q6 = match_approved_company_fact("Check your notes", notes_context)
     assert q6 is not None and q6.kind == "reference"
 
+    q7 = match_approved_company_fact("Can you check your reference notes?", notes_context)
+    assert q7 is not None and q7.kind == "reference"
+
+    q8 = match_approved_company_fact("What do your notes say?", notes_context)
+    assert q8 is not None and q8.kind == "reference"
+
+    # Numbered list entries match cleanly without splitting numbers from sentences
+    numbered_context = {
+        "knowledge_base_notes": "1. Return Policy: We accept returns within 30 days.\n2. Location: Floor 2."
+    }
+    q9 = match_approved_company_fact("What is your return policy?", numbered_context)
+    assert q9 is not None and "accept returns within 30 days" in q9.value
+
     # Receptionist capability alone can access reference notes
     receptionist_only = {"company_receptionist": {"enabled": True, "tools": []}}
     decision = classify_assistant_turn(
