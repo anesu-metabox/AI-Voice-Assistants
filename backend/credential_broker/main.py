@@ -5,10 +5,11 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any
 import logging
+import time
 import uuid
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from .environment import load_broker_environment
@@ -18,17 +19,22 @@ load_broker_environment()
 from backend.app.services.credential_broker_protocol import require_broker_secret, verify_broker_request
 from backend.app.services.google_calendar import (
     book_google_calendar_event,
+    check_google_calendar_interval_free,
     get_google_calendar_booking_by_request_key,
     cancel_google_calendar_event,
     get_google_calendar_availability,
     list_google_calendar_events,
+    reconcile_active_calendar_mirrors_once,
+    sync_google_calendar_mirror,
 )
 from backend.app.services.google_oauth import (
+    cache_access_token,
     exchange_code_for_tokens,
     fetch_google_identity,
     revoke_and_disconnect,
 )
 from backend.app.services.credential_envelope import encrypt_secret
+from backend.app.services.latency import bind_trace_id, log_latency, measured, reset_trace_id
 from backend.app.services.threecx_probe import probe_pbx
 from backend.app.config import settings
 from db.connection import close_db_pool, get_db_pool
@@ -76,6 +82,7 @@ class CalendarListPayload(BrokerPayload):
 class CalendarAvailabilityPayload(CalendarListPayload):
     duration_minutes: int = Field(default=30, ge=5, le=1440)
     business_hours: dict[str, str] | None = Field(default=None)
+    fresh: bool = False
 
     @field_validator("business_hours")
     @classmethod
@@ -88,6 +95,20 @@ class CalendarAvailabilityPayload(CalendarListPayload):
             for day, hours in value.items()
         ):
             raise ValueError("business_hours must contain at most seven bounded weekday entries")
+        return value
+
+
+class CalendarSyncPayload(BrokerPayload):
+    timezone: str = Field(default="Indian/Mauritius", max_length=64)
+    force_full: bool = False
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("timezone must be a valid IANA timezone") from exc
         return value
 
 
@@ -173,8 +194,40 @@ async def lifespan(_app: FastAPI):
     if not settings.database_url:
         raise RuntimeError("DATABASE_URL is required by the credential broker")
     await get_db_pool(dsn=settings.database_url)
-    yield
-    await close_db_pool()
+    stop_reconciliation = asyncio.Event()
+    reconciliation_task: asyncio.Task[None] | None = None
+
+    async def reconcile_loop() -> None:
+        while True:
+            try:
+                await asyncio.wait_for(
+                    stop_reconciliation.wait(),
+                    timeout=settings.calendar_mirror_reconcile_interval_seconds,
+                )
+                return
+            except asyncio.TimeoutError:
+                pass
+            result = await measured(
+                logger,
+                "calendar_mirror_periodic_reconciliation",
+                reconcile_active_calendar_mirrors_once(),
+            )
+            logger.info(
+                "calendar_mirror_reconciliation active=%d succeeded=%d failed=%d",
+                result["active"],
+                result["succeeded"],
+                result["failed"],
+            )
+
+    if settings.calendar_mirror_enabled:
+        reconciliation_task = asyncio.create_task(reconcile_loop())
+    try:
+        yield
+    finally:
+        stop_reconciliation.set()
+        if reconciliation_task is not None:
+            await reconciliation_task
+        await close_db_pool()
 
 
 app = FastAPI(
@@ -187,6 +240,22 @@ app = FastAPI(
 )
 
 
+@app.middleware("http")
+async def correlate_request_latency(request: Request, call_next):
+    trace_id, token = bind_trace_id(request.headers.get("x-request-id"))
+    started_at = time.perf_counter()
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = trace_id
+        log_latency(logger, "broker_request_total", started_at)
+        return response
+    except Exception:
+        log_latency(logger, "broker_request_total", started_at, outcome="error")
+        raise
+    finally:
+        reset_trace_id(token)
+
+
 @app.get("/health")
 async def health():
     return {"status": "healthy", "service": "credential-broker"}
@@ -195,8 +264,12 @@ async def health():
 @app.post("/internal/v1/calendar/list")
 async def calendar_list(payload: dict = Depends(verify_broker_request)):
     request = await _validated(payload, CalendarListPayload)
-    result = await list_google_calendar_events(
-        str(request.company_id), request.start_date, request.end_date, request.timezone
+    result = await measured(
+        logger,
+        "google_calendar_list",
+        list_google_calendar_events(
+            str(request.company_id), request.start_date, request.end_date, request.timezone
+        ),
     )
     return result or {"status": "integration_required", "error_code": "GOOGLE_CALENDAR_REQUIRED"}
 
@@ -204,9 +277,14 @@ async def calendar_list(payload: dict = Depends(verify_broker_request)):
 @app.post("/internal/v1/calendar/availability")
 async def calendar_availability(payload: dict = Depends(verify_broker_request)):
     request = await _validated(payload, CalendarAvailabilityPayload)
-    result = await get_google_calendar_availability(
-        str(request.company_id), request.start_date, request.end_date,
-        request.duration_minutes, request.timezone, request.business_hours,
+    result = await measured(
+        logger,
+        "google_calendar_availability",
+        get_google_calendar_availability(
+            str(request.company_id), request.start_date, request.end_date,
+            request.duration_minutes, request.timezone, request.business_hours,
+            force_live=request.fresh,
+        ),
     )
     if result:
         result["timezone"] = request.timezone
@@ -214,9 +292,33 @@ async def calendar_availability(payload: dict = Depends(verify_broker_request)):
     return {"status": "integration_required", "error_code": "GOOGLE_CALENDAR_REQUIRED"}
 
 
+@app.post("/internal/v1/calendar/sync")
+async def calendar_sync(payload: dict = Depends(verify_broker_request)):
+    request = await _validated(payload, CalendarSyncPayload)
+    synced = await measured(
+        logger,
+        "google_calendar_sync",
+        sync_google_calendar_mirror(
+            str(request.company_id),
+            timezone_name=request.timezone,
+            force_full=request.force_full,
+        ),
+    )
+    return {"status": "ready" if synced else "unavailable"}
+
+
 @app.post("/internal/v1/calendar/book")
 async def calendar_book(payload: dict = Depends(verify_broker_request)):
     request = await _validated(payload, CalendarBookPayload)
+    availability = await measured(
+        logger,
+        "google_calendar_prewrite_validation",
+        check_google_calendar_interval_free(
+            str(request.company_id), request.start_time, request.duration_minutes
+        ),
+    )
+    if availability.get("status") != "available":
+        return availability
     result = await book_google_calendar_event(
         str(request.company_id), request.title, request.start_time,
         request.duration_minutes, request.attendees, request.description, request.location,
@@ -259,6 +361,7 @@ async def google_oauth_complete(payload: dict = Depends(verify_broker_request)):
             scope=token_data.get("scope"), expires_at=expires_at,
             google_subject=identity["subject"], google_email=identity["email"],
         )
+        await cache_access_token(str(request.company_id), access_token, expires_at)
         # Do not log or serialize token_data/access_token from this process.
         return {
             "connected": True,

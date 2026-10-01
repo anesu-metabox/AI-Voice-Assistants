@@ -31,6 +31,7 @@ The HMAC session-context secret remains server-side. The mobile application neve
 | M2 — Token and room lifecycle | Authenticated token client, native `AudioSession`, room/reconnect lifecycle, mic and audio output controls | Complete |
 | M3 — Voice UI | `VoiceAssistant`, live transcript, task status, audio levels, mute/speaker/interrupt/end controls | Complete |
 | M4 — Verification | Typecheck, config validation, automated tests, device protocol | Automated checks complete; device run pending |
+| M5 — Modern UI & Keyboard Architecture | `KeyboardAwareScrollView`, redesigned Dashboard, Settings, Calls, Integrations, 4-tier test suite (89/89 tests passing) | Complete |
 
 ## Implemented files
 

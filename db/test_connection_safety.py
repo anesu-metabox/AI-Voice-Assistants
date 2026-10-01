@@ -16,6 +16,30 @@ def test_local_process_refuses_protected_branch_from_environment(monkeypatch, tm
         connection.assert_database_branch_is_safe()
 
 
+def test_local_process_refuses_protected_name_for_id_based_branch(monkeypatch, tmp_path):
+    monkeypatch.setattr(connection, "_root_dir", tmp_path)
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("NEON_BRANCH", "br-production-id")
+    monkeypatch.setenv("NEON_BRANCH_NAME", "production")
+
+    with pytest.raises(RuntimeError, match="cannot connect to the protected Neon branch"):
+        connection.assert_database_branch_is_safe()
+
+
+def test_local_process_refuses_protected_link_name_for_id_based_branch(monkeypatch, tmp_path):
+    monkeypatch.setattr(connection, "_root_dir", tmp_path)
+    (tmp_path / ".neon").write_text(
+        json.dumps({"branch": "br-production-id", "branchName": "production"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("NEON_BRANCH", "br-production-id")
+    monkeypatch.delenv("NEON_BRANCH_NAME", raising=False)
+
+    with pytest.raises(RuntimeError, match="cannot connect to the protected Neon branch"):
+        connection.assert_database_branch_is_safe()
+
+
 def test_database_access_requires_an_explicit_branch(monkeypatch, tmp_path):
     monkeypatch.setattr(connection, "_root_dir", tmp_path)
     monkeypatch.delenv("NEON_BRANCH", raising=False)

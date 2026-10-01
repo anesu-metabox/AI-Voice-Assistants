@@ -60,11 +60,17 @@ except (ImportError, ValueError):
 
 try:
     from .event_loop_monitor import monitor_active_conversation
+    from .gemini_recovery import build_resilient_realtime_model, parse_recovery_delays
+    from .lifecycle import AgentLifecyclePublisher
     from .config import (
+        AGENT_HEARTBEAT_SECONDS,
         BACKEND_URL,
         BACKEND_TIMEOUT_SECONDS,
         GEMINI_API_VERSION,
         GEMINI_MODEL,
+        GEMINI_RECOVERY_COOLDOWN_SECONDS,
+        GEMINI_RECOVERY_DELAYS_SECONDS,
+        GEMINI_RECOVERY_ENABLED,
         GEMINI_VOICE,
         GOOGLE_API_KEY,
         LIVEKIT_API_KEY,
@@ -81,16 +87,24 @@ try:
         CALENDAR_TOOL_NAMES,
         CALENDAR_UNAVAILABLE_REDIRECT_RESPONSE,
         classify_assistant_turn,
+        compile_company_fact_index,
         detect_explicit_language_switch,
         is_allowed_calendar_tool,
+        match_approved_company_fact,
     )
 except ImportError:
     from event_loop_monitor import monitor_active_conversation
+    from gemini_recovery import build_resilient_realtime_model, parse_recovery_delays
+    from lifecycle import AgentLifecyclePublisher
     from config import (
+        AGENT_HEARTBEAT_SECONDS,
         BACKEND_URL,
         BACKEND_TIMEOUT_SECONDS,
         GEMINI_API_VERSION,
         GEMINI_MODEL,
+        GEMINI_RECOVERY_COOLDOWN_SECONDS,
+        GEMINI_RECOVERY_DELAYS_SECONDS,
+        GEMINI_RECOVERY_ENABLED,
         GEMINI_VOICE,
         GOOGLE_API_KEY,
         LIVEKIT_API_KEY,
@@ -107,8 +121,10 @@ except ImportError:
         CALENDAR_TOOL_NAMES,
         CALENDAR_UNAVAILABLE_REDIRECT_RESPONSE,
         classify_assistant_turn,
+        compile_company_fact_index,
         detect_explicit_language_switch,
         is_allowed_calendar_tool,
+        match_approved_company_fact,
     )
 
 logging.basicConfig(level=logging.INFO)
@@ -283,7 +299,9 @@ def format_untrusted_company_context(label: str, value: Any) -> str:
     )
 
 
-def format_company_operating_profile(profile: Mapping[str, Any]) -> str:
+def format_company_operating_profile(
+    profile: Mapping[str, Any], *, include_faq_entries: bool = True
+) -> str:
     """Render bounded tenant facts as untrusted context, never as policy."""
     allowed_tones = {"professional", "friendly", "warm", "concise"}
     tone = profile.get("tone", "friendly")
@@ -300,7 +318,7 @@ def format_company_operating_profile(profile: Mapping[str, Any]) -> str:
     } if isinstance(raw_hours, dict) else {}
     raw_rules = profile.get("escalation_rules", [])
     rules = [item[:500] for item in raw_rules[:10] if isinstance(item, str)] if isinstance(raw_rules, list) else []
-    raw_faqs = profile.get("faq_entries", [])
+    raw_faqs = profile.get("faq_entries", []) if include_faq_entries else []
     faqs = [
         {"question": item["question"][:240], "answer": item["answer"][:1200]}
         for item in raw_faqs[:20]
@@ -369,19 +387,32 @@ async def call_backend_tool(
     if idempotency_key:
         payload["idempotency_key"] = idempotency_key
 
-    if client is None:
-        async with httpx.AsyncClient(timeout=BACKEND_TIMEOUT_SECONDS) as transient_client:
-            response = await transient_client.post(
-                url,
-                json=payload,
-                headers={"X-Verified-Session-Context": session_context.signed_metadata()},
-            )
-    else:
-        response = await client.post(
-            url,
-            json=payload,
-            headers={"X-Verified-Session-Context": session_context.signed_metadata()},
+    trace_id = uuid.uuid4().hex
+    headers = {
+        "X-Verified-Session-Context": session_context.signed_metadata(),
+        "X-Request-ID": trace_id,
+    }
+    started_at = time.perf_counter()
+
+    try:
+        if client is None:
+            async with httpx.AsyncClient(timeout=BACKEND_TIMEOUT_SECONDS) as transient_client:
+                response = await transient_client.post(url, json=payload, headers=headers)
+        else:
+            response = await client.post(url, json=payload, headers=headers)
+    except Exception:
+        logger.info(
+            "latency trace_id=%s stage=agent_to_backend duration_ms=%.2f outcome=error",
+            trace_id,
+            (time.perf_counter() - started_at) * 1000,
         )
+        raise
+
+    logger.info(
+        "latency trace_id=%s stage=agent_to_backend duration_ms=%.2f outcome=ok",
+        trace_id,
+        (time.perf_counter() - started_at) * 1000,
+    )
 
     response.raise_for_status()
     return response.json()
@@ -448,6 +479,7 @@ class VoiceBotAgent(Agent):
         if default_language not in allowed:
             allowed = (default_language, *allowed)
         self._base_instructions = instructions
+        self._turn_fact_context = ""
         self._active_language = default_language
         self._allowed_languages = frozenset(allowed)
         self._clarification_count = 0
@@ -464,6 +496,7 @@ class VoiceBotAgent(Agent):
         self._calendar_context_active = False
         self.company_capabilities = company_capabilities or {"google_calendar": {"enabled": True}}
         self.company_scope_context = company_scope_context or {}
+        self._company_fact_index = compile_company_fact_index(self.company_scope_context)
         self._redirect_response = redirect_response
         self.voice = voice
         self._idempotency_keys: Dict[str, str] = {}
@@ -492,10 +525,34 @@ class VoiceBotAgent(Agent):
         return (
             f"{self._base_instructions}\n\nCURRENT RESPONSE MODE (server-authoritative): {language}.{dialect_guidance} "
             "Respond only in this mode until the server processes an explicit allowed language switch."
+            f"{self._turn_fact_context}"
         )
 
+    async def _focus_company_fact(self, transcript: str) -> None:
+        """Inject only the approved fact relevant to this model turn."""
+        match = match_approved_company_fact(
+            transcript,
+            self.company_scope_context,
+            compiled_index=getattr(self, "_company_fact_index", None),
+        )
+        context = ""
+        if match is not None:
+            context = format_untrusted_company_context(
+                "MATCHED APPROVED COMPANY FACT",
+                {
+                    "kind": match.kind,
+                    "value": match.value,
+                    "confidence": round(match.confidence, 3),
+                },
+            )
+        if context == self._turn_fact_context:
+            return
+        self._turn_fact_context = context
+        instructions = self._instructions_for_language(self._active_language)
+        await self.update_instructions(instructions)
+
     def _localized(self, key: str) -> str:
-        return LOCALIZED_RESPONSES[self._active_language][key]
+        return LOCALIZED_RESPONSES[getattr(self, "_active_language", "en")][key]
 
     def _support_response(self) -> str:
         base = self._localized("support")
@@ -518,8 +575,9 @@ class VoiceBotAgent(Agent):
         return f"{base}."
 
     def _say_scripted(self, text: str) -> None:
-        if self._scripted_tts is not None:
-            self._scripted_tts.set_language(self._active_language)
+        scripted_tts = getattr(self, "_scripted_tts", None)
+        if scripted_tts is not None:
+            scripted_tts.set_language(getattr(self, "_active_language", "en"))
         self.session.say(clean_spoken_text(text), allow_interruptions=True)
 
     def _next_clarification_response(self) -> str:
@@ -533,6 +591,7 @@ class VoiceBotAgent(Agent):
     async def _switch_language(self, language: str) -> None:
         self._active_language = language
         self._clarification_count = 0
+        self._turn_fact_context = ""
         if self._scripted_tts is not None:
             self._scripted_tts.set_language(language)
         await self.update_instructions(self._instructions_for_language(language))
@@ -555,6 +614,7 @@ class VoiceBotAgent(Agent):
     ) -> None:
         """Apply the deterministic calendar scope gate before Gemini can answer."""
         transcript = new_message.text_content or ""
+        active_language = getattr(self, "_active_language", "en")
         transcript_confidence = getattr(new_message, "transcript_confidence", None)
         if isinstance(transcript_confidence, (int, float)) and transcript_confidence < 0.45:
             transcript = ""
@@ -562,14 +622,14 @@ class VoiceBotAgent(Agent):
         if requested_language is not None:
             if requested_language in self._allowed_languages:
                 await self._switch_language(requested_language)
-                self._say_scripted(self._localized("switch"))
+                VoiceBotAgent._say_scripted(self, self._localized("switch"))
                 decision_reason = "language_switch"
             else:
-                self._say_scripted(self._next_clarification_response())
+                VoiceBotAgent._say_scripted(self, self._next_clarification_response())
                 decision_reason = "unsupported_language"
             logger.info(
                 "Receptionist policy: response_language=%s decision_reason=%s clarification_count=%s",
-                self._active_language,
+                getattr(self, "_active_language", "en"),
                 decision_reason,
                 self._clarification_count,
             )
@@ -579,39 +639,44 @@ class VoiceBotAgent(Agent):
             calendar_context_active=self._calendar_context_active,
             company_capabilities=self.company_capabilities,
             company_context=self.company_scope_context,
+            company_fact_index=getattr(self, "_company_fact_index", None),
         )
         if decision.action == "clarify":
             response = self._next_clarification_response()
             logger.info(
                 "Receptionist policy: response_language=%s decision_reason=%s clarification_count=%s",
-                self._active_language,
+                active_language,
                 decision.reason,
                 self._clarification_count,
             )
-            self._say_scripted(response)
+            VoiceBotAgent._say_scripted(self, response)
             raise StopResponse()
         if decision.action == "redirect":
             self._clarification_count = 0
             self._calendar_context_active = False
             logger.info(
                 "Receptionist policy: response_language=%s decision_reason=%s clarification_count=%s",
-                self._active_language,
+                active_language,
                 decision.reason,
                 self._clarification_count,
             )
             if decision.reason == "calendar_unavailable":
                 redirect = self._localized("calendar_unavailable")
-            elif self._active_language == "en":
+            elif active_language == "en":
                 redirect = self._redirect_response
             else:
                 redirect = self._localized("scope")
-            self._say_scripted(redirect)
+            VoiceBotAgent._say_scripted(self, redirect)
             raise StopResponse()
         self._clarification_count = 0
         self._calendar_context_active = decision.calendar_context_active
+        if decision.reason == "company_capability":
+            await self._focus_company_fact(transcript)
+        elif getattr(self, "_turn_fact_context", ""):
+            await self._focus_company_fact("")
         logger.info(
             "Receptionist policy: response_language=%s decision_reason=%s clarification_count=%s",
-            self._active_language,
+            active_language,
             decision.reason,
             self._clarification_count,
         )
@@ -940,6 +1005,9 @@ async def entrypoint(ctx: JobContext) -> None:
     active_default_language = "en"
     active_allowed_languages = ["en"]
     runtime_behavior_instruction = ""
+    profile_bootstrap_started_at = time.perf_counter()
+    profile_bootstrap_trace_id = f"startup-{uuid.uuid4().hex}"
+    profile_bootstrap_outcome = "fallback"
     try:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(BACKEND_TIMEOUT_SECONDS, connect=5.0),
@@ -947,11 +1015,23 @@ async def entrypoint(ctx: JobContext) -> None:
             trust_env=False,
         ) as http_client:
             context_headers = {
-                "X-Verified-Session-Context": session_context.signed_metadata()
+                "X-Verified-Session-Context": session_context.signed_metadata(),
+                "X-Request-ID": profile_bootstrap_trace_id,
             }
-            runtime_resp = await http_client.get(
-                f"{BACKEND_URL}/api/assistant-config/runtime", headers=context_headers
+            runtime_result, company_result = await asyncio.gather(
+                http_client.get(
+                    f"{BACKEND_URL}/api/assistant-config/runtime",
+                    headers=context_headers,
+                ),
+                http_client.get(
+                    f"{BACKEND_URL}/api/company-profile",
+                    headers=context_headers,
+                ),
+                return_exceptions=True,
             )
+            if isinstance(runtime_result, BaseException):
+                raise runtime_result
+            runtime_resp = runtime_result
             runtime_data = runtime_resp.json().get("data") if runtime_resp.status_code == 200 else None
             runtime_data = require_bound_profile_snapshot(
                 session_context, runtime_resp.status_code, runtime_data
@@ -960,6 +1040,7 @@ async def entrypoint(ctx: JobContext) -> None:
                 f"{BACKEND_URL}/api/assistant-config", headers=context_headers
             ) if runtime_data is None else None
             asst_data = runtime_data or (asst_resp.json().get("data", {}) if asst_resp and asst_resp.status_code == 200 else {})
+            profile_bootstrap_outcome = "ok"
             if asst_data:
                 profile = asst_data.get("profile") or asst_data
                 company_scope_context.update(profile)
@@ -1007,18 +1088,16 @@ async def entrypoint(ctx: JobContext) -> None:
                         "COMPANY-PROVIDED INSTRUCTION DATA",
                         {"instructions": company_instructions[:8000]},
                     )
-                knowledge_notes = str(profile.get("knowledge_base_notes") or "").strip()
-                if knowledge_notes:
-                    active_instructions += format_untrusted_company_context(
-                        "APPROVED COMPANY REFERENCE DATA",
-                        {"knowledge_base_notes": knowledge_notes[:16000]},
-                    )
-                active_instructions += format_company_operating_profile(profile)
+                # Large FAQ/reference corpora stay in the server-bound profile
+                # and are narrowed to one approved fact for each relevant turn.
+                active_instructions += format_company_operating_profile(
+                    profile, include_faq_entries=False
+                )
 
             try:
-                comp_resp = await http_client.get(
-                    f"{BACKEND_URL}/api/company-profile", headers=context_headers
-                )
+                if isinstance(company_result, BaseException):
+                    raise company_result
+                comp_resp = company_result
                 if comp_resp.status_code == 200:
                     comp_data = comp_resp.json().get("data", {})
                     if isinstance(comp_data, dict):
@@ -1046,6 +1125,13 @@ async def entrypoint(ctx: JobContext) -> None:
             logger.error("Published assistant snapshot could not be loaded; rejecting session")
             raise PermissionError("Published assistant profile snapshot could not be loaded") from fetch_err
         logger.debug("Using baseline prompt; dynamic settings fetch skipped (error_type=%s)", type(fetch_err).__name__)
+    finally:
+        logger.info(
+            "latency trace_id=%s stage=agent_profile_bootstrap duration_ms=%.2f outcome=%s",
+            profile_bootstrap_trace_id,
+            (time.perf_counter() - profile_bootstrap_started_at) * 1000,
+            profile_bootstrap_outcome,
+        )
 
     if active_default_language not in active_allowed_languages:
         active_allowed_languages.insert(0, active_default_language)
@@ -1064,16 +1150,36 @@ async def entrypoint(ctx: JobContext) -> None:
         turn_coverage=genai_types.TurnCoverage.TURN_INCLUDES_ALL_INPUT,
     )
 
-    model = realtime.RealtimeModel(
-        model=GEMINI_MODEL,
-        voice=active_voice,
-        api_key=GOOGLE_API_KEY,
-        api_version=GEMINI_API_VERSION,
-        http_options=http_options,
-        realtime_input_config=realtime_input_config,
-        session_resumption=genai_types.SessionResumptionConfig(),
-        conn_options=APIConnectOptions(max_retry=5, retry_interval=1.0, timeout=15.0),
-    )
+    model_kwargs: Dict[str, Any] = {
+        "model": GEMINI_MODEL,
+        "voice": active_voice,
+        "api_key": GOOGLE_API_KEY,
+        "api_version": GEMINI_API_VERSION,
+        "http_options": http_options,
+        "realtime_input_config": realtime_input_config,
+        "session_resumption": genai_types.SessionResumptionConfig(),
+        "context_window_compression": genai_types.ContextWindowCompressionConfig(
+            sliding_window=genai_types.SlidingWindow()
+        ),
+    }
+    if GEMINI_RECOVERY_ENABLED:
+        recovery_delays = parse_recovery_delays(GEMINI_RECOVERY_DELAYS_SECONDS)
+        model = build_resilient_realtime_model(
+            recovery_delays=recovery_delays,
+            cooldown_seconds=GEMINI_RECOVERY_COOLDOWN_SECONDS,
+            **model_kwargs,
+        )
+        logger.info(
+            "Gemini recovery enabled: room=%s recovery_slots=%d cooldown_seconds=%.1f",
+            ctx.room.name,
+            len(recovery_delays),
+            GEMINI_RECOVERY_COOLDOWN_SECONDS,
+        )
+    else:
+        model = realtime.RealtimeModel(
+            **model_kwargs,
+            conn_options=APIConnectOptions(max_retry=5, retry_interval=1.0, timeout=15.0),
+        )
 
     # 2. Instantiate Agent & Session
     scripted_tts = (
@@ -1116,15 +1222,41 @@ async def entrypoint(ctx: JobContext) -> None:
         session_kwargs["tts"] = scripted_tts
     session = AgentSession(**session_kwargs)
     agent.session = session
+    lifecycle = AgentLifecyclePublisher(
+        ctx.room,
+        session_context.session_id,
+        heartbeat_seconds=AGENT_HEARTBEAT_SECONDS,
+    )
     event_loop_monitor_stop = asyncio.Event()
     event_loop_monitor_task: Optional[asyncio.Task] = None
 
+    if GEMINI_RECOVERY_ENABLED:
+        def on_recovery_succeeded(_event: Any) -> None:
+            logger.info("Gemini recovery succeeded: room=%s", ctx.room.name)
+            asyncio.create_task(
+                lifecycle.transition(
+                    "recovered", code="provider_session_recovered", retryable=True
+                )
+            )
+
+        model.on("recovery_succeeded", on_recovery_succeeded)
+
     @session.on("error")
     def on_session_error(event: Any):
+        session_error = getattr(event, "error", None)
+        recoverable = bool(getattr(session_error, "recoverable", False))
         logger.warning(
-            "AgentSession error event received: room=%s error=%s",
+            "AgentSession error event received: room=%s recoverable=%s error_type=%s",
             ctx.room.name,
-            event,
+            recoverable,
+            type(getattr(session_error, "error", session_error)).__name__,
+        )
+        asyncio.create_task(
+            lifecycle.transition(
+                "recovering" if recoverable else "failed",
+                code="provider_connection_error",
+                retryable=recoverable,
+            )
         )
 
     # 3. Handle client-side interruption cancellation signals
@@ -1173,7 +1305,7 @@ async def entrypoint(ctx: JobContext) -> None:
             logger.warning("user_input_transcribed listener failed (error_type=%s)", type(exc).__name__)
 
     @session.on("close")
-    def on_session_close(_event: Any):
+    def on_session_close(event: Any):
         # AgentSession.start() returns after startup; the conversation continues
         # on LiveKit tasks. Close the backend client only when LiveKit actually
         # tears down the session.
@@ -1184,12 +1316,27 @@ async def entrypoint(ctx: JobContext) -> None:
 
             asyncio.create_task(_join_event_loop_monitor())
         asyncio.create_task(agent.aclose())
+        close_reason = str(getattr(event, "reason", "ended"))
+
+        async def _close_lifecycle() -> None:
+            if lifecycle.state != "failed":
+                await lifecycle.transition(
+                    "failed" if "error" in close_reason.lower() else "ended",
+                    code="provider_connection_error" if "error" in close_reason.lower() else None,
+                    retryable=False,
+                )
+            await lifecycle.stop()
+
+        asyncio.create_task(_close_lifecycle())
         logger.info("Agent session cleanup scheduled: room=%s", ctx.room.name)
 
     logger.info("Starting AgentSession for room: %s", ctx.room.name)
     try:
+        lifecycle.start_heartbeat()
+        await lifecycle.transition("starting", retryable=True)
         await session.start(agent, room=ctx.room)
         logger.info("Agent successfully connected and active in room: %s", ctx.room.name)
+        await lifecycle.transition("ready", retryable=True)
         event_loop_monitor_task = asyncio.create_task(
             monitor_active_conversation(session_context.session_id, event_loop_monitor_stop),
             name=f"voice-event-loop-monitor-{session_context.session_id}",
@@ -1208,6 +1355,10 @@ async def entrypoint(ctx: JobContext) -> None:
 
             asyncio.create_task(_speak_greeting_task())
     except Exception as exc:
+        await lifecycle.transition(
+            "failed", code="agent_startup_failed", retryable=False
+        )
+        await lifecycle.stop()
         await agent.aclose()
         logger.error(
             "Agent session failed during startup: room=%s error_type=%s",

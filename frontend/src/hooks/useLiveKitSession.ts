@@ -5,9 +5,12 @@ import { Room, RoomEvent, Track } from "livekit-client";
 import { ConnectionStatus, TranscriptMessage, TaskItem } from "@/lib/types";
 import { logSafeFailure } from "@/lib/safeLogging";
 import {
+  AGENT_HEARTBEAT_TIMEOUT_MS,
   activateAudioPlayback,
+  getAgentLifecycleStatus,
   getLiveKitConnectionStatus,
   isCurrentSessionGeneration,
+  parseAgentLifecycleMessage,
 } from "@/lib/livekitSessionRuntime";
 
 export const useLiveKitSession = () => {
@@ -57,6 +60,7 @@ export const useLiveKitSession = () => {
   const assistantTrackRef = useRef<Track | null>(null);
   const hasAssistantAudioRef = useRef<boolean>(false);
   const playbackRetryPendingRef = useRef<boolean>(false);
+  const agentHeartbeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const sendDataMessage = useCallback((data: Record<string, any>) => {
     if (roomRef.current && roomRef.current.state === "connected") {
@@ -208,6 +212,35 @@ export const useLiveKitSession = () => {
     setIsMuted(false);
   }, [setAssistantGainNode, setIsBotSpeaking, setIsUserSpeaking, setMicStream]);
 
+  const clearAgentHeartbeatTimeout = useCallback(() => {
+    if (agentHeartbeatTimerRef.current !== null) {
+      clearTimeout(agentHeartbeatTimerRef.current);
+      agentHeartbeatTimerRef.current = null;
+    }
+  }, []);
+
+  const failCurrentSession = useCallback((room: Room) => {
+    if (roomRef.current !== room) return;
+    clearAgentHeartbeatTimeout();
+    sessionGenerationRef.current += 1;
+    connectInFlightRef.current = null;
+    roomRef.current = null;
+    intentionalDisconnectRef.current = true;
+    sessionIdRef.current = null;
+    resetMediaState();
+    room.disconnect();
+    setConnectionStatus(getLiveKitConnectionStatus("agent_failed"));
+  }, [clearAgentHeartbeatTimeout, resetMediaState]);
+
+  const armAgentHeartbeatTimeout = useCallback((room: Room) => {
+    clearAgentHeartbeatTimeout();
+    agentHeartbeatTimerRef.current = setTimeout(() => {
+      if (roomRef.current === room && room.state === "connected") {
+        failCurrentSession(room);
+      }
+    }, AGENT_HEARTBEAT_TIMEOUT_MS);
+  }, [clearAgentHeartbeatTimeout, failCurrentSession]);
+
   const connect = useCallback(async () => {
     if (connectInFlightRef.current !== null || roomRef.current) {
       return;
@@ -274,6 +307,7 @@ export const useLiveKitSession = () => {
 
       room.on(RoomEvent.Disconnected, () => {
         if (!isCurrentSession(room)) return;
+        clearAgentHeartbeatTimeout();
         sessionGenerationRef.current += 1;
         connectInFlightRef.current = null;
         roomRef.current = null;
@@ -291,6 +325,31 @@ export const useLiveKitSession = () => {
         try {
           const str = new TextDecoder().decode(payload);
           const event = JSON.parse(str);
+
+          const lifecycle = parseAgentLifecycleMessage(event);
+          if (lifecycle) {
+            if (lifecycle.session_id !== sessionIdRef.current) return;
+            if (lifecycle.state === "failed") {
+              failCurrentSession(room);
+              return;
+            }
+            if (lifecycle.state === "ended") {
+              intentionalDisconnectRef.current = true;
+              clearAgentHeartbeatTimeout();
+              room.disconnect();
+              return;
+            }
+            armAgentHeartbeatTimeout(room);
+            setIsBotSpeaking(false);
+            setConnectionStatus(
+              getAgentLifecycleStatus(
+                lifecycle.state,
+                hasAssistantAudioRef.current,
+                playbackRetryPendingRef.current,
+              ),
+            );
+            return;
+          }
 
           if (event.type === "transcript") {
             setMessages((prev) => [
@@ -523,6 +582,7 @@ export const useLiveKitSession = () => {
       if (!hasAssistantAudioRef.current) {
         setConnectionStatus(getLiveKitConnectionStatus("room_connected"));
       }
+      armAgentHeartbeatTimeout(room);
 
       // 6. Capture and publish one LiveKit-owned microphone track, then reuse that
       // same track for local VAD. This avoids competing duplicate microphone streams.
@@ -548,6 +608,7 @@ export const useLiveKitSession = () => {
       connectInFlightRef.current = null;
       sessionGenerationRef.current += 1;
       resetMediaState();
+      clearAgentHeartbeatTimeout();
       failedRoom?.disconnect();
       setConnectionStatus(getLiveKitConnectionStatus("connection_error"));
     } finally {
@@ -555,7 +616,16 @@ export const useLiveKitSession = () => {
         connectInFlightRef.current = null;
       }
     }
-  }, [activateAssistantAudio, resetMediaState, setIsBotSpeaking, setAssistantGainNode, setMicStream]);
+  }, [
+    activateAssistantAudio,
+    armAgentHeartbeatTimeout,
+    clearAgentHeartbeatTimeout,
+    failCurrentSession,
+    resetMediaState,
+    setAssistantGainNode,
+    setIsBotSpeaking,
+    setMicStream,
+  ]);
 
   const disconnect = useCallback(() => {
     intentionalDisconnectRef.current = true;
@@ -564,10 +634,11 @@ export const useLiveKitSession = () => {
     connectInFlightRef.current = null;
     const room = roomRef.current;
     roomRef.current = null;
+    clearAgentHeartbeatTimeout();
     room?.disconnect();
     resetMediaState();
     setConnectionStatus(getLiveKitConnectionStatus("disconnected"));
-  }, [resetMediaState]);
+  }, [clearAgentHeartbeatTimeout, resetMediaState]);
 
   // Clean up media streams, Web Audio contexts, and room connections on component unmount
   useEffect(() => {

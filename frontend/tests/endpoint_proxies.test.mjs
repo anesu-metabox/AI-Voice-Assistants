@@ -22,6 +22,8 @@ describe("FastAPI & Next.js Endpoints Integration Verification", () => {
       "src/app/api/assistant-config/route.ts",
       "src/app/api/assistant-config/runtime/route.ts",
       "src/app/api/company-profile/route.ts",
+      "src/app/api/dashboard/summary/route.ts",
+      "src/app/api/integrations/status/route.ts",
       "src/app/api/livekit/token/route.ts",
     ]) {
       assert.ok(existsSync(resolve(frontendDir, route)), `${route} must exist`);
@@ -60,8 +62,10 @@ describe("FastAPI & Next.js Endpoints Integration Verification", () => {
 
   it("shows the authenticated Neon Auth identity and terminates the session through its BFF", () => {
     const appSource = readFileSync(resolve(frontendDir, "src/App.tsx"), "utf-8");
+    const cacheSource = readFileSync(resolve(frontendDir, "src/lib/workspaceCache.ts"), "utf-8");
     assert.match(appSource, /function AccountFooter/);
-    assert.match(appSource, /\/api\/auth\/get-session/);
+    assert.match(appSource, /getSession\(/);
+    assert.match(cacheSource, /\/api\/auth\/get-session/);
     assert.match(appSource, /\/api\/auth\/sign-out/);
     assert.match(appSource, /window\.location\.assign\("\/sign-in"\)/);
     assert.doesNotMatch(appSource, /Signed-in company|Authenticated workspace/);
@@ -69,10 +73,18 @@ describe("FastAPI & Next.js Endpoints Integration Verification", () => {
 
   it("routes an authenticated session out of the public landing state before loading company data", () => {
     const appSource = readFileSync(resolve(frontendDir, "src/App.tsx"), "utf-8");
-    assert.match(appSource, /fetch\("\/api\/auth\/get-session"/);
+    assert.match(appSource, /getSession\(\{ force: Boolean\(search\)/);
     assert.match(appSource, /sessionPayload\?\.user \|\| sessionPayload\?\.session\?\.user/);
     assert.match(appSource, /setPage\("onboarding-goals"\)/);
-    assert.match(appSource, /fetch\("\/api\/company-profile"/);
+    assert.match(appSource, /getCompanyProfile\(\)/);
+  });
+
+  it("loads dashboard and integrations through aggregated read models", () => {
+    const appSource = readFileSync(resolve(frontendDir, "src/App.tsx"), "utf-8");
+    assert.match(appSource, /getJson\("\/api\/dashboard\/summary"\)/);
+    assert.match(appSource, /fetch\("\/api\/integrations\/status"/);
+    assert.match(readFileSync(resolve(rootDir, "backend/app/api/integrations.py"), "utf-8"), /@router\.get\("\/status"\)/);
+    assert.match(readFileSync(resolve(rootDir, "backend/app/api/dashboard.py"), "utf-8"), /@router\.get\("\/summary"\)/);
   });
 
   it("forwards single-segment Google OAuth paths without throwing in Next", () => {

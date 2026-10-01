@@ -211,6 +211,10 @@ class ListEventsResult(ToolResultBase):
     timezone: str = Field(default="UTC")
     count: int = Field(default=0)
     events: List[Dict[str, Any]] = Field(default_factory=list)
+    truncated: bool = Field(
+        default=False,
+        description="True when the bounded realtime response has additional matching events.",
+    )
     source: str = Field(default="neon_postgres")
 
 

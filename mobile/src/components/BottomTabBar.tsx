@@ -117,9 +117,7 @@ export default function BottomTabBar({ activeTab, onTabChange, onFabPress }: Bot
                 onPress={() => onTabChange(tab.id)}
                 style={styles.tabButton}
               >
-                {isActive && (
-                  <View style={[styles.activeIndicator, { backgroundColor: colors.tabBarActive }]} />
-                )}
+
                 <tab.Icon color={iconColor} />
                 <Text
                   style={[
@@ -180,13 +178,7 @@ const styles = StyleSheet.create({
     gap: 3,
     position: 'relative',
   },
-  activeIndicator: {
-    position: 'absolute',
-    top: 0,
-    width: 28,
-    height: 3,
-    borderRadius: 2,
-  },
+
   tabLabel: {
     fontSize: 10,
   },

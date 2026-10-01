@@ -71,16 +71,16 @@ export default function MetricCard({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 18,
-    padding: 14,
+    borderRadius: 20,
+    padding: 16,
     borderWidth: 1,
     flex: 1,
     gap: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 1,
   },
   topRow: {
     flexDirection: 'row',
@@ -88,9 +88,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   iconBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -108,8 +108,9 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   valueText: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '800',
+    letterSpacing: -0.4,
   },
   subText: {
     fontSize: 11,

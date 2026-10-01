@@ -8,12 +8,12 @@ const mascotImg = require('../src/assets/mascot-1.png');
 
 export default function IndexPage() {
   const router = useRouter();
-  const { isLoading, isAuthenticated, hasCompletedSetup } = useAuth();
+  const { isLoading, isAuthenticated, hasConfiguredCompany } = useAuth();
 
   useEffect(() => {
     if (isLoading) return;
     if (isAuthenticated) {
-      if (hasCompletedSetup) {
+      if (hasConfiguredCompany) {
         router.replace('/(tabs)');
       } else {
         router.replace('/setup');
@@ -21,7 +21,7 @@ export default function IndexPage() {
     } else {
       router.replace('/splash');
     }
-  }, [isLoading, isAuthenticated, hasCompletedSetup, router]);
+  }, [isLoading, isAuthenticated, hasConfiguredCompany, router]);
 
   // Always show loading while determining auth state
   return (

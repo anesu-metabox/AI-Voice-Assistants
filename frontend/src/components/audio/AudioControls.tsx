@@ -31,11 +31,13 @@ export const AudioControls: React.FC<AudioControlsProps> = ({
     "waiting_for_agent",
     "waiting_for_audio",
     "reconnecting",
+    "recovering",
   ].includes(connectionStatus);
   const connectButtonDisabled = [
     "connecting",
     "waiting_for_agent",
     "reconnecting",
+    "recovering",
   ].includes(connectionStatus);
 
   const connectionLabel =
@@ -43,6 +45,10 @@ export const AudioControls: React.FC<AudioControlsProps> = ({
       ? "Waiting for agent"
       : connectionStatus === "waiting_for_audio"
       ? "Tap to enable audio"
+      : connectionStatus === "recovering"
+      ? "Reconnecting to voice service"
+      : connectionStatus === "error"
+      ? "Voice service unavailable"
       : connectionStatus;
 
   return (
@@ -115,7 +121,13 @@ export const AudioControls: React.FC<AudioControlsProps> = ({
               className="px-6 py-3 rounded-full bg-sky-500 hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-wait text-slate-950 font-semibold shadow-lg shadow-sky-500/25 transition-all flex items-center gap-2"
             >
               <Volume2 className="w-5 h-5" />
-              <span>{isBusy ? connectionLabel : "Start Voice Assistant"}</span>
+              <span>
+                {isBusy
+                  ? connectionLabel
+                  : connectionStatus === "error"
+                  ? "Start New Voice Session"
+                  : "Start Voice Assistant"}
+              </span>
             </button>
             {isBusy && (
               <button

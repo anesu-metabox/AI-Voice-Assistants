@@ -5,12 +5,12 @@
     "slug": "ai-voice-assistant-bot",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./src/assets/mascot-1.png",
+    "icon": "./src/assets/app-icon.png",
     "userInterfaceStyle": "automatic",
     "splash": {
-      "image": "./src/assets/mascot-1.png",
+      "image": "./src/assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0D1526"
+      "backgroundColor": "#0B1120"
     },
     "ios": {
       "supportsTablet": true,
@@ -24,8 +24,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./src/assets/mascot-1.png",
-        "backgroundColor": "#0D1526"
+        "foregroundImage": "./src/assets/adaptive-foreground.png",
+        "backgroundColor": "#5B6BF0"
       },
       "package": "com.vocalist.ai.mobile",
       "permissions": [

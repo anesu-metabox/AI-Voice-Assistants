@@ -14,6 +14,26 @@ async def test_migrations_require_an_explicit_branch(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_migrations_require_a_name_for_an_id_based_branch(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL_UNPOOLED", "postgresql://example.invalid/db")
+    monkeypatch.setenv("NEON_BRANCH", "br-production-id")
+    monkeypatch.delenv("NEON_BRANCH_NAME", raising=False)
+
+    with pytest.raises(RuntimeError, match="NEON_BRANCH_NAME"):
+        await run_migrations()
+
+
+@pytest.mark.asyncio
+async def test_migrations_reject_protected_name_for_an_id_based_branch(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL_UNPOOLED", "postgresql://example.invalid/db")
+    monkeypatch.setenv("NEON_BRANCH", "br-production-id")
+    monkeypatch.setenv("NEON_BRANCH_NAME", "production")
+
+    with pytest.raises(RuntimeError, match="Refusing to migrate the production Neon branch"):
+        await run_migrations()
+
+
+@pytest.mark.asyncio
 async def test_migrations_reject_pooler_endpoint(monkeypatch, tmp_path):
     monkeypatch.setattr(connection, "_root_dir", tmp_path)
     monkeypatch.setenv("DATABASE_URL_UNPOOLED", "postgresql://user:password@ep-example-pooler.neon.tech/db")

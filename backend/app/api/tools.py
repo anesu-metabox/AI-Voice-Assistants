@@ -22,7 +22,10 @@ from ..schemas.tools import (
 from ..tools.calendar import get_calendar_availability, book_event, cancel_event, list_events
 from ..policy import is_active_tool
 from ..auth_context import verify_session_context
-from db.agent_profiles import get_published_agent_profile
+from ..services.profile_cache import (
+    get_cached_published_agent_profile as get_published_agent_profile,
+)
+from ..services.latency import measured
 
 # Relative import of DB idempotency engine
 import sys
@@ -144,9 +147,13 @@ async def execute_tool(
     # not authorization boundaries. Legacy contexts without a snapshot keep
     # the existing platform allowlist during the migration window.
     if context.profile_version is not None:
-        active_profile = await get_published_agent_profile(
-            company_id=context.company_id,
-            version=context.profile_version,
+        active_profile = await measured(
+            logger,
+            "profile_authorization",
+            get_published_agent_profile(
+                company_id=context.company_id,
+                version=context.profile_version,
+            ),
         )
         if not is_tool_granted_by_profile(tool_name, active_profile):
             return ToolExecutionResponse(
@@ -205,9 +212,13 @@ async def execute_tool(
         ToolName.BOOK_EVENT.value,
     ) and not tool_kwargs.get("timezone"):
         try:
-            tool_kwargs["timezone"] = await resolve_company_timezone(
-                context.company_id,
-                session_timezone=context.timezone,
+            tool_kwargs["timezone"] = await measured(
+                logger,
+                "timezone_resolution",
+                resolve_company_timezone(
+                    context.company_id,
+                    session_timezone=context.timezone,
+                ),
             )
         except Exception as exc:
             logger.error("Calendar timezone resolution failed (error_type=%s)", type(exc).__name__)
@@ -344,7 +355,11 @@ async def execute_tool(
         import inspect
         sig = inspect.signature(tool_func)
         call_params = {k: v for k, v in tool_kwargs.items() if k in sig.parameters}
-        result = await tool_func(**call_params)
+        result = await measured(
+            logger,
+            f"tool_{tool_name}",
+            tool_func(**call_params),
+        )
         elapsed_ms = (time.perf_counter() - start_time) * 1000
 
         # Handle structured conflict returned by tools (e.g. slot collision)

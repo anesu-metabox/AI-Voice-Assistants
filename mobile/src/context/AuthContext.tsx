@@ -1,14 +1,13 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { AppState } from 'react-native';
-import { apiService, AssistantConfig, CompanyProfile, UserAccount } from '../services/api';
+import { apiService, CompanyProfile, UserAccount } from '../services/api';
 
 interface AuthContextType {
   user: UserAccount | null;
   companyProfile: CompanyProfile | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  assistantConfig: AssistantConfig | null;
-  hasCompletedSetup: boolean;
+  hasConfiguredCompany: boolean;
   refreshSession: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -18,8 +17,7 @@ const AuthContext = createContext<AuthContextType>({
   companyProfile: null,
   isLoading: true,
   isAuthenticated: false,
-  assistantConfig: null,
-  hasCompletedSetup: false,
+  hasConfiguredCompany: false,
   refreshSession: async () => {},
   signOut: async () => {},
 });
@@ -27,8 +25,6 @@ const AuthContext = createContext<AuthContextType>({
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserAccount | null>(null);
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
-  const [assistantConfig, setAssistantConfig] = useState<AssistantConfig | null>(null);
-  const [hasCompletedSetup, setHasCompletedSetup] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   const refreshSession = async () => {
@@ -36,29 +32,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const session = await apiService.checkSession();
       if (session.authenticated && session.user) {
         setUser(session.user);
-        const [profileResult, assistantResult, versionsResult] = await Promise.all([
-          apiService.getCompanyProfile(),
-          apiService.getAssistantConfig(),
-          apiService.getAssistantVersions(),
-        ]);
-        setCompanyProfile(profileResult);
-        setAssistantConfig(assistantResult);
-        const hasPublishedAssistant = Boolean(
-          assistantResult?.assistant_name?.trim() &&
-          versionsResult.some((version) => version.lifecycle_state === 'published'),
-        );
-        setHasCompletedSetup(Boolean(profileResult?.company_name?.trim()) && hasPublishedAssistant);
+        try {
+          const profile = await apiService.getCompanyProfile();
+          setCompanyProfile(profile);
+        } catch {
+          setCompanyProfile(null);
+        }
       } else {
         setUser(null);
         setCompanyProfile(null);
-        setAssistantConfig(null);
-        setHasCompletedSetup(false);
       }
     } catch {
       setUser(null);
       setCompanyProfile(null);
-      setAssistantConfig(null);
-      setHasCompletedSetup(false);
     } finally {
       setIsLoading(false);
     }
@@ -89,10 +75,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setUser(null);
       setCompanyProfile(null);
-      setAssistantConfig(null);
-      setHasCompletedSetup(false);
     }
   };
+
+  const hasConfiguredCompany = Boolean(
+    companyProfile && companyProfile.company_name && companyProfile.company_name.trim().length > 0
+  );
 
   return (
     <AuthContext.Provider
@@ -101,8 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         companyProfile,
         isLoading,
         isAuthenticated: Boolean(user),
-        assistantConfig,
-        hasCompletedSetup,
+        hasConfiguredCompany,
         refreshSession,
         signOut,
       }}

@@ -5,6 +5,7 @@ import { TestingSandboxPage } from "./components/sandbox/TestingSandboxPage";
 import { BookingUpdateCenter } from "./components/tasks/BookingUpdateCenter";
 import type { CapabilityId, ResponseLanguage } from "./lib/capabilityRegistry";
 import { logSafeFailure } from "./lib/safeLogging";
+import { clearWorkspaceCache, getCompanyProfile, getSession, setCachedCompanyProfile } from "./lib/workspaceCache";
 import * as Lu from "lucide-react";
 import { Alert, Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, KeyValue, SelectWrap, Skeleton, StatCard, Toast, cn, controlCls, selectCls, type Tone } from "./components/app/ui";
 
@@ -239,10 +240,9 @@ function AccountFooter() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/auth/get-session", { credentials: "include", cache: "no-store" })
-      .then(async (response) => {
-        if (!response.ok) return;
-        const payload = await response.json();
+    getSession()
+      .then((payload) => {
+        if (!payload) return;
         const user = payload?.user || payload?.session?.user;
         if (active && user) {
           setAccount({
@@ -266,6 +266,7 @@ function AccountFooter() {
         body: JSON.stringify({}),
       });
       if (!response.ok) throw new Error("Sign-out failed");
+      clearWorkspaceCache();
       window.location.assign("/sign-in");
     } catch {
       setSignOutError(true);
@@ -684,6 +685,9 @@ type CallRow = {
 };
 
 async function getJson(url: string): Promise<any | null> {
+  if (url === "/api/company-profile") {
+    return getCompanyProfile().then((data) => data ? { status: "success", data } : null);
+  }
   try {
     const response = await fetch(url, { credentials: "include", cache: "no-store" });
     return response.ok ? await response.json() : null;
@@ -712,23 +716,15 @@ function DashboardPage({ setPage }: { setPage: (p: Page) => void }) {
 
   useEffect(() => {
     let active = true;
-    Promise.all([
-      getJson("/api/company-profile"),
-      getJson("/api/integrations/3cx"),
-      getJson("/api/integrations/3cx/calls?limit=50"),
-      getJson("/auth/google/status"),
-      getJson("/api/assistant-config/versions"),
-    ]).then(([profile, threeCx, calls, google, versions]) => {
+    getJson("/api/dashboard/summary").then((summary) => {
       if (!active) return;
-      const list = Array.isArray(versions?.data) ? versions.data : [];
-      const published = list.find((item: { lifecycle_state?: string }) => item.lifecycle_state === "published");
       setState({
         loading: false,
-        company: String(profile?.data?.company_name || "").trim() || null,
-        threeCx,
-        google: google ? !!google.connected : null,
-        published: typeof published?.version === "number" ? published.version : null,
-        calls: Array.isArray(calls?.calls) ? calls.calls : null,
+        company: String(summary?.company?.company_name || "").trim() || null,
+        threeCx: summary?.threeCx || null,
+        google: summary?.google ? !!summary.google.connected : null,
+        published: typeof summary?.publishedVersion === "number" ? summary.publishedVersion : null,
+        calls: Array.isArray(summary?.calls) ? summary.calls : null,
       });
     });
     return () => { active = false; };
@@ -1164,10 +1160,11 @@ function AuthRedirect() {
 
 // ─── Integrations ─────────────────────────────────────────────────────────────
 
-function GoogleCalendarIntegrationCard() {
-  const [connected, setConnected] = useState(false);
-  const [connectedEmail, setConnectedEmail] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+function GoogleCalendarIntegrationCard({ initialStatus }: { initialStatus?: { connected?: boolean; connection_state?: string; google_email?: string; email?: string } | null }) {
+  const [connected, setConnected] = useState(!!initialStatus?.connected);
+  const [connectionState, setConnectionState] = useState(initialStatus?.connection_state || (initialStatus?.connected ? "connected" : "disconnected"));
+  const [connectedEmail, setConnectedEmail] = useState<string | null>(initialStatus?.google_email || initialStatus?.email || null);
+  const [loading, setLoading] = useState(initialStatus === undefined);
   const [busy, setBusy] = useState(false);
   const checkStatus = useCallback(async () => {
     try {
@@ -1175,6 +1172,7 @@ function GoogleCalendarIntegrationCard() {
       if (res.ok) {
         const data = await res.json();
         setConnected(!!data.connected);
+        setConnectionState(data.connection_state || (data.connected ? "connected" : "disconnected"));
         setConnectedEmail(data.email || data.google_email || null);
       } else {
         setConnected(false);
@@ -1189,7 +1187,12 @@ function GoogleCalendarIntegrationCard() {
   }, []);
 
   useEffect(() => {
-    checkStatus();
+    if (initialStatus !== undefined) {
+      setConnected(!!initialStatus?.connected);
+      setConnectionState(initialStatus?.connection_state || (initialStatus?.connected ? "connected" : "disconnected"));
+      setConnectedEmail(initialStatus?.google_email || initialStatus?.email || null);
+      setLoading(false);
+    }
     const handleMsg = (e: MessageEvent) => {
       if (e.data?.type === "GOOGLE_AUTH_SUCCESS") {
         checkStatus();
@@ -1197,7 +1200,7 @@ function GoogleCalendarIntegrationCard() {
     };
     window.addEventListener("message", handleMsg);
     return () => window.removeEventListener("message", handleMsg);
-  }, [checkStatus]);
+  }, [checkStatus, initialStatus]);
 
   const handleConnect = async () => {
     setBusy(true);
@@ -1252,7 +1255,9 @@ function GoogleCalendarIntegrationCard() {
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-50 to-indigo-50 text-indigo-600 ring-1 ring-inset ring-indigo-100">
           <Lu.CalendarDays className="h-6 w-6" />
         </div>
-        <Badge tone={loading ? "slate" : connected ? "green" : "slate"}>{loading ? "Checking..." : connected ? "Connected" : "Not Connected"}</Badge>
+        <Badge tone={loading ? "slate" : connectionState === "refreshable" ? "amber" : connected ? "green" : "slate"}>
+          {loading ? "Checking..." : connectionState === "refreshable" ? "Connected · refresh on use" : connected ? "Connected" : "Not Connected"}
+        </Badge>
       </div>
       <div className="px-5 pb-5 sm:px-6 sm:pb-6">
         <h3 className="font-[Bricolage_Grotesque] text-lg font-bold text-slate-900">Google Calendar Sync</h3>
@@ -1286,7 +1291,7 @@ function GoogleCalendarIntegrationCard() {
   );
 }
 
-function ThreeCXIntegrationCard() {
+function ThreeCXIntegrationCard({ initialStatus }: { initialStatus?: any | null }) {
   const [connectionName, setConnectionName] = useState("3CX PBX Connection");
   const [pbxUrl, setPbxUrl] = useState("");
   const [appId, setAppId] = useState("");
@@ -1299,10 +1304,7 @@ function ThreeCXIntegrationCard() {
   const [status, setStatus] = useState<any>(null);
   const [busy, setBusy] = useState(false);
 
-  const loadStatus = useCallback(async () => {
-    const response = await fetch("/api/integrations/3cx", { credentials: "include", cache: "no-store" });
-    if (!response.ok) throw new Error("Could not load the 3CX connection details");
-    const data = await response.json();
+  const applyStatus = useCallback((data: any) => {
     setStatus(data);
     setConnectionName(data.connectionName || "3CX PBX Connection");
     setPbxUrl(data.pbxHost ? `https://${data.pbxHost}` : "");
@@ -1315,7 +1317,15 @@ function ThreeCXIntegrationCard() {
     setClientSecret("");
   }, []);
 
-  useEffect(() => { loadStatus().catch(() => setStatus({ configured: false, error: "Could not load the 3CX connection details" })); }, [loadStatus]);
+  const loadStatus = useCallback(async () => {
+    const response = await fetch("/api/integrations/3cx", { credentials: "include", cache: "no-store" });
+    if (!response.ok) throw new Error("Could not load the 3CX connection details");
+    applyStatus(await response.json());
+  }, [applyStatus]);
+
+  useEffect(() => {
+    if (initialStatus !== undefined) applyStatus(initialStatus);
+  }, [applyStatus, initialStatus, loadStatus]);
 
   const save = async () => {
     setBusy(true);
@@ -1567,11 +1577,12 @@ function readCapabilityFlags(raw: unknown): CapabilityFlags {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_CAPABILITY_FLAGS };
   const values = raw as Record<string, unknown>;
   const enabled = (key: keyof CapabilityFlags) => {
+    const hasExplicitValue = Object.prototype.hasOwnProperty.call(values, key);
     const value = values[key];
     if (value && typeof value === "object" && "enabled" in value) {
       return Boolean((value as { enabled?: unknown }).enabled);
     }
-    return typeof value === "boolean" ? value : DEFAULT_CAPABILITY_FLAGS[key];
+    return typeof value === "boolean" ? value : hasExplicitValue ? false : DEFAULT_CAPABILITY_FLAGS[key];
   };
   return {
     company_receptionist: enabled("company_receptionist"),
@@ -1777,10 +1788,8 @@ function PersistedCompanyOnboardingPage({ setPage }: { setPage: (p: Page) => voi
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    fetch("/api/company-profile", { cache: "no-store" }).then(async (response) => {
-      if (!response.ok) return;
-      const payload = await response.json();
-      if (payload.data) setDraft((current) => ({ ...current, ...payload.data }));
+    getCompanyProfile().then((payload) => {
+      if (payload) setDraft((current) => ({ ...current, ...payload }));
     }).catch(() => setMessage("Unable to load the company profile."));
   }, []);
 
@@ -1789,6 +1798,7 @@ function PersistedCompanyOnboardingPage({ setPage }: { setPage: (p: Page) => voi
     try {
       const response = await fetch("/api/company-profile", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(draft) });
       if (!response.ok) throw new Error("Company profile could not be saved.");
+      setCachedCompanyProfile(draft);
       setPage("onboarding-ai");
     } catch (error) { setMessage(error instanceof Error ? error.message : "Company profile could not be saved."); }
     finally { setBusy(false); }
@@ -1870,6 +1880,17 @@ function PersistedAssistantOnboardingPage({ setPage }: { setPage: (p: Page) => v
 }
 
 function IntegrationsPage({ setPage }: { setPage: (p: Page) => void }) {
+  const [integrationStatus, setIntegrationStatus] = useState<{ google: any; threeCx: any } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/integrations/status", { credentials: "include", cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => { if (active) setIntegrationStatus(data); })
+      .catch(() => { if (active) setIntegrationStatus({ google: null, threeCx: null }); });
+    return () => { active = false; };
+  }, []);
+
   return (
     <AppShell
       page="integrations"
@@ -1879,7 +1900,7 @@ function IntegrationsPage({ setPage }: { setPage: (p: Page) => void }) {
     >
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
         <div className="space-y-5">
-          <GoogleCalendarIntegrationCard />
+          <GoogleCalendarIntegrationCard initialStatus={integrationStatus ? integrationStatus.google : undefined} />
           <Card className="bg-gradient-to-br from-slate-900 to-slate-800 text-white">
             <div className="flex gap-4 p-5 sm:p-6">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-emerald-300"><Lu.ShieldCheck className="h-5 w-5" /></span>
@@ -1892,7 +1913,7 @@ function IntegrationsPage({ setPage }: { setPage: (p: Page) => void }) {
             </div>
           </Card>
         </div>
-        <ThreeCXIntegrationCard />
+        <ThreeCXIntegrationCard initialStatus={integrationStatus ? integrationStatus.threeCx : undefined} />
       </div>
     </AppShell>
   );
@@ -1910,24 +1931,14 @@ function CompanySetupPage({ setPage }: { setPage: (p: Page) => void }) {
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
   useEffect(() => {
-    async function loadCompany() {
-      try {
-        const res = await fetch("/api/company-profile", { cache: "no-store" });
-        if (res.ok) {
-          const json = await res.json();
-          if (json.data) {
-            if (json.data.company_name) setCompanyName(json.data.company_name);
-            if (json.data.website_url) setWebsiteUrl(json.data.website_url);
-            if (json.data.company_phone) setCompanyPhone(json.data.company_phone);
-            if (json.data.support_email) setSupportEmail(json.data.support_email);
-            if (json.data.timezone) setTimezone(json.data.timezone);
-          }
-        }
-      } catch (e) {
-        logSafeFailure("Company profile load failed", e, "warn");
-      }
-    }
-    loadCompany();
+    getCompanyProfile().then((data) => {
+      if (!data) return;
+      setCompanyName(data.company_name || "");
+      setWebsiteUrl(data.website_url || "");
+      setCompanyPhone(data.company_phone || "");
+      setSupportEmail(data.support_email || "");
+      setTimezone(data.timezone || "Indian/Mauritius");
+    }).catch((error) => logSafeFailure("Company profile load failed", error, "warn"));
   }, []);
 
   const handleSave = async () => {
@@ -1946,6 +1957,7 @@ function CompanySetupPage({ setPage }: { setPage: (p: Page) => void }) {
         }),
       });
       if (res.ok) {
+        setCachedCompanyProfile({ company_name: companyName, website_url: websiteUrl, company_phone: companyPhone, support_email: supportEmail, timezone });
         setStatusMessage({ text: "Company profile saved to database successfully!", type: "success" });
         setTimeout(() => setStatusMessage(null), 4000);
       } else {
@@ -2310,13 +2322,12 @@ export default function App() {
   useEffect(() => {
     let active = true;
     const search = typeof window !== "undefined" ? window.location.search : "";
-    fetch(`/api/auth/get-session${search}`, { credentials: "include", cache: "no-store" })
-      .then(async (sessionResponse) => {
-        if (!sessionResponse.ok) {
+    getSession({ force: Boolean(search), query: search })
+      .then(async (sessionPayload) => {
+        if (!sessionPayload) {
           if (active) { setPage("landing"); setLoading(false); }
           return;
         }
-        const sessionPayload = await sessionResponse.json();
         const user = sessionPayload?.user || sessionPayload?.session?.user;
         if (!active) return;
         if (!user) {
@@ -2333,15 +2344,10 @@ export default function App() {
         // while their company profile is loading or temporarily unavailable.
         setPage("onboarding-goals");
         try {
-          const profileResponse = await fetch("/api/company-profile", { credentials: "include", cache: "no-store" });
+          const profilePayload = await getCompanyProfile();
           if (!active) return;
-          if (profileResponse.ok) {
-            const profilePayload = await profileResponse.json();
-            const companyName = String(profilePayload?.data?.company_name || "").trim();
-            setPage(companyName ? "dashboard" : "onboarding-goals");
-          } else {
-            setPage("onboarding-goals");
-          }
+          const companyName = String(profilePayload?.company_name || "").trim();
+          setPage(companyName ? "dashboard" : "onboarding-goals");
         } catch {
           if (active) setPage("onboarding-goals");
         } finally {

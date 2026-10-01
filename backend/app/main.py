@@ -18,7 +18,9 @@ from .api.tools import router as tools_router
 from .api.integrations import router as integrations_router
 from .api.preferences import router as preferences_router
 from .api.bookings import router as bookings_router
+from .api.dashboard import router as dashboard_router
 from .config import settings
+from .services.latency import bind_trace_id, log_latency, reset_trace_id
 
 # Setup logging
 logging.basicConfig(
@@ -59,13 +61,22 @@ async def lifespan(app: FastAPI):
 
     # Prime the Fast Lane HTTP client pool
     from .services.http_client import get_http_client, close_http_client
+    from .services.credential_broker_client import (
+        close_broker_http_client,
+        get_broker_http_client,
+    )
     get_http_client()
+    get_broker_http_client()
 
     yield
 
     logger.info("Shutting down AI Voice Bot Backend Service...")
     try:
         await close_http_client()
+    except Exception:
+        pass
+    try:
+        await close_broker_http_client()
     except Exception:
         pass
     try:
@@ -86,6 +97,25 @@ app = FastAPI(
     redoc_url=None if is_production else "/redoc",
     openapi_url=None if is_production else "/openapi.json",
 )
+
+
+@app.middleware("http")
+async def correlate_request_latency(request: Request, call_next):
+    """Bind one safe request ID and record total backend request time."""
+    import time
+
+    trace_id, token = bind_trace_id(request.headers.get("x-request-id"))
+    started_at = time.perf_counter()
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = trace_id
+        log_latency(logger, "backend_request_total", started_at)
+        return response
+    except Exception:
+        log_latency(logger, "backend_request_total", started_at, outcome="error")
+        raise
+    finally:
+        reset_trace_id(token)
 
 
 @app.middleware("http")
@@ -128,6 +158,7 @@ app.include_router(settings_router)
 app.include_router(integrations_router)
 app.include_router(preferences_router)
 app.include_router(bookings_router)
+app.include_router(dashboard_router)
 app.include_router(tools_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
@@ -135,6 +166,7 @@ app.include_router(settings_router, prefix="/api")
 app.include_router(integrations_router, prefix="/api")
 app.include_router(preferences_router, prefix="/api")
 app.include_router(bookings_router, prefix="/api")
+app.include_router(dashboard_router, prefix="/api")
 app.include_router(tools_router, prefix="/api/v1")
 app.include_router(tasks_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
@@ -142,6 +174,7 @@ app.include_router(settings_router, prefix="/api/v1")
 app.include_router(integrations_router, prefix="/api/v1")
 app.include_router(preferences_router, prefix="/api/v1")
 app.include_router(bookings_router, prefix="/api/v1")
+app.include_router(dashboard_router, prefix="/api/v1")
 
 
 from fastapi.responses import Response

@@ -36,12 +36,18 @@ async def run_migrations(*, allow_production: bool = False) -> None:
     if not db_url:
         raise ValueError("Neither DATABASE_URL_UNPOOLED nor DATABASE_URL is configured.")
 
-    branch_name = os.getenv("NEON_BRANCH", "").strip().lower()
-    if not branch_name:
+    branch_ref = os.getenv("NEON_BRANCH", "").strip()
+    branch_name = os.getenv("NEON_BRANCH_NAME", "").strip()
+    if not branch_ref:
         raise RuntimeError(
             "NEON_BRANCH must explicitly identify the target branch before migrations can run"
         )
-    if branch_name in {"production", "main", "primary"} and not allow_production:
+    if branch_ref.casefold().startswith("br-") and not branch_name:
+        raise RuntimeError(
+            "NEON_BRANCH_NAME must identify an ID-based Neon migration target before migrations can run"
+        )
+    effective_branch_name = (branch_name or branch_ref).casefold()
+    if effective_branch_name in {"production", "main", "primary"} and not allow_production:
         raise RuntimeError(
             "Refusing to migrate the production Neon branch without --allow-production. "
             "Create/test an isolated branch first and confirm destructive OAuth migration impact."

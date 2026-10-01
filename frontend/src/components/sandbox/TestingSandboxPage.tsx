@@ -9,6 +9,11 @@ import {
   type RemoteTrackPublication,
 } from "livekit-client";
 import { logSafeFailure } from "@/lib/safeLogging";
+import { getCompanyProfile } from "@/lib/workspaceCache";
+import {
+  AGENT_HEARTBEAT_TIMEOUT_MS,
+  parseAgentLifecycleMessage,
+} from "@/lib/livekitSessionRuntime";
 
 interface TestingSandboxProps {
   onBack: () => void;
@@ -45,7 +50,7 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
   });
 
   // Call state
-  const [sessionStatus, setSessionStatus] = useState<"disconnected" | "connecting" | "connected" | "speaking" | "listening">("disconnected");
+  const [sessionStatus, setSessionStatus] = useState<"disconnected" | "connecting" | "connected" | "recovering" | "speaking" | "listening">("disconnected");
   const [isMuted, setIsMuted] = useState(false);
   const [duration, setDuration] = useState(0);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -67,6 +72,7 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
   const voiceSessionLockReleaseRef = useRef<(() => void) | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const transcriptIdsRef = useRef<Set<string>>(new Set());
+  const agentHeartbeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [roomName, setRoomName] = useState<string | null>(null);
 
   // Auto-scroll transcript
@@ -148,15 +154,12 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
       }
 
       try {
-        const compRes = await fetch("/api/company-profile", { cache: "no-store" });
-        if (compRes.ok) {
-          const json = await compRes.json();
-          if (json.data) {
-            setCompanyProfile({
-              company_name: json.data.company_name || "",
-              timezone: json.data.timezone || "Indian/Mauritius",
-            });
-          }
+        const profile = await getCompanyProfile();
+        if (profile) {
+          setCompanyProfile({
+            company_name: profile.company_name || "",
+            timezone: profile.timezone || "Indian/Mauritius",
+          });
         }
       } catch (err) {
         logSafeFailure("Company profile load failed", err, "warn");
@@ -167,7 +170,7 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
 
   // Call duration timer
   useEffect(() => {
-    if (sessionStatus === "connected" || sessionStatus === "speaking" || sessionStatus === "listening") {
+    if (sessionStatus === "connected" || sessionStatus === "recovering" || sessionStatus === "speaking" || sessionStatus === "listening") {
       timerRef.current = setInterval(() => {
         setDuration((prev) => prev + 1);
       }, 1000);
@@ -179,6 +182,47 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [sessionStatus]);
+
+  const clearAgentHeartbeatTimeout = useCallback(() => {
+    if (agentHeartbeatTimerRef.current !== null) {
+      clearTimeout(agentHeartbeatTimerRef.current);
+      agentHeartbeatTimerRef.current = null;
+    }
+  }, []);
+
+  const failVoiceSession = useCallback((room: Room, message: string) => {
+    if (roomRef.current !== room) return;
+    clearAgentHeartbeatTimeout();
+    cleanupAssistantAudio();
+    assistantParticipantIdentityRef.current = null;
+    releaseVoiceSessionLock();
+    if (localAudioTrackRef.current) {
+      try { localAudioTrackRef.current.stop(); } catch {}
+      localAudioTrackRef.current = null;
+    }
+    roomRef.current = null;
+    room.unregisterTextStreamHandler("lk.transcription");
+    try { room.disconnect(); } catch {}
+    if (audioContextRef.current) {
+      void audioContextRef.current.close().catch(() => undefined);
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+    sessionIdRef.current = null;
+    setRoomName(null);
+    setSessionStatus("disconnected");
+    setErrorMessage(message);
+  }, [clearAgentHeartbeatTimeout, cleanupAssistantAudio, releaseVoiceSessionLock]);
+
+  const armAgentHeartbeatTimeout = useCallback((room: Room) => {
+    clearAgentHeartbeatTimeout();
+    agentHeartbeatTimerRef.current = setTimeout(() => {
+      failVoiceSession(
+        room,
+        "The voice worker stopped responding. Start a new voice session to continue.",
+      );
+    }, AGENT_HEARTBEAT_TIMEOUT_MS);
+  }, [clearAgentHeartbeatTimeout, failVoiceSession]);
 
   // Canvas visualizer animation
   useEffect(() => {
@@ -377,6 +421,30 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
         try {
           const str = new TextDecoder().decode(payload);
           const packet = JSON.parse(str);
+          const lifecycle = parseAgentLifecycleMessage(packet);
+          if (lifecycle) {
+            if (lifecycle.session_id !== sessionIdRef.current) return;
+            if (lifecycle.state === "failed") {
+              failVoiceSession(
+                room,
+                "The Gemini voice connection could not recover. No calendar action was repeated. Start a new voice session to continue.",
+              );
+              return;
+            }
+            if (lifecycle.state === "ended") {
+              failVoiceSession(room, "The voice session ended. Start a new session to continue.");
+              return;
+            }
+            armAgentHeartbeatTimeout(room);
+            if (lifecycle.state === "recovering") {
+              setSessionStatus("recovering");
+              setErrorMessage("The voice service was interrupted and is reconnecting safely...");
+            } else if (lifecycle.state === "ready" || lifecycle.state === "recovered") {
+              setSessionStatus("connected");
+              setErrorMessage(null);
+            }
+            return;
+          }
           if (packet.type === "transcript" && packet.text?.trim()) {
             const messageId = packet.id || packet.message_id || `${packet.role}:${packet.timestamp}:${packet.text}`;
             if (transcriptIdsRef.current.has(messageId)) return;
@@ -398,6 +466,7 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
 
       room.on(RoomEvent.Disconnected, () => {
         if (roomRef.current !== room) return;
+        clearAgentHeartbeatTimeout();
         roomRef.current = null;
         cleanupAssistantAudio();
         assistantParticipantIdentityRef.current = null;
@@ -418,6 +487,7 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
 
       // 5. Connect room to LiveKit Cloud
       await room.connect(ws_url, token);
+      armAgentHeartbeatTimeout(room);
 
       // 6. Request and publish local microphone
       const localTrack = await createLocalAudioTrack({
@@ -466,6 +536,7 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
       analyserRef.current = null;
       setRoomName(null);
       setSessionStatus("disconnected");
+      clearAgentHeartbeatTimeout();
       setErrorMessage(err?.message || "Could not connect to the LiveKit voice session.");
     }
     })();
@@ -477,6 +548,9 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
     assistantConfig.assistant_name,
     assistantConfig.voice_engine,
     cleanupAssistantAudio,
+    armAgentHeartbeatTimeout,
+    clearAgentHeartbeatTimeout,
+    failVoiceSession,
     profileVersion,
     releaseVoiceSessionLock,
   ]);
@@ -485,6 +559,7 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
   const stopSession = useCallback(() => {
     if (connectInFlightRef.current) return;
     cleanupAssistantAudio();
+    clearAgentHeartbeatTimeout();
     assistantParticipantIdentityRef.current = null;
     releaseVoiceSessionLock();
     if (localAudioTrackRef.current) {
@@ -519,7 +594,29 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       },
     ]);
-  }, [cleanupAssistantAudio, releaseVoiceSessionLock]);
+  }, [clearAgentHeartbeatTimeout, cleanupAssistantAudio, releaseVoiceSessionLock]);
+
+  useEffect(() => {
+    return () => {
+      clearAgentHeartbeatTimeout();
+      cleanupAssistantAudio();
+      releaseVoiceSessionLock();
+      if (localAudioTrackRef.current) {
+        try { localAudioTrackRef.current.stop(); } catch {}
+        localAudioTrackRef.current = null;
+      }
+      const room = roomRef.current;
+      roomRef.current = null;
+      if (room) {
+        room.unregisterTextStreamHandler("lk.transcription");
+        try { room.disconnect(); } catch {}
+      }
+      if (audioContextRef.current) {
+        void audioContextRef.current.close().catch(() => undefined);
+        audioContextRef.current = null;
+      }
+    };
+  }, [clearAgentHeartbeatTimeout, cleanupAssistantAudio, releaseVoiceSessionLock]);
 
   // Toggle Mute
   const toggleMute = () => {
@@ -607,6 +704,8 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
               background:
                 sessionStatus === "connected"
                   ? "#DCFCE7"
+                  : sessionStatus === "recovering"
+                  ? "#FEF3C7"
                   : sessionStatus === "speaking"
                   ? "#EEF2FF"
                   : sessionStatus === "listening"
@@ -617,6 +716,8 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
               color:
                 sessionStatus === "connected"
                   ? "#166534"
+                  : sessionStatus === "recovering"
+                  ? "#92400E"
                   : sessionStatus === "speaking"
                   ? "#4338CA"
                   : sessionStatus === "listening"
@@ -634,6 +735,8 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
                 background:
                   sessionStatus === "connected"
                     ? "#22C55E"
+                    : sessionStatus === "recovering"
+                    ? "#F59E0B"
                     : sessionStatus === "speaking"
                     ? "#6366F1"
                     : sessionStatus === "listening"
@@ -646,6 +749,8 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
             <span>
               {sessionStatus === "connected"
                 ? "LIVE • GEMINI ACTIVE"
+                : sessionStatus === "recovering"
+                ? "RECONNECTING TO GEMINI..."
                 : sessionStatus === "speaking"
                 ? "AI BOT SPEAKING"
                 : sessionStatus === "listening"
@@ -677,7 +782,18 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
       </div>
 
       {errorMessage && (
-        <div style={{ background: "#FEE2E2", color: "#991B1B", padding: "10px 16px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>
+        <div
+          role={sessionStatus === "recovering" ? "status" : "alert"}
+          aria-live="polite"
+          style={{
+            background: sessionStatus === "recovering" ? "#FEF3C7" : "#FEE2E2",
+            color: sessionStatus === "recovering" ? "#92400E" : "#991B1B",
+            padding: "10px 16px",
+            borderRadius: 8,
+            fontSize: 13,
+            marginBottom: 16,
+          }}
+        >
           {errorMessage}
         </div>
       )}
@@ -763,10 +879,16 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
 
           <div style={{ textAlign: "center", marginBottom: 28 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: "#0D1526", fontFamily: "Bricolage Grotesque", marginBottom: 4 }}>
-              {isLive ? "Voice session active" : "Tap microphone to begin testing"}
+              {sessionStatus === "recovering"
+                ? "Voice service reconnecting"
+                : isLive
+                ? "Voice session active"
+                : "Tap microphone to begin testing"}
             </div>
             <div style={{ fontSize: 13, color: "#64748B", maxWidth: 300, lineHeight: 1.5 }}>
-              {isLive
+              {sessionStatus === "recovering"
+                ? "Please wait while the worker restores the provider session. Consequential actions are not replayed automatically."
+                : isLive
                 ? "Speak naturally into your microphone. Gemini Live analyzes inflections and responds with low latency."
                 : "Tests your saved company context, prompt instructions, and voice synthesis end-to-end."}
             </div>

@@ -15,7 +15,12 @@ from agent.agent import (
     require_bound_profile_snapshot,
     speak_configured_greeting,
 )
-from agent.assistant_policy import classify_assistant_turn, detect_explicit_language_switch
+from agent.assistant_policy import (
+    classify_assistant_turn,
+    compile_company_fact_index,
+    detect_explicit_language_switch,
+    match_approved_company_fact,
+)
 from agent.tts import VoiceBotTTS, edge_voice_for
 
 
@@ -84,6 +89,65 @@ def test_company_faq_scope_allows_company_questions_but_not_diversions():
     assert classify_assistant_turn(
         "Check my calendar", company_capabilities=FAQ_ONLY
     ).reason == "calendar_unavailable"
+
+
+def test_company_fact_matcher_returns_one_approved_fact_and_rejects_mixed_intent():
+    match = match_approved_company_fact("When are you open?", COMPANY_CONTEXT)
+    assert match is not None
+    assert match.kind == "faq"
+    assert match.value["answer"] == "Monday to Friday, 9 AM to 5 PM."
+    assert match_approved_company_fact(
+        "When are you open and explain quantum mechanics?", COMPANY_CONTEXT
+    ) is None
+
+
+def test_reference_heading_matches_single_topic_questions():
+    context = {
+        "knowledge_base_notes": "3. FULL MENU & PRICING (All prices in MUR):\nSmoked Marlin Carpaccio — Rs 550",
+    }
+    match = match_approved_company_fact("What is the menu?", context)
+    assert match is not None
+    assert match.kind == "reference"
+    assert "FULL MENU" in match.value
+
+
+def test_company_fact_index_is_compiled_once_and_reused_without_raw_context():
+    index = compile_company_fact_index(COMPANY_CONTEXT)
+    assert index is not None
+    assert len(index.faq_entries) == 1
+    match = match_approved_company_fact(
+        "When are you open?", compiled_index=index
+    )
+    assert match is not None
+    assert match.value["answer"] == "Monday to Friday, 9 AM to 5 PM."
+
+
+@pytest.mark.asyncio
+async def test_company_fact_turn_injects_only_the_matched_approved_answer():
+    agent = VoiceBotAgent(
+        room=MagicMock(),
+        instructions="company FAQ only",
+        company_capabilities=FAQ_ONLY,
+        company_scope_context={
+            **COMPANY_CONTEXT,
+            "faq_entries": [
+                *COMPANY_CONTEXT["faq_entries"],
+                {"question": "Where are you?", "answer": "Port Louis."},
+            ],
+        },
+        allowed_tools=set(),
+    )
+    update = AsyncMock()
+    agent._activity = SimpleNamespace(session=SimpleNamespace(say=MagicMock()), update_instructions=update)
+    try:
+        await agent.on_user_turn_completed(
+            MagicMock(), SimpleNamespace(text_content="When are you open?")
+        )
+        instructions = update.await_args.args[0]
+        assert "Monday to Friday, 9 AM to 5 PM." in instructions
+        assert "Port Louis." not in instructions
+    finally:
+        await agent.aclose()
 
 
 def test_calendar_follow_up_requires_company_calendar_grant():

@@ -137,6 +137,31 @@ async def test_oauth_completion_returns_only_connection_metadata(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_calendar_booking_requires_live_provider_availability(monkeypatch):
+    booked = False
+
+    async def conflict(*_args, **_kwargs):
+        return {"status": "conflict"}
+
+    async def book(*_args, **_kwargs):
+        nonlocal booked
+        booked = True
+        return {"status": "confirmed"}
+
+    monkeypatch.setattr(broker, "check_google_calendar_interval_free", conflict)
+    monkeypatch.setattr(broker, "book_google_calendar_event", book)
+    result = await broker.calendar_book({
+        "company_id": str(uuid.uuid4()),
+        "request_key": "booking-key",
+        "title": "Review",
+        "start_time": "2026-10-01T05:00:00Z",
+        "duration_minutes": 30,
+    })
+    assert result == {"status": "conflict"}
+    assert booked is False
+
+
+@pytest.mark.asyncio
 async def test_threecx_save_returns_only_redacted_connection_metadata(monkeypatch):
     encrypted = {}
 

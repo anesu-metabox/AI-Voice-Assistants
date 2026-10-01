@@ -23,6 +23,7 @@ DEFAULT_POLICY = ROOT / "config" / "production-preflight.json"
 REQUIRED_UNKNOWN = {
     "shared_secret_equality", "cross_service_secret_equality",
     "neon_endpoint_branch_identity", "neon_runtime_role_flags",
+    "calendar_mirror_schema_migration",
 }
 SNAPSHOT_KEYS = {
     "projectId", "projectName", "environmentId", "environmentName", "services"
@@ -188,6 +189,35 @@ def validate_runtime_environment(
         findings.append(_finding("broker_previous_key_pair", "PASS" if rotation_pair_valid else "FAIL", role))
         if previous_key:
             findings.append(_finding("broker_previous_key_shape", "PASS" if valid_key(previous_key) else "FAIL", role))
+        mirror_value = env.get("CALENDAR_MIRROR_ENABLED", "false").strip().lower()
+        mirror_flag_valid = mirror_value in {"true", "false", "1", "0", "yes", "no", "on", "off"}
+        mirror_enabled = mirror_value in {"true", "1", "yes", "on"}
+        findings.append(
+            _finding(
+                "calendar_mirror_flag_shape",
+                "PASS" if mirror_flag_valid else "FAIL",
+                role,
+            )
+        )
+        if mirror_enabled:
+            bounded_settings = (
+                ("CALENDAR_MIRROR_MAX_STALENESS_SECONDS", 5, 300),
+                ("CALENDAR_MIRROR_RECONCILE_INTERVAL_SECONDS", 10, 300),
+                ("CALENDAR_MIRROR_ACTIVE_TENANT_TTL_SECONDS", 60, 86400),
+            )
+            for key, minimum, maximum in bounded_settings:
+                try:
+                    value = int(env.get(key, ""))
+                    valid = minimum <= value <= maximum
+                except (TypeError, ValueError):
+                    valid = False
+                findings.append(
+                    _finding(f"calendar_mirror_setting:{key}", "PASS" if valid else "FAIL", role)
+                )
+            if not database_probed:
+                findings.append(
+                    _finding("calendar_mirror_schema_migration", "UNKNOWN", role)
+                )
     if role == "frontend":
         backend = env.get("BACKEND_URL", "").strip()
         findings.append(_finding("backend_url_scheme", "PASS" if urlsplit(backend).scheme == "https" else "FAIL", role))
@@ -224,14 +254,19 @@ def validate_runtime_environment(
     return findings
 
 
-def probe_database(dsn: str, runtime_role: str) -> list[dict[str, str]]:
+def probe_database(
+    dsn: str,
+    runtime_role: str,
+    *,
+    require_calendar_mirror: bool = False,
+) -> list[dict[str, str]]:
     """Read only current database role flags; do not report identifiers or DSNs."""
     try:
         import asyncpg
     except ImportError:
         return [_finding("database_probe", "UNKNOWN")]
 
-    async def query() -> tuple[bool, bool]:
+    async def query() -> tuple[bool, bool, bool]:
         conn = await asyncpg.connect(dsn, ssl="require", timeout=8)
         try:
             async with conn.transaction(readonly=True):
@@ -242,23 +277,43 @@ def probe_database(dsn: str, runtime_role: str) -> list[dict[str, str]]:
                        FROM pg_roles r WHERE r.rolname = current_user""",
                     runtime_role,
                 )
+                mirror_ready = await conn.fetchval(
+                    """SELECT to_regclass('public.calendar_sync_states') IS NOT NULL
+                              AND to_regclass('public.calendar_event_mirror') IS NOT NULL
+                              AND EXISTS (
+                                  SELECT 1 FROM schema_migrations
+                                  WHERE version = '024_calendar_event_mirror.sql'
+                              )"""
+                ) if require_calendar_mirror else False
             if row is None:
                 raise RuntimeError
-            return bool(row["role_matches"]), bool(row["is_superuser"] or row["bypasses_rls"])
+            return (
+                bool(row["role_matches"]),
+                bool(row["is_superuser"] or row["bypasses_rls"]),
+                bool(mirror_ready),
+            )
         finally:
             await conn.close()
 
     try:
-        matches, bypass = asyncio.run(query())
+        matches, bypass, mirror_ready = asyncio.run(query())
     except Exception:
         # Database drivers may include connection details in exception strings.
         return [_finding("database_probe", "FAIL")]
-    return [
+    findings = [
         _finding("database_probe", "PASS"),
         _finding("database_user_matches_runtime_role", "PASS" if matches else "FAIL"),
         _finding("neon_runtime_role_flags", "FAIL" if bypass else "PASS"),
         _finding("neon_endpoint_branch_identity", "UNKNOWN"),
     ]
+    if require_calendar_mirror:
+        findings.append(
+            _finding(
+                "calendar_mirror_schema_migration",
+                "PASS" if mirror_ready else "FAIL",
+            )
+        )
+    return findings
 
 
 def probe_booking_worker_database(dsn: str, worker_role: str) -> list[dict[str, str]]:
@@ -350,7 +405,18 @@ def main(argv: list[str] | None = None) -> int:
             elif booking_worker:
                 findings.extend(probe_booking_worker_database(dsn, role))
             else:
-                findings.extend(probe_database(dsn, role))
+                mirror_enabled = (
+                    args.runtime_role == "broker"
+                    and os.getenv("CALENDAR_MIRROR_ENABLED", "false").strip().lower()
+                    in {"true", "1", "yes", "on"}
+                )
+                findings.extend(
+                    probe_database(
+                        dsn,
+                        role,
+                        require_calendar_mirror=mirror_enabled,
+                    )
+                )
         if not findings:
             parser.error("provide --snapshot, --runtime-role, or --probe-database")
         return emit(findings)

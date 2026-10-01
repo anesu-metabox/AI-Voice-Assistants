@@ -30,9 +30,11 @@ new Function("module", "exports", compiled)(runtimeModule, runtimeModule.exports
 const {
   activateAudioPlayback,
   createLiveKitRoomName,
+  getAgentLifecycleStatus,
   getLiveKitConnectionStatus,
   isCurrentSessionGeneration,
   isVoiceSessionActive,
+  parseAgentLifecycleMessage,
 } = runtimeModule.exports;
 
 describe("LiveKit connection reliability state machine", () => {
@@ -52,6 +54,27 @@ describe("LiveKit connection reliability state machine", () => {
     assert.equal(getLiveKitConnectionStatus("audio_blocked", true), "waiting_for_audio");
     assert.equal(getLiveKitConnectionStatus("audio_ready", true), "connected");
   });
+
+  it("represents provider recovery separately from LiveKit transport recovery", () => {
+    assert.equal(getAgentLifecycleStatus("recovering"), "recovering");
+    assert.equal(getAgentLifecycleStatus("recovered", true), "connected");
+    assert.equal(getAgentLifecycleStatus("recovered", false), "waiting_for_agent");
+    assert.equal(getAgentLifecycleStatus("failed"), "error");
+  });
+});
+
+test("agent lifecycle packets require the complete sanitized envelope", () => {
+  const valid = parseAgentLifecycleMessage({
+    type: "agent_lifecycle",
+    state: "recovering",
+    session_id: "session-123",
+    sequence: 2,
+    timestamp: 1234,
+    retryable: true,
+  });
+  assert.equal(valid?.state, "recovering");
+  assert.equal(parseAgentLifecycleMessage({ type: "agent_lifecycle", state: "failed" }), null);
+  assert.equal(parseAgentLifecycleMessage({ type: "transcript", state: "ready" }), null);
 });
 
 describe("LiveKit assistant audio activation", () => {
@@ -168,6 +191,7 @@ test("engine switches tear down every in-progress voice session state", () => {
     "waiting_for_audio",
     "connected",
     "reconnecting",
+    "recovering",
   ]) {
     assert.equal(isVoiceSessionActive(status), true, `${status} must be disconnected`);
   }
@@ -201,6 +225,7 @@ test("the active sandbox accepts only one LiveKit assistant audio source", () =>
   assert.match(source, /acceptedIdentity !== participant\.identity/);
   assert.match(source, /assistantAudioTrackRef\.current === track/);
   assert.match(source, /cleanupAssistantAudio\(\)/);
+  assert.match(source, /lifecycle\.session_id !== sessionIdRef\.current/);
 });
 
 test("browser-direct Gemini voice is disabled", () => {

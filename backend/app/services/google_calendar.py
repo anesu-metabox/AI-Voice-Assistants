@@ -4,6 +4,7 @@ Direct REST integration for calendar availability and event creation with Google
 Runs asynchronously via httpx to maintain the sub-400ms Fast Lane voice latency budget.
 """
 
+import asyncio
 from datetime import date, datetime, time, timedelta, timezone
 import logging
 from typing import Any, Dict, List, Mapping, Optional
@@ -14,11 +15,19 @@ import httpx
 
 from .google_oauth import get_valid_access_token
 from .http_client import get_http_client
+from .calendar_read_cache import CALENDAR_READ_CACHE
+from ..config import settings
 
 logger = logging.getLogger("voice_bot.services.google_calendar")
 
 GOOGLE_CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3"
 DEFAULT_COMPANY_TIMEZONE = "Indian/Mauritius"
+MAX_VOICE_CALENDAR_EVENTS = 50
+_mirror_sync_locks: dict[str, asyncio.Lock] = {}
+_mirror_sync_locks_guard = asyncio.Lock()
+_active_mirror_companies: dict[str, tuple[str, float]] = {}
+_active_mirror_companies_lock = asyncio.Lock()
+_MAX_ACTIVE_MIRROR_COMPANIES = 512
 
 
 def _provider_event_id(request_key: str) -> str:
@@ -118,7 +127,253 @@ def _duration_minutes(start_value: Optional[str], end_value: Optional[str]) -> i
         return 0
 
 
-async def list_google_calendar_events(
+def _mirror_event_record(
+    event: Dict[str, Any], timezone_name: str
+) -> dict[str, Any] | None:
+    """Build the bounded event record persisted by the local read mirror."""
+    event_id = str(event.get("id") or "").strip()
+    status = "cancelled" if event.get("status") == "cancelled" else "confirmed"
+    if not event_id:
+        return None
+    if status == "cancelled":
+        return {"event_id": event_id, "status": status}
+
+    start = event.get("start") or {}
+    end = event.get("end") or {}
+    start_value = start.get("dateTime") or start.get("date")
+    end_value = end.get("dateTime") or end.get("date")
+    if not start_value or not end_value:
+        return None
+    try:
+        zone = _company_zone(timezone_name)
+        if len(start_value) == 10:
+            start_dt = datetime.combine(date.fromisoformat(start_value), time.min, tzinfo=zone)
+        else:
+            start_dt = datetime.fromisoformat(start_value.replace("Z", "+00:00"))
+            if start_dt.tzinfo is None:
+                start_dt = start_dt.replace(tzinfo=zone)
+        if len(end_value) == 10:
+            end_dt = datetime.combine(date.fromisoformat(end_value), time.min, tzinfo=zone)
+        else:
+            end_dt = datetime.fromisoformat(end_value.replace("Z", "+00:00"))
+            if end_dt.tzinfo is None:
+                end_dt = end_dt.replace(tzinfo=zone)
+        if end_dt <= start_dt:
+            return None
+    except (TypeError, ValueError):
+        return None
+
+    updated_at = None
+    if event.get("updated"):
+        try:
+            updated_at = datetime.fromisoformat(str(event["updated"]).replace("Z", "+00:00"))
+        except ValueError:
+            updated_at = None
+    return {
+        "event_id": event_id,
+        "status": status,
+        "start_time": start_dt.astimezone(timezone.utc),
+        "end_time": end_dt.astimezone(timezone.utc),
+        "event_payload": _calendar_event_payload(event),
+        "provider_updated_at": updated_at,
+    }
+
+
+async def _mirror_sync_lock(company_id: str) -> asyncio.Lock:
+    async with _mirror_sync_locks_guard:
+        return _mirror_sync_locks.setdefault(company_id, asyncio.Lock())
+
+
+async def note_active_calendar_company(
+    company_id: str, timezone_name: str = DEFAULT_COMPANY_TIMEZONE
+) -> None:
+    """Remember recently used tenants without requiring cross-tenant DB access."""
+    _company_zone(timezone_name)
+    async with _active_mirror_companies_lock:
+        _active_mirror_companies[company_id] = (timezone_name, asyncio.get_running_loop().time())
+        while len(_active_mirror_companies) > _MAX_ACTIVE_MIRROR_COMPANIES:
+            oldest = min(_active_mirror_companies, key=lambda key: _active_mirror_companies[key][1])
+            _active_mirror_companies.pop(oldest, None)
+
+
+async def reconcile_active_calendar_mirrors_once(
+    *, now_monotonic: float | None = None
+) -> dict[str, int]:
+    """Refresh recently used tenant mirrors with bounded concurrency."""
+    now = asyncio.get_running_loop().time() if now_monotonic is None else now_monotonic
+    cutoff = now - settings.calendar_mirror_active_tenant_ttl_seconds
+    async with _active_mirror_companies_lock:
+        stale_ids = [
+            company_id
+            for company_id, (_timezone_name, last_seen) in _active_mirror_companies.items()
+            if last_seen < cutoff
+        ]
+        for company_id in stale_ids:
+            _active_mirror_companies.pop(company_id, None)
+        active = list(_active_mirror_companies.items())
+
+    semaphore = asyncio.Semaphore(4)
+
+    async def reconcile(company_id: str, timezone_name: str) -> bool:
+        async with semaphore:
+            return await sync_google_calendar_mirror(
+                company_id,
+                timezone_name=timezone_name,
+                register_active=False,
+            )
+
+    results = await asyncio.gather(
+        *(reconcile(company_id, timezone_name) for company_id, (timezone_name, _seen) in active),
+        return_exceptions=True,
+    )
+    succeeded = sum(result is True for result in results)
+    return {"active": len(active), "succeeded": succeeded, "failed": len(active) - succeeded}
+
+
+async def clear_active_calendar_companies() -> None:
+    """Lifecycle/test hook for the in-process active-tenant registry."""
+    async with _active_mirror_companies_lock:
+        _active_mirror_companies.clear()
+
+
+async def sync_google_calendar_mirror(
+    user_id: str,
+    *,
+    timezone_name: str = DEFAULT_COMPANY_TIMEZONE,
+    force_full: bool = False,
+    register_active: bool = True,
+) -> bool:
+    """Apply a fully paginated Google incremental sync to the tenant mirror."""
+    from db.calendar_mirror import (
+        commit_calendar_sync,
+        get_calendar_sync_state,
+        mark_calendar_sync_failed,
+        mark_calendar_sync_started,
+    )
+
+    if register_active:
+        await note_active_calendar_company(user_id, timezone_name)
+    lock = await _mirror_sync_lock(user_id)
+    async with lock:
+        state = await get_calendar_sync_state(user_id)
+        if state and state.get("sync_status") == "ready" and not force_full:
+            last_synced = state.get("last_synced_at")
+            if isinstance(last_synced, datetime) and last_synced >= (
+                datetime.now(timezone.utc)
+                - timedelta(seconds=settings.calendar_mirror_max_staleness_seconds)
+            ):
+                return True
+
+        access_token = await get_valid_access_token(user_id)
+        if not access_token:
+            await mark_calendar_sync_failed(user_id, "GOOGLE_CALENDAR_REAUTH_REQUIRED")
+            return False
+
+        sync_token = (
+            None
+            if force_full or (state or {}).get("sync_status") == "needs_full_sync"
+            else (state or {}).get("sync_token")
+        )
+        await mark_calendar_sync_started(user_id)
+        events: list[dict[str, Any]] = []
+        page_token: str | None = None
+        next_sync_token: str | None = None
+        for _page in range(100):
+            params: dict[str, str] = {
+                "showDeleted": "true",
+                "singleEvents": "true",
+                "maxResults": "2500",
+            }
+            if sync_token:
+                params["syncToken"] = str(sync_token)
+            else:
+                params["timeMin"] = (
+                    datetime.now(timezone.utc) - timedelta(days=30)
+                ).isoformat()
+            if page_token:
+                params["pageToken"] = page_token
+            try:
+                response = await get_http_client().get(
+                    f"{GOOGLE_CALENDAR_API_BASE}/calendars/primary/events",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    params=params,
+                )
+            except httpx.HTTPError:
+                await mark_calendar_sync_failed(user_id, "GOOGLE_CALENDAR_UNAVAILABLE")
+                return False
+            if response.status_code == 410:
+                await mark_calendar_sync_failed(
+                    user_id, "GOOGLE_SYNC_TOKEN_GONE", needs_full_sync=True
+                )
+                return False
+            if response.status_code in (401, 403):
+                await mark_calendar_sync_failed(user_id, "GOOGLE_CALENDAR_REAUTH_REQUIRED")
+                return False
+            if response.status_code != 200:
+                await mark_calendar_sync_failed(user_id, "GOOGLE_CALENDAR_UNAVAILABLE")
+                return False
+            data = response.json()
+            for event in data.get("items", []):
+                if not isinstance(event, dict):
+                    continue
+                record = _mirror_event_record(event, timezone_name)
+                if record:
+                    events.append(record)
+            page_token = data.get("nextPageToken")
+            next_sync_token = data.get("nextSyncToken") or next_sync_token
+            if not page_token:
+                break
+        if page_token or not next_sync_token:
+            await mark_calendar_sync_failed(user_id, "GOOGLE_SYNC_INCOMPLETE")
+            return False
+        await commit_calendar_sync(
+            user_id,
+            events,
+            str(next_sync_token),
+            full_sync=not bool(sync_token),
+        )
+        return True
+
+
+async def _fresh_mirror_events(
+    user_id: str,
+    start_date: str | None,
+    end_date: str | None,
+    timezone_name: str,
+) -> tuple[list[dict[str, Any]], date, date] | None:
+    from db.calendar_mirror import get_fresh_mirrored_events
+
+    start_utc, end_utc, start_day, end_day = _local_date_range_utc(
+        start_date, end_date, timezone_name
+    )
+    try:
+        events = await get_fresh_mirrored_events(
+            user_id,
+            start_utc,
+            end_utc,
+            max_staleness_seconds=settings.calendar_mirror_max_staleness_seconds,
+        )
+        if events is None:
+            synced = await sync_google_calendar_mirror(
+                user_id, timezone_name=timezone_name
+            )
+            if not synced:
+                return None
+            events = await get_fresh_mirrored_events(
+                user_id,
+                start_utc,
+                end_utc,
+                max_staleness_seconds=settings.calendar_mirror_max_staleness_seconds,
+            )
+    except Exception as exc:
+        logger.warning("Calendar mirror unavailable; using live provider (error_type=%s)", type(exc).__name__)
+        return None
+    if events is None:
+        return None
+    return events, start_day, end_day
+
+
+async def _list_google_calendar_events_live(
     user_id: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -148,7 +403,10 @@ async def list_google_calendar_events(
             "timeMax": time_max,
             "singleEvents": "true",
             "orderBy": "startTime",
-            "maxResults": "2500",
+            # Fetch one sentinel beyond the voice response limit so callers know
+            # whether the compact result was truncated without transferring an
+            # unbounded calendar into the realtime turn.
+            "maxResults": str(MAX_VOICE_CALENDAR_EVENTS + 1),
             "timeZone": str(_company_zone(timezone_name)),
         },
     )
@@ -156,11 +414,13 @@ async def list_google_calendar_events(
         logger.error("Google Calendar event list failed: %s", response.status_code)
         return None
 
-    events = [
+    provider_events = [
         _calendar_event_payload(event)
         for event in response.json().get("items", [])
         if event.get("status") != "cancelled"
     ]
+    truncated = len(provider_events) > MAX_VOICE_CALENDAR_EVENTS
+    events = provider_events[:MAX_VOICE_CALENDAR_EVENTS]
     return {
         "user_id": str(user_id),
         "start_date": start_day.isoformat(),
@@ -168,8 +428,52 @@ async def list_google_calendar_events(
         "timezone": str(_company_zone(timezone_name)),
         "count": len(events),
         "events": events,
+        "truncated": truncated,
         "source": "google_calendar_live",
     }
+
+
+async def list_google_calendar_events(
+    user_id: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    timezone_name: str = DEFAULT_COMPANY_TIMEZONE,
+) -> Optional[Dict[str, Any]]:
+    if settings.calendar_mirror_enabled:
+        await note_active_calendar_company(user_id, timezone_name)
+    key = (user_id, "list", start_date or "", end_date or "", timezone_name)
+
+    async def load() -> Optional[Dict[str, Any]]:
+        if settings.calendar_mirror_enabled:
+            mirrored = await _fresh_mirror_events(
+                user_id, start_date, end_date, timezone_name
+            )
+            if mirrored is not None:
+                events, start_day, end_day = mirrored
+                all_public_events = [
+                    {key: value for key, value in event.items() if not key.startswith("_mirror_")}
+                    for event in events
+                ]
+                public_events = all_public_events[:MAX_VOICE_CALENDAR_EVENTS]
+                return {
+                    "user_id": str(user_id),
+                    "start_date": start_day.isoformat(),
+                    "end_date": end_day.isoformat(),
+                    "timezone": str(_company_zone(timezone_name)),
+                    "count": len(public_events),
+                    "events": public_events,
+                    "truncated": len(all_public_events) > MAX_VOICE_CALENDAR_EVENTS,
+                    "source": "google_calendar_mirror",
+                }
+        return await _list_google_calendar_events_live(
+            user_id, start_date, end_date, timezone_name
+        )
+
+    return await CALENDAR_READ_CACHE.get_or_load(
+        key,
+        ttl_seconds=settings.calendar_events_cache_ttl_seconds,
+        loader=load,
+    )
 
 
 async def cancel_google_calendar_event(user_id: str, event_id: str) -> bool:
@@ -185,10 +489,12 @@ async def cancel_google_calendar_event(user_id: str, event_id: str) -> bool:
     if response.status_code not in (200, 204):
         logger.error("Google Calendar event cancellation failed: %s", response.status_code)
         return False
+    await CALENDAR_READ_CACHE.invalidate_company(user_id)
+    await _mark_calendar_mirror_stale_after_write(user_id)
     return True
 
 
-async def get_google_calendar_availability(
+async def _get_google_calendar_availability_live(
     user_id: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -263,6 +569,125 @@ async def get_google_calendar_availability(
         return {"status": "temporarily_unavailable", "retryable": True}
 
 
+async def get_google_calendar_availability(
+    user_id: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    duration_minutes: int = 30,
+    timezone_name: str = DEFAULT_COMPANY_TIMEZONE,
+    business_hours: Mapping[str, str] | None = None,
+    force_live: bool = False,
+) -> Optional[Dict[str, Any]]:
+    if settings.calendar_mirror_enabled:
+        await note_active_calendar_company(user_id, timezone_name)
+    if force_live:
+        return await _get_google_calendar_availability_live(
+            user_id,
+            start_date,
+            end_date,
+            duration_minutes,
+            timezone_name,
+            business_hours,
+        )
+    normalized_hours = tuple(
+        sorted((str(day).lower(), str(hours)) for day, hours in (business_hours or {}).items())
+    )
+    key = (
+        user_id,
+        "availability",
+        start_date or "",
+        end_date or "",
+        timezone_name,
+        duration_minutes,
+        normalized_hours,
+    )
+
+    async def load() -> Optional[Dict[str, Any]]:
+        if settings.calendar_mirror_enabled:
+            mirrored = await _fresh_mirror_events(
+                user_id, start_date, end_date, timezone_name
+            )
+            if mirrored is not None:
+                events, start_day, end_day = mirrored
+                busy_periods = [
+                    {"start": event["_mirror_start_utc"], "end": event["_mirror_end_utc"]}
+                    for event in events
+                ]
+                return {
+                    "user_id": str(user_id),
+                    "date": start_day.isoformat(),
+                    "start_date": start_day.isoformat(),
+                    "end_date": end_day.isoformat(),
+                    "available_slots": _compute_free_slots(
+                        start_day.isoformat(),
+                        busy_periods,
+                        duration_minutes,
+                        timezone_name,
+                        business_hours,
+                    ),
+                    "duration_minutes": duration_minutes,
+                    "timezone": str(_company_zone(timezone_name)),
+                    "source": "google_calendar_mirror",
+                }
+        return await _get_google_calendar_availability_live(
+            user_id,
+            start_date,
+            end_date,
+            duration_minutes,
+            timezone_name,
+            business_hours,
+        )
+
+    return await CALENDAR_READ_CACHE.get_or_load(
+        key,
+        ttl_seconds=settings.calendar_availability_cache_ttl_seconds,
+        loader=load,
+    )
+
+
+async def check_google_calendar_interval_free(
+    user_id: str,
+    start_time: str,
+    duration_minutes: int,
+) -> Dict[str, Any]:
+    """Perform an uncached provider check immediately before a write."""
+    access_token = await get_valid_access_token(user_id)
+    if not access_token:
+        return {"status": "needs_reconnect", "error_code": "GOOGLE_CALENDAR_REAUTH_REQUIRED"}
+    try:
+        start_dt = datetime.fromisoformat(str(start_time).replace("Z", "+00:00"))
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+        start_dt = start_dt.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return {"status": "failed", "retryable": False}
+    end_dt = start_dt + timedelta(minutes=duration_minutes)
+    try:
+        response = await get_http_client().post(
+            f"{GOOGLE_CALENDAR_API_BASE}/freeBusy",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "timeMin": start_dt.isoformat(),
+                "timeMax": end_dt.isoformat(),
+                "timeZone": "UTC",
+                "items": [{"id": "primary"}],
+            },
+        )
+    except httpx.HTTPError:
+        return {"status": "temporarily_unavailable", "retryable": True}
+    if response.status_code in (401, 403):
+        return {"status": "needs_reconnect", "error_code": "GOOGLE_CALENDAR_REAUTH_REQUIRED"}
+    if response.status_code == 429 or response.status_code >= 500:
+        return {"status": "temporarily_unavailable", "retryable": True}
+    if response.status_code != 200:
+        return {"status": "failed", "retryable": False}
+    busy = response.json().get("calendars", {}).get("primary", {}).get("busy", [])
+    return {"status": "conflict" if busy else "available"}
+
+
 def _compute_free_slots(
     base_date: str,
     busy_periods: List[Dict[str, str]],
@@ -332,6 +757,22 @@ def _compute_free_slots(
         slot_start_local += timedelta(minutes=30)
 
     return free_slots
+
+
+async def _mark_calendar_mirror_stale_after_write(user_id: str) -> None:
+    if not settings.calendar_mirror_enabled:
+        return
+    try:
+        from db.calendar_mirror import mark_calendar_sync_stale
+
+        await mark_calendar_sync_stale(user_id)
+    except Exception as exc:
+        # Provider writes remain authoritative. A failed advisory invalidation
+        # must not turn a confirmed Google write into a reported failure.
+        logger.warning(
+            "Calendar mirror invalidation failed after provider write (error_type=%s)",
+            type(exc).__name__,
+        )
 
 
 async def book_google_calendar_event(
@@ -440,7 +881,7 @@ async def book_google_calendar_event(
                     meet_link = ep.get("uri")
                     break
 
-        return {
+        result = {
             "event_id": event_data.get("id"),
             "title": event_data.get("summary", title),
             "start_time": start_dt.isoformat(),
@@ -451,6 +892,9 @@ async def book_google_calendar_event(
             "status": "confirmed",
             "source": "google_calendar_live",
         }
+        await CALENDAR_READ_CACHE.invalidate_company(user_id)
+        await _mark_calendar_mirror_stale_after_write(user_id)
+        return result
     except httpx.HTTPError as exc:
         logger.error("Google Calendar booking operation failed (%s)", type(exc).__name__)
         return {"status": "temporarily_unavailable", "retryable": True}

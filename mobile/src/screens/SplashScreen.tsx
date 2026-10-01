@@ -1,9 +1,11 @@
 import React from 'react';
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import VoxiMascot from '../components/VoxiMascot';
+import VocalistLogo from '../components/VocalistLogo';
+import { useTheme } from '../context/ThemeContext';
 
-const mascotImg = require('../assets/mascot-1.png');
+
 
 const SLIDES = [
   {
@@ -27,38 +29,44 @@ export default function SplashScreen({
   onDone: () => void;
   onSignInPress?: () => void;
 }) {
+  const { colors } = useTheme();
+  const bgGradient: [string, string, string] = colors.isDark
+    ? ['#0B1120', '#101A33', '#0B1120']
+    : ['#EEF2FF', '#F3F6FF', '#F4F6FB'];
+
   return (
     <LinearGradient
-      colors={['#EEF2FF', '#F0F4FF', '#F8FAFC']}
+      colors={bgGradient}
       start={{ x: 0, y: 0 }}
       end={{ x: 0.5, y: 1 }}
       style={styles.container}
     >
-      {/* Top logo */}
       <View style={styles.topLogoRow}>
-        {/* Soundwave bars */}
-        <View style={styles.soundwaveRow}>
-          {[10, 16, 22, 16, 11].map((h, i) => (
-            <View key={i} style={[styles.soundwaveBar, { height: h }]} />
-          ))}
-        </View>
-        <Image source={mascotImg} style={styles.mascotIcon} />
-        <Text style={styles.wordmark}>
-          vocalist<Text style={styles.wordmarkSuffix}>.ai</Text>
+        <VocalistLogo size={34} />
+        <Text style={[styles.wordmark, { color: colors.textHeading }]}>
+          vocalist<Text style={{ color: colors.primary }}>.ai</Text>
         </Text>
       </View>
 
-      {/* Mascot — centered */}
       <View style={styles.mascotCenter}>
+        <View
+          style={[
+            styles.mascotGlow,
+            { backgroundColor: colors.isDark ? 'rgba(79,107,255,0.18)' : 'rgba(59,91,219,0.10)' },
+          ]}
+        />
         <VoxiMascot size={210} animated />
       </View>
 
-      {/* Bottom card */}
-      <View style={styles.bottomCard}>
-        <Text style={styles.slideHeading}>{SLIDES[0].heading}</Text>
-        <Text style={styles.slideBody}>{SLIDES[0].body}</Text>
+      <View
+        style={[
+          styles.bottomCard,
+          { backgroundColor: colors.cardBg, borderColor: colors.border },
+        ]}
+      >
+        <Text style={[styles.slideHeading, { color: colors.textHeading }]}>{SLIDES[0].heading}</Text>
+        <Text style={[styles.slideBody, { color: colors.textMuted }]}>{SLIDES[0].body}</Text>
 
-        {/* Pagination dots */}
         <View style={styles.dotsRow}>
           {SLIDES.map((_, i) => (
             <View
@@ -66,30 +74,26 @@ export default function SplashScreen({
               style={[
                 styles.dot,
                 {
-                  width: i === 0 ? 20 : 8,
-                  backgroundColor: i === 0 ? '#3B5BDB' : '#D1D5DB',
+                  width: i === 0 ? 22 : 8,
+                  backgroundColor: i === 0 ? colors.primary : colors.borderLight,
                 },
               ]}
             />
           ))}
         </View>
 
-        {/* Get Started button */}
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={onDone}
-          style={styles.getStartedBtn}
+          style={[styles.getStartedBtn, { backgroundColor: colors.primary, shadowColor: colors.primary }]}
         >
           <Text style={styles.getStartedText}>Get Started</Text>
         </TouchableOpacity>
 
-        {/* Sign in link */}
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={onSignInPress || onDone}
-          style={styles.signInBtn}
-        >
-          <Text style={styles.signInText}>Sign In to Workspace</Text>
+        <TouchableOpacity activeOpacity={0.7} onPress={onSignInPress || onDone} style={styles.signInBtn}>
+          <Text style={[styles.signInText, { color: colors.textMuted }]}>
+            Already have an account? <Text style={{ color: colors.primary, fontWeight: '700' }}>Sign in</Text>
+          </Text>
         </TouchableOpacity>
       </View>
     </LinearGradient>
@@ -106,7 +110,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingTop: 36,
+    paddingTop: 56,
   },
   soundwaveRow: {
     flexDirection: 'row',
@@ -128,7 +132,6 @@ const styles = StyleSheet.create({
   wordmark: {
     fontSize: 24,
     fontWeight: '800',
-    color: '#1D3461',
     letterSpacing: -0.3,
   },
   wordmarkSuffix: {
@@ -140,8 +143,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  mascotGlow: {
+    position: 'absolute',
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+  },
   bottomCard: {
-    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderBottomWidth: 0,
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
     paddingHorizontal: 28,
