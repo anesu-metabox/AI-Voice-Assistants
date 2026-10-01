@@ -219,6 +219,7 @@ async def update_assistant_config(
                     "escalation_rules": payload.escalation_rules,
                 },
                 "faqEntries": payload.faq_entries,
+                "referenceNotes": payload.knowledge_base_notes or "",
                 "languagePolicy": {
                     "default_language": payload.default_language,
                     "allowed_languages": payload.allowed_languages,
@@ -453,6 +454,7 @@ async def validate_assistant_profile(
                 "escalation_rules": payload.escalation_rules,
             },
             "faqEntries": payload.faq_entries,
+            "referenceNotes": payload.knowledge_base_notes or "",
             "languagePolicy": {
                 "default_language": payload.default_language,
                 "allowed_languages": payload.allowed_languages,

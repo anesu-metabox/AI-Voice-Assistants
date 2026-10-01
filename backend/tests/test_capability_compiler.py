@@ -23,6 +23,17 @@ def test_calendar_only_compiles_exact_calendar_tools_and_redirect():
     }
 
 
+def test_reference_notes_are_carried_into_the_immutable_compiled_snapshot():
+    policy = compile_company_policy({
+        "capabilities": {"company_receptionist": {"enabled": True}},
+        "instructions": "Answer as the Lafanga Renn receptionist.",
+        "referenceNotes": "Menu: Smoked marlin carpaccio — Rs 550.",
+    })
+
+    assert policy["companyInstructions"] == "Answer as the Lafanga Renn receptionist."
+    assert policy["referenceNotes"] == "Menu: Smoked marlin carpaccio — Rs 550."
+
+
 def test_bilingual_language_policy_is_validated_and_compiled_as_immutable_runtime_behavior():
     policy = compile_company_policy({
         "capabilities": {"company_receptionist": {"enabled": True}},

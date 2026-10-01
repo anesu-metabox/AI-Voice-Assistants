@@ -91,6 +91,13 @@ def compile_company_policy(profile: Mapping[str, Any]) -> dict[str, Any]:
     if len(instructions) > 8000:
         raise CapabilityValidationError("instructions exceeds the 8000 character limit")
 
+    # Keep the approved knowledge in the immutable published snapshot too.
+    # The worker still retrieves one relevant passage per turn, but it must not
+    # depend on the legacy assistant_configs row or on a particular API merge.
+    reference_notes = str(profile.get("referenceNotes", profile.get("knowledge_base_notes", "")))
+    if len(reference_notes) > 16000:
+        raise CapabilityValidationError("reference notes exceeds the 16000 character limit")
+
     business_rules = profile.get("businessRules", {}) or {}
     if not isinstance(business_rules, Mapping):
         raise CapabilityValidationError("businessRules must be an object")
@@ -219,4 +226,5 @@ def compile_company_policy(profile: Mapping[str, Any]) -> dict[str, Any]:
         },
         "faqEntries": normalized_faq,
         "companyInstructions": instructions,
+        "referenceNotes": reference_notes,
     }
