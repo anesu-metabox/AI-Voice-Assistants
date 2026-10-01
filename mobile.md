@@ -348,3 +348,17 @@ LiveKit contains native modules and does not run in Expo Go. Before release:
 2. Build a development client with `npx expo run:android` or `npx expo run:ios`.
 3. Confirm microphone permission, room connection, agent audio, Bluetooth/headset/speaker routing, mute/unmute, interrupt, reconnect, transcript delivery, and hardware release after ending the call.
 4. Correlate the mobile session ID with FastAPI, LiveKit, and worker logs. A successful build alone does not prove acoustic quality or end-to-end agent behavior.
+
+## Progress log
+
+- **2026-10-01 — Onboarding preservation fix shipped:** `develop` commit
+  `79518d9` restores recognition of the completed Assist stage using the
+  company profile, assistant configuration, and published/deployed status.
+  Mobile onboarding now includes a read-only **Already configured on web? Skip
+  setup** action. It only navigates to the dashboard; it does not save,
+  publish, or overwrite the web configuration.
+- **2026-10-01 — Expo build queued:** EAS production Android internal build
+  `916bc564-37a5-4566-ac98-22ff4a7e3848` was queued from GitHub `develop` at
+  commit `79518d9`, with base directory `/mobile` and the production
+  environment. The APK is not yet verified until this build succeeds and is
+  installed on a physical Android device.
