@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "Vocalist Assistant Ai",
-  "owner": "metabox-ai-assistant",
-    "slug": "ai-voice-assistant-bot",
+    "owner": "hackathon442",
+    "slug": "vocalist-assistant-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./src/assets/app-icon.png",
@@ -43,7 +43,7 @@
     "scheme": "vocalist-mobile",
     "extra": {
       "eas": {
-        "projectId": "9b37b150-b5d3-46da-a098-4f065538e9ed"
+        "projectId": "0f9a7761-4848-49a3-baa2-28e135e9e5e6"
       }
     },
     "plugins": [

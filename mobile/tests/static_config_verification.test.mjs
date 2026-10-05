@@ -82,8 +82,8 @@ describe("Static Configuration & Native Environment Verification", () => {
     const content = readFileSync(layoutPath, "utf8");
     assert.match(
       content,
-      /import\s+\{\s*registerGlobals\s*\}\s+from\s+['"]@livekit\/react-native['"]/,
-      "Must import registerGlobals from @livekit/react-native",
+      /import\s+\{\s*(registerLiveKitGlobals\s+as\s+registerGlobals|registerGlobals)\s*\}\s+from\s+['"](\.\.\/src\/services\/livekitNative|@livekit\/react-native)['"]/,
+      "Must import registerGlobals at application root",
     );
     assert.match(
       content,

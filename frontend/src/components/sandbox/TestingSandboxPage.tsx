@@ -425,10 +425,10 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
           if (lifecycle) {
             if (lifecycle.session_id !== sessionIdRef.current) return;
             if (lifecycle.state === "failed") {
-              failVoiceSession(
-                room,
-                "The Gemini voice connection could not recover. No calendar action was repeated. Start a new voice session to continue.",
-              );
+              const failureMessage = lifecycle.code === "quota_exhausted"
+                ? "Gemini Live daily quota exceeded on Google API key. Please check Google AI Studio billing."
+                : "The Gemini voice connection could not recover. No calendar action was repeated. Start a new voice session to continue.";
+              failVoiceSession(room, failureMessage);
               return;
             }
             if (lifecycle.state === "ended") {
@@ -443,6 +443,11 @@ export function TestingSandboxPage({ onBack, profileVersion = null }: TestingSan
               setSessionStatus("connected");
               setErrorMessage(null);
             }
+            return;
+          }
+          if (packet.type === "quota_exhausted") {
+            const quotaMsg = packet.message || "Gemini Live daily quota exceeded on Google API key. Please check AI Studio billing.";
+            failVoiceSession(room, quotaMsg);
             return;
           }
           if (packet.type === "transcript" && packet.text?.trim()) {

@@ -321,10 +321,15 @@ async def generate_livekit_token(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="The company's timezone is unavailable for this voice session.",
         ) from exc
+    profile_data = selected_profile.get("profile") if isinstance(selected_profile.get("profile"), dict) else {}
+    configured_voice = profile_data.get("voice_engine") or profile_data.get("voice")
+    configured_language = profile_data.get("default_language")
     dispatch_metadata = issue_session_context(
         context,
         resolved_profile_version,
         timezone_name=session_timezone,
+        voice=configured_voice,
+        language=configured_language,
     )
 
     try:

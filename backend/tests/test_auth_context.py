@@ -109,7 +109,38 @@ def test_context_acceptance_window_has_a_hard_short_lived_ceiling(monkeypatch):
         )
     )
     monkeypatch.setenv("LIVEKIT_SESSION_CONTEXT_MAX_AGE_SECONDS", "901")
-    assert verify_session_context(raw) is None
     assert load_verified_session_context(
         raw, signing_secret="context-test-secret", max_age_seconds=901
     ) is None
+
+
+def test_signed_context_binds_voice_and_language(monkeypatch):
+    monkeypatch.setenv("LIVEKIT_SESSION_CONTEXT_SECRET", "context-test-secret")
+    context = InternalSessionContext(
+        session_id="session-voice-binding",
+        company_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        auth_subject="neon-user-42",
+        timezone="Indian/Mauritius",
+        voice="Fenrir",
+        language="fr-FR",
+    )
+    raw = issue_session_context(context, profile_version=2, voice="Fenrir", language="fr-FR")
+    verified = verify_session_context(raw)
+
+    assert verified is not None
+    assert verified.voice == "Fenrir"
+    assert verified.language == "fr-FR"
+
+    agent_context = load_verified_session_context(
+        raw,
+        signing_secret="context-test-secret",
+    )
+    assert agent_context is not None
+    assert agent_context.voice == "Fenrir"
+    assert agent_context.language == "fr-FR"
+
+    # Tampering with voice must invalidate signature
+    payload = json.loads(raw)
+    payload["voice"] = "Puck"
+    assert verify_session_context(payload) is None
+    assert load_verified_session_context(payload, signing_secret="context-test-secret") is None

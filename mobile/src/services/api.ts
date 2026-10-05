@@ -161,8 +161,10 @@ class ApiService {
     // use process.env[key] here: Metro cannot inline dynamic environment
     // lookups, which would make a release APK fall back to localhost.
     const publicEnv: Record<string, string | undefined> = {
-      EXPO_PUBLIC_APP_URL: process.env.EXPO_PUBLIC_APP_URL,
-      EXPO_PUBLIC_BACKEND_URL: process.env.EXPO_PUBLIC_BACKEND_URL,
+      EXPO_PUBLIC_APP_URL: process.env.EXPO_PUBLIC_APP_URL || process.env.EXPO_PUBLIC_FRONTEND_URL,
+      EXPO_PUBLIC_FRONTEND_URL: process.env.EXPO_PUBLIC_FRONTEND_URL,
+      EXPO_PUBLIC_BACKEND_URL: process.env.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_API_URL,
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL,
       EXPO_PUBLIC_WEB_URL: process.env.EXPO_PUBLIC_WEB_URL,
       EXPO_PUBLIC_LIVEKIT_TOKEN_ENDPOINT: process.env.EXPO_PUBLIC_LIVEKIT_TOKEN_ENDPOINT,
       EXPO_PUBLIC_LIVEKIT_URL: process.env.EXPO_PUBLIC_LIVEKIT_URL,
@@ -254,14 +256,7 @@ class ApiService {
   }
 
   private getCallbackUrl(): string {
-    try {
-      if (typeof window !== 'undefined' && window.location && window.location.origin) {
-        return window.location.origin;
-      }
-    } catch {
-      // Fall through for non-browser runtimes
-    }
-    return '/';
+    return `${this.getWebBase()}/`;
   }
 
   /**
@@ -270,7 +265,6 @@ class ApiService {
   async signInEmail(email: string, password: string): Promise<{ success: boolean; error?: string }> {
     const webBase = this.getWebBase();
     try {
-      const callbackURL = this.getCallbackUrl();
       const res = await fetch(`${webBase}/api/auth/sign-in/email`, {
         method: 'POST',
         headers: {
@@ -279,7 +273,7 @@ class ApiService {
           Origin: requestOrigin(webBase),
         },
         credentials: 'include',
-        body: JSON.stringify({ email, password, callbackURL }),
+        body: JSON.stringify({ email, password }),
         signal: AbortSignal.timeout(8000),
       });
 
@@ -303,7 +297,6 @@ class ApiService {
   async signUpEmail(email: string, password: string, name?: string): Promise<{ success: boolean; error?: string }> {
     const webBase = this.getWebBase();
     try {
-      const callbackURL = this.getCallbackUrl();
       const resolvedName = name || email.split('@')[0];
       const res = await fetch(`${webBase}/api/auth/sign-up/email`, {
         method: 'POST',
@@ -313,7 +306,7 @@ class ApiService {
           Origin: requestOrigin(webBase),
         },
         credentials: 'include',
-        body: JSON.stringify({ email, password, name: resolvedName, callbackURL }),
+        body: JSON.stringify({ email, password, name: resolvedName }),
         signal: AbortSignal.timeout(8000),
       });
 

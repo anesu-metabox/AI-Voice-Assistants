@@ -22,10 +22,10 @@ LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET", "")
 
 # Google Gemini Multimodal Live Engine (ADR-008 Active Baseline)
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-live")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp")
 GEMINI_API_VERSION = os.getenv("GEMINI_API_VERSION", "v1beta")
 GEMINI_VOICE = os.getenv("GEMINI_VOICE", "Aoede")
-GEMINI_RECOVERY_ENABLED = os.getenv("GEMINI_RECOVERY_ENABLED", "false").strip().lower() in {
+GEMINI_RECOVERY_ENABLED = os.getenv("GEMINI_RECOVERY_ENABLED", "true").strip().lower() in {
     "1",
     "true",
     "yes",

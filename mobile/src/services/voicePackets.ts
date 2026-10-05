@@ -3,6 +3,7 @@ import type { VoiceBotTask, VoiceBotTranscript } from '../types/voiceBot';
 export type ParsedVoicePacket =
   | { type: 'transcript'; transcript: VoiceBotTranscript }
   | { type: 'task_update'; task: VoiceBotTask }
+  | { type: 'quota_exhausted'; error: string; message: string }
   | null;
 
 /** Normalize production LiveKit data-channel packets before they touch React state. */
@@ -27,6 +28,16 @@ export function parseVoicePacket(
     }
     if (packet.type === 'task_update' && packet.task && typeof packet.task === 'object') {
       return { type: 'task_update', task: packet.task as VoiceBotTask };
+    }
+    if (packet.type === 'quota_exhausted') {
+      return {
+        type: 'quota_exhausted',
+        error: typeof packet.error === 'string' ? packet.error : 'RESOURCE_EXHAUSTED',
+        message:
+          typeof packet.message === 'string'
+            ? packet.message
+            : 'Gemini Live daily quota exceeded on Google API key. Please check AI Studio billing.',
+      };
     }
   } catch {
     // Ignore malformed or unrelated packets without dropping the call.

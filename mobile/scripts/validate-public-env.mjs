@@ -1,7 +1,37 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const mobileDir = path.resolve(__dirname, '..');
+
+// Helper to populate process.env from local .env files if not already set
+function loadEnvFile(fileName) {
+  const filePath = path.join(mobileDir, fileName);
+  if (!fs.existsSync(filePath)) return;
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    const val = trimmed.slice(eqIdx + 1).trim().replace(/^['"]|['"]$/g, '');
+    if (!process.env[key] && key.startsWith('EXPO_PUBLIC_')) {
+      process.env[key] = val;
+    }
+  }
+}
+
+loadEnvFile('.env.local');
+loadEnvFile('.env');
+
 const required = ['EXPO_PUBLIC_APP_URL', 'EXPO_PUBLIC_BACKEND_URL'];
 const forbidden = /(?:localhost|127\.0\.0\.1|0\.0\.0\.0)/i;
 const secretName = /(SECRET|PASSWORD|DATABASE_URL|PRIVATE_KEY|API_KEY)/i;
-const allowInsecure = process.env.ALLOW_INSECURE_LOCAL_URLS === '1';
+const allowInsecure =
+  process.env.ALLOW_INSECURE_LOCAL_URLS === '1' ||
+  (process.env.NODE_ENV !== 'production' && !process.env.EAS_BUILD);
 
 const errors = [];
 for (const name of required) {

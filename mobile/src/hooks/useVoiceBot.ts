@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
-import { AndroidAudioTypePresets, AudioSession } from '@livekit/react-native';
+import {
+  isNativeLiveKitSupported,
+  SafeAndroidAudioTypePresets as AndroidAudioTypePresets,
+  SafeAudioSession as AudioSession,
+} from '../services/livekitNative';
 import { ConnectionState, Room, RoomEvent, Track } from 'livekit-client';
 import { LiveKitApiClient, liveKitApiClient } from '../services/livekitApi';
 import { parseVoicePacket } from '../services/voicePackets';
@@ -104,6 +108,16 @@ export function useVoiceBot(options: UseVoiceBotOptions = {}): VoiceBotHookRetur
   ): Promise<LiveKitTokenResponse | null> => {
     if (roomRef.current) return null;
 
+    if (!isNativeLiveKitSupported) {
+      setStatus('error');
+      setError({
+        code: 'DEV_BUILD_REQUIRED',
+        message:
+          'Voice calls require an Expo Development Build. Expo Go does not support custom WebRTC native modules.',
+      });
+      return null;
+    }
+
     const generation = generationRef.current + 1;
     generationRef.current = generation;
     intentionalDisconnectRef.current = false;
@@ -162,6 +176,13 @@ export function useVoiceBot(options: UseVoiceBotOptions = {}): VoiceBotHookRetur
         const packet = parseVoicePacket(payload);
         if (packet?.type === 'transcript') setTranscripts((current) => [...current, packet.transcript]);
         if (packet?.type === 'task_update') setActiveTask(packet.task);
+        if (packet?.type === 'quota_exhausted') {
+          setError({
+            code: packet.error || 'RESOURCE_EXHAUSTED',
+            message: packet.message,
+          });
+          setStatus('error');
+        }
       });
       room.on(RoomEvent.Disconnected, () => {
         if (!isCurrent()) return;

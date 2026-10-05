@@ -34,6 +34,7 @@ export const useLiveKitSession = () => {
   const [latencyMs, setLatencyMs] = useState<number>(380);
   const [messages, setMessages] = useState<TranscriptMessage[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Reactive Web Audio nodes (ADR-005) - managed in useState so useClientVAD and AudioVisualizer re-render
   const [assistantGainNode, _setAssistantGainNode] = useState<GainNode | null>(null);
@@ -219,7 +220,7 @@ export const useLiveKitSession = () => {
     }
   }, []);
 
-  const failCurrentSession = useCallback((room: Room) => {
+  const failCurrentSession = useCallback((room: Room, message?: string) => {
     if (roomRef.current !== room) return;
     clearAgentHeartbeatTimeout();
     sessionGenerationRef.current += 1;
@@ -229,6 +230,9 @@ export const useLiveKitSession = () => {
     sessionIdRef.current = null;
     resetMediaState();
     room.disconnect();
+    if (message) {
+      setErrorMessage(message);
+    }
     setConnectionStatus(getLiveKitConnectionStatus("agent_failed"));
   }, [clearAgentHeartbeatTimeout, resetMediaState]);
 
@@ -250,6 +254,7 @@ export const useLiveKitSession = () => {
     sessionGenerationRef.current = sessionGeneration;
     connectInFlightRef.current = sessionGeneration;
     intentionalDisconnectRef.current = false;
+    setErrorMessage(null);
     const isCurrentSession = (room?: Room) =>
       isCurrentSessionGeneration(sessionGeneration, sessionGenerationRef.current) &&
       (!room || roomRef.current === room);
@@ -330,7 +335,10 @@ export const useLiveKitSession = () => {
           if (lifecycle) {
             if (lifecycle.session_id !== sessionIdRef.current) return;
             if (lifecycle.state === "failed") {
-              failCurrentSession(room);
+              const failureMsg = lifecycle.code === "quota_exhausted"
+                ? "Gemini Live daily quota exceeded on Google API key. Please check AI Studio billing."
+                : undefined;
+              failCurrentSession(room, failureMsg);
               return;
             }
             if (lifecycle.state === "ended") {
@@ -348,6 +356,21 @@ export const useLiveKitSession = () => {
                 playbackRetryPendingRef.current,
               ),
             );
+            return;
+          }
+
+          if (event.type === "quota_exhausted") {
+            const quotaMsg = event.message || "Gemini Live daily quota exceeded on Google API key. Please check AI Studio billing.";
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `msg_quota_${Date.now()}`,
+                speaker: "assistant",
+                text: quotaMsg,
+                timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              },
+            ]);
+            failCurrentSession(room, quotaMsg);
             return;
           }
 
@@ -637,6 +660,7 @@ export const useLiveKitSession = () => {
     clearAgentHeartbeatTimeout();
     room?.disconnect();
     resetMediaState();
+    setErrorMessage(null);
     setConnectionStatus(getLiveKitConnectionStatus("disconnected"));
   }, [clearAgentHeartbeatTimeout, resetMediaState]);
 
@@ -657,6 +681,7 @@ export const useLiveKitSession = () => {
 
   return {
     connectionStatus,
+    errorMessage,
     isMuted,
     isHandsFree,
     isBotSpeaking,

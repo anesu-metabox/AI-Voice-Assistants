@@ -41,6 +41,24 @@ class AgentReliabilityTests(unittest.TestCase):
         self.assertIn('lifecycle.transition("ready"', AGENT_SOURCE)
         self.assertIn('"provider_connection_error"', AGENT_SOURCE)
 
+    def test_speaking_rate_unblock_is_applied(self) -> None:
+        self.assertIn("patch_speaking_rate_unblock()", AGENT_SOURCE)
+
+    def test_quota_exhausted_error_handling_is_wired(self) -> None:
+        self.assertIn("_is_quota_exhausted_error", AGENT_SOURCE)
+        self.assertIn("_handle_quota_exhausted", AGENT_SOURCE)
+        self.assertIn('"quota_exhausted"', AGENT_SOURCE)
+        self.assertIn('"RESOURCE_EXHAUSTED"', AGENT_SOURCE)
+
+    def test_native_gemini_greeting_with_fallback(self) -> None:
+        self.assertIn("speak_configured_greeting", AGENT_SOURCE)
+        self.assertIn("session.generate_reply", AGENT_SOURCE)
+        self.assertIn("session.say(cleaned", AGENT_SOURCE)
+
+    def test_entrypoint_respects_session_context_voice_and_language(self) -> None:
+        self.assertIn("session_context.voice", AGENT_SOURCE)
+        self.assertIn("session_context.language", AGENT_SOURCE)
+
 
 if __name__ == "__main__":
     unittest.main()

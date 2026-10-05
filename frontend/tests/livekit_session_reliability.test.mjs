@@ -6,7 +6,12 @@ import test, { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 const require = createRequire(import.meta.url);
-const ts = require("typescript");
+let ts;
+try {
+  ts = require("typescript");
+} catch {
+  ts = require(resolve(dirname(fileURLToPath(import.meta.url)), "../../mobile/node_modules/typescript"));
+}
 const testDir = dirname(fileURLToPath(import.meta.url));
 const runtimePath = resolve(testDir, "../src/lib/livekitSessionRuntime.ts");
 const tokenRoutePath = resolve(testDir, "../src/app/api/livekit-token/route.ts");
@@ -248,4 +253,22 @@ test("only one browser tab can own a LiveKit voice session", () => {
   assert.match(source, /ifAvailable:\s*true/);
   assert.match(source, /already active in another browser tab/);
   assert.match(source, /releaseVoiceSessionLock\(\)/);
+});
+
+test("the sandbox and hook handle quota_exhausted events with clear error messaging", () => {
+  const sandboxSource = readFileSync(
+    resolve(testDir, "../src/components/sandbox/TestingSandboxPage.tsx"),
+    "utf-8",
+  );
+  assert.match(sandboxSource, /lifecycle\.code === "quota_exhausted"/);
+  assert.match(sandboxSource, /packet\.type === "quota_exhausted"/);
+
+  const hookSource = readFileSync(
+    resolve(testDir, "../src/hooks/useLiveKitSession.ts"),
+    "utf-8",
+  );
+  assert.match(hookSource, /lifecycle\.code === "quota_exhausted"/);
+  assert.match(hookSource, /event\.type === "quota_exhausted"/);
+  assert.match(hookSource, /setErrorMessage/);
+  assert.match(hookSource, /errorMessage/);
 });

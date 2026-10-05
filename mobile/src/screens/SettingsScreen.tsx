@@ -248,6 +248,7 @@ export default function SettingsScreen({ onSignOut, onSetupPress }: { onSignOut?
             {/* Page Header / Subtitle */}
             <View style={{ marginBottom: 4 }}>
               <Text style={[styles.pageTitle, { color: colors.textHeading }]}>Company Setup</Text>
+
               <Text style={[styles.pageSubtitle, { color: colors.textMuted }]}>
                 Manage your organization profile, contact details, and operational settings.
               </Text>

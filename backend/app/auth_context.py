@@ -21,6 +21,8 @@ class InternalSessionContext:
     auth_subject: str
     profile_version: int | None = None
     timezone: str | None = None
+    voice: str | None = None
+    language: str | None = None
 
 
 def _message(
@@ -30,12 +32,18 @@ def _message(
     issued_at: int,
     profile_version: int | None = None,
     timezone_name: str | None = None,
+    voice: str | None = None,
+    language: str | None = None,
 ) -> bytes:
     payload = {"auth_subject": auth_subject, "company_id": company_id, "issued_at": issued_at, "session_id": session_id}
     if profile_version is not None:
         payload["profile_version"] = profile_version
     if timezone_name is not None:
         payload["timezone"] = timezone_name
+    if voice is not None:
+        payload["voice"] = voice
+    if language is not None:
+        payload["language"] = language
     return json.dumps(
         payload,
         sort_keys=True,
@@ -62,6 +70,12 @@ def verify_session_context(raw: str | Mapping[str, Any] | None) -> InternalSessi
         if timezone_name is not None:
             timezone_name = str(timezone_name)
             ZoneInfo(timezone_name)
+        voice = payload.get("voice")
+        if voice is not None:
+            voice = str(voice)
+        language = payload.get("language")
+        if language is not None:
+            language = str(language)
         max_age = int(os.getenv("LIVEKIT_SESSION_CONTEXT_MAX_AGE_SECONDS", "300"))
         if (
             max_age <= 0
@@ -74,7 +88,7 @@ def verify_session_context(raw: str | Mapping[str, Any] | None) -> InternalSessi
             return None
         expected = hmac.new(
             secret.encode("utf-8"),
-            _message(session_id, company_id, auth_subject, issued_at, profile_version, timezone_name),
+            _message(session_id, company_id, auth_subject, issued_at, profile_version, timezone_name, voice, language),
             hashlib.sha256,
         ).hexdigest()
         if not hmac.compare_digest(signature, expected):
@@ -85,6 +99,8 @@ def verify_session_context(raw: str | Mapping[str, Any] | None) -> InternalSessi
             auth_subject=auth_subject,
             profile_version=profile_version,
             timezone=timezone_name,
+            voice=voice,
+            language=language,
         )
     except (KeyError, TypeError, ValueError, ZoneInfoNotFoundError, json.JSONDecodeError):
         return None
@@ -94,6 +110,8 @@ def issue_session_context(
     context: InternalSessionContext,
     profile_version: int | None = None,
     timezone_name: str | None = None,
+    voice: str | None = None,
+    language: str | None = None,
 ) -> str:
     """Re-sign verified tenant context for a LiveKit dispatch snapshot."""
     secret = os.getenv("LIVEKIT_SESSION_CONTEXT_SECRET", "")
@@ -105,6 +123,8 @@ def issue_session_context(
             ZoneInfo(resolved_timezone)
         except (ZoneInfoNotFoundError, ValueError) as exc:
             raise ValueError("A valid IANA timezone is required for session context") from exc
+    resolved_voice = voice if voice is not None else context.voice
+    resolved_language = language if language is not None else context.language
     issued_at = int(time.time())
     signature = hmac.new(
         secret.encode("utf-8"),
@@ -115,6 +135,8 @@ def issue_session_context(
             issued_at,
             profile_version,
             resolved_timezone,
+            resolved_voice,
+            resolved_language,
         ),
         hashlib.sha256,
     ).hexdigest()
@@ -129,4 +151,8 @@ def issue_session_context(
         payload["profile_version"] = profile_version
     if resolved_timezone is not None:
         payload["timezone"] = resolved_timezone
+    if resolved_voice is not None:
+        payload["voice"] = resolved_voice
+    if resolved_language is not None:
+        payload["language"] = resolved_language
     return json.dumps(payload, separators=(",", ":"))

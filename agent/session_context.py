@@ -59,6 +59,8 @@ class VerifiedSessionContext:
     profile_version: Optional[int] = None
     verification: str = "livekit-dispatch"
     timezone: Optional[str] = None
+    voice: Optional[str] = None
+    language: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not self.session_id.strip() or not self.company_id.strip() or not self.auth_subject.strip():
@@ -83,6 +85,10 @@ class VerifiedSessionContext:
             payload["profile_version"] = self.profile_version
         if self.timezone is not None:
             payload["timezone"] = self.timezone
+        if self.voice is not None:
+            payload["voice"] = self.voice
+        if self.language is not None:
+            payload["language"] = self.language
         return payload
 
     def signed_metadata(self) -> str:
@@ -95,6 +101,8 @@ class VerifiedSessionContext:
                 "signature": self.signature,
                 **({"profile_version": self.profile_version} if self.profile_version is not None else {}),
                 **({"timezone": self.timezone} if self.timezone is not None else {}),
+                **({"voice": self.voice} if self.voice is not None else {}),
+                **({"language": self.language} if self.language is not None else {}),
             },
             separators=(",", ":"),
         )
@@ -107,12 +115,18 @@ def _signed_context_message(
     issued_at: int,
     profile_version: Optional[int] = None,
     timezone_name: Optional[str] = None,
+    voice: Optional[str] = None,
+    language: Optional[str] = None,
 ) -> bytes:
     payload = {"auth_subject": auth_subject, "company_id": company_id, "issued_at": issued_at, "session_id": session_id}
     if profile_version is not None:
         payload["profile_version"] = profile_version
     if timezone_name is not None:
         payload["timezone"] = timezone_name
+    if voice is not None:
+        payload["voice"] = voice
+    if language is not None:
+        payload["language"] = language
     return json.dumps(
         payload,
         sort_keys=True,
@@ -172,6 +186,12 @@ def load_verified_session_context(
         if timezone_name is not None:
             timezone_name = str(timezone_name)
             ZoneInfo(timezone_name)
+        voice = payload.get("voice")
+        if voice is not None:
+            voice = str(voice)
+        language = payload.get("language")
+        if language is not None:
+            language = str(language)
         if not session_id.strip() or not company_id.strip() or not auth_subject.strip() or not signature:
             logger.error("Session context verification failed: missing mandatory fields in payload: %s", list(payload.keys()))
             return None
@@ -182,7 +202,7 @@ def load_verified_session_context(
         expected = hmac.new(
             effective_secret.encode("utf-8"),
             _signed_context_message(
-                session_id, company_id, auth_subject, issued_at, profile_version, timezone_name
+                session_id, company_id, auth_subject, issued_at, profile_version, timezone_name, voice, language
             ),
             hashlib.sha256,
         ).hexdigest()
@@ -197,6 +217,8 @@ def load_verified_session_context(
             signature=signature,
             profile_version=profile_version,
             timezone=timezone_name,
+            voice=voice,
+            language=language,
         )
     except Exception as exc:
         logger.error("Session context verification error: %s: %s", type(exc).__name__, exc)

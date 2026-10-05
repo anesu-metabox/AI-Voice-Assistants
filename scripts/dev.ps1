@@ -257,7 +257,7 @@ try {
     $processes += $broker
 
     $backend = Start-ServiceProcess $backendPython `
-        @("-m", "uvicorn", "backend.app.main:app", "--port", "8000") `
+        @("-m", "uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000") `
         $projectRoot `
         @{
             CREDENTIAL_BROKER_SHARED_SECRET = $brokerSecret

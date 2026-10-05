@@ -566,6 +566,12 @@ export class VoiceBotStateMachine extends EventEmitter {
     } else if (packet.type === "task_update") {
       this.tasks.push(packet.task);
       this.emit("taskUpdate", packet.task);
+    } else if (packet.type === "quota_exhausted") {
+      this.error = {
+        code: packet.error || "RESOURCE_EXHAUSTED",
+        message: packet.message || "Gemini Live daily quota exceeded on Google API key. Please check AI Studio billing.",
+      };
+      this._transition("error");
     }
   }
 }

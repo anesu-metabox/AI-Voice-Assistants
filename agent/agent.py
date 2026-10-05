@@ -59,6 +59,19 @@ except (ImportError, ValueError):
             VoiceBotTTS = None
 
 try:
+    from .speaking_rate_unblock import patch_speaking_rate_unblock
+except (ImportError, ValueError):
+    try:
+        from agent.speaking_rate_unblock import patch_speaking_rate_unblock
+    except (ImportError, ValueError):
+        try:
+            from speaking_rate_unblock import patch_speaking_rate_unblock
+        except Exception:
+            patch_speaking_rate_unblock = lambda: False
+
+patch_speaking_rate_unblock()
+
+try:
     from .event_loop_monitor import monitor_active_conversation
     from .gemini_recovery import build_resilient_realtime_model, parse_recovery_delays
     from .lifecycle import AgentLifecyclePublisher
@@ -363,18 +376,109 @@ def configured_greeting(profile: Mapping[str, Any]) -> str:
     return greeting if greeting and len(greeting) <= 500 else ""
 
 
+QUOTA_EXHAUSTED_MESSAGE = (
+    "We are currently experiencing high volume and our voice service quota is temporarily limited. "
+    "Please try again shortly or reach out to our team directly."
+)
+
+
+def _is_quota_exhausted_error(error: Any) -> bool:
+    """Detect Google AI Studio / Gemini quota exhaustion errors (429 / RESOURCE_EXHAUSTED)."""
+    if error is None:
+        return False
+    msg = str(error)
+    name = type(error).__name__
+    return (
+        "429" in msg
+        or "RESOURCE_EXHAUSTED" in msg
+        or "ResourceExhausted" in name
+        or "quota" in msg.lower()
+        or "rate limit" in msg.lower()
+    )
+
+
+async def _handle_quota_exhausted(
+    room: rtc.Room,
+    session: Optional[AgentSession] = None,
+    scripted_tts: Optional[Any] = None,
+    lifecycle: Optional[Any] = None,
+) -> None:
+    """Notify UI via DataChannel, speak courteous fallback via offline TTS, and cleanly end session."""
+    room_name = getattr(room, "name", "unknown")
+    logger.error("Handling Gemini Live quota exhaustion for room: %s", room_name)
+
+    # 1. Publish DataChannel message to notify Web Sandbox & Mobile UI
+    try:
+        quota_packet = json.dumps({
+            "type": "quota_exhausted",
+            "error": "RESOURCE_EXHAUSTED",
+            "message": "Gemini Live daily quota exceeded on Google API key. Please check AI Studio billing.",
+        })
+        await room.local_participant.publish_data(quota_packet.encode("utf-8"), reliable=True)
+    except Exception as data_err:
+        logger.warning("Failed to publish quota_exhausted data packet: %s", data_err)
+
+    # 2. Transition lifecycle cleanly to failed with quota_exhausted code
+    if lifecycle is not None:
+        try:
+            await lifecycle.transition("failed", code="quota_exhausted", retryable=False)
+            await lifecycle.stop()
+        except Exception:
+            pass
+
+    # 3. Speak courteous fallback explanation via offline TTS (session.say)
+    try:
+        if session is not None and scripted_tts is not None:
+            handle = session.say(QUOTA_EXHAUSTED_MESSAGE, allow_interruptions=False)
+            if asyncio.iscoroutine(handle) or hasattr(handle, "__await__"):
+                await handle
+            # Allow audio playback buffer to drain
+            await asyncio.sleep(4.0)
+    except Exception as say_err:
+        logger.warning("Failed to speak quota fallback: %s", say_err)
+
+    # 4. Gracefully close room
+    try:
+        await room.disconnect()
+    except Exception:
+        pass
+
+
 async def speak_configured_greeting(session: AgentSession, greeting: str) -> bool:
-    """Speak the configured script once without generating a tool-capable reply."""
+    """Render the opening greeting using Gemini Live native audio, falling back to offline TTS on failure."""
     greeting = configured_greeting({"inbound_greeting": greeting})
     if not greeting:
         return False
     cleaned = clean_spoken_text(greeting)
     if not cleaned:
         return False
-    handle = session.say(cleaned, allow_interruptions=True)
-    if asyncio.iscoroutine(handle) or hasattr(handle, "__await__"):
-        await handle
-    return True
+
+    # 1. First attempt: render natively with Gemini Live so the voice actor persona matches 100%
+    try:
+        if hasattr(session, "generate_reply") and callable(getattr(session, "generate_reply")):
+            greeting_prompt = (
+                f"You are answering an inbound voice call. Immediately speak this greeting warmly to the caller without preamble: \"{cleaned}\""
+            )
+            handle = session.generate_reply(instructions=greeting_prompt, allow_interruptions=True)
+            if asyncio.iscoroutine(handle) or hasattr(handle, "__await__"):
+                await handle
+            return True
+    except Exception as gemini_exc:
+        logger.warning(
+            "Native Gemini Live greeting generation failed (error_type=%s), falling back to offline TTS: %s",
+            type(gemini_exc).__name__,
+            gemini_exc,
+        )
+
+    # 2. Emergency fallback: render via offline Edge-TTS
+    try:
+        handle = session.say(cleaned, allow_interruptions=True)
+        if asyncio.iscoroutine(handle) or hasattr(handle, "__await__"):
+            await handle
+        return True
+    except Exception as tts_exc:
+        logger.warning("Offline TTS greeting fallback failed: %s", tts_exc)
+        return False
 
 
 # ------------------------------------------------------------------------------
@@ -946,6 +1050,7 @@ def prewarm(proc: JobProcess) -> None:
     # Import the async transport stack before the first realtime turn. The
     # first AnyIO/httpcore import previously blocked the worker for >1 second.
     # Session reporting is imported lazily by LiveKit at teardown. Import it
+    patch_speaking_rate_unblock()
     proc.userdata["prewarmed"] = True
     logger.info("Audio, TLS, and schema dependencies prewarmed successfully.")
 
@@ -1010,14 +1115,22 @@ async def entrypoint(ctx: JobContext) -> None:
 
     # Fetch dynamic assistant & company profile configuration from backend
     active_instructions = SYSTEM_INSTRUCTION
-    active_voice = GEMINI_VOICE
+    active_voice = (
+        session_context.voice
+        if session_context and session_context.voice
+        else GEMINI_VOICE
+    )
     company_capabilities: Dict[str, Any] = {"google_calendar": {"enabled": True}}
     company_scope_context: Dict[str, Any] = {}
     allowed_tools = set(CALENDAR_TOOL_NAMES)
     redirect_response = CALENDAR_REDIRECT_RESPONSE
     inbound_greeting = ""
-    active_default_language = "en"
-    active_allowed_languages = ["en"]
+    active_default_language = (
+        session_context.language
+        if session_context and session_context.language
+        else "en"
+    )
+    active_allowed_languages = [active_default_language] if active_default_language else ["en"]
     runtime_behavior_instruction = ""
     profile_bootstrap_started_at = time.perf_counter()
     profile_bootstrap_trace_id = f"startup-{uuid.uuid4().hex}"
@@ -1274,13 +1387,19 @@ async def entrypoint(ctx: JobContext) -> None:
     @session.on("error")
     def on_session_error(event: Any):
         session_error = getattr(event, "error", None)
+        error_obj = getattr(session_error, "error", session_error)
         recoverable = bool(getattr(session_error, "recoverable", False))
         logger.warning(
             "AgentSession error event received: room=%s recoverable=%s error_type=%s",
             ctx.room.name,
             recoverable,
-            type(getattr(session_error, "error", session_error)).__name__,
+            type(error_obj).__name__,
         )
+        if _is_quota_exhausted_error(error_obj):
+            logger.error("Gemini Live quota exhausted mid-session: room=%s", ctx.room.name)
+            asyncio.create_task(_handle_quota_exhausted(ctx.room, session, scripted_tts, lifecycle))
+            return
+
         asyncio.create_task(
             lifecycle.transition(
                 "recovering" if recoverable else "failed",
@@ -1385,6 +1504,16 @@ async def entrypoint(ctx: JobContext) -> None:
 
             asyncio.create_task(_speak_greeting_task())
     except Exception as exc:
+        if _is_quota_exhausted_error(exc):
+            logger.error(
+                "Gemini Live quota exhausted during session startup: room=%s error=%s",
+                ctx.room.name,
+                exc,
+            )
+            await _handle_quota_exhausted(ctx.room, session, scripted_tts, lifecycle)
+            await agent.aclose()
+            return
+
         await lifecycle.transition(
             "failed", code="agent_startup_failed", retryable=False
         )

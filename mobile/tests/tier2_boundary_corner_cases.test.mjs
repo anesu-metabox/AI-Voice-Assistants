@@ -1,4 +1,4 @@
-import test, { describe, it, beforeEach } from "node:test";
+import test, { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import {
   LiveKitApiClient,
@@ -577,5 +577,59 @@ describe("Tier 2 - Boundary Cases: Reconnection After Connection Drops", () => {
     mockRoom.simulateFatalError(new Error("PeerConnection lost permanently"));
     assert.equal(stateMachine.connectionStatus, "error");
     assert.equal(stateMachine.error.code, "ROOM_DISCONNECT");
+  });
+});
+
+describe("Tier 2 - Boundary Cases: Gemini Quota Exhaustion Handling", () => {
+  let mockRoom;
+  let mockAudioSession;
+  let stateMachine;
+
+  beforeEach(() => {
+    mockRoom = new MockLiveKitRoom();
+    mockAudioSession = new MockAudioSession();
+    stateMachine = new VoiceBotStateMachine({
+      room: mockRoom,
+      audioSession: mockAudioSession,
+    });
+    mockRoom.simulateAgentJoined("calendar-assistant");
+    stateMachine.connectionStatus = "connected";
+  });
+
+  afterEach(async () => {
+    await stateMachine.cleanup();
+  });
+
+  it("2.8.1: Quota exhausted packet transitions state machine to error and sets RESOURCE_EXHAUSTED code", () => {
+    mockRoom.simulateIncomingDataPacket({
+      type: "quota_exhausted",
+      error: "RESOURCE_EXHAUSTED",
+      message: "Gemini Live daily quota exceeded on Google API key. Please check AI Studio billing.",
+    });
+
+    assert.equal(stateMachine.connectionStatus, "error");
+    assert.ok(stateMachine.error);
+    assert.equal(stateMachine.error.code, "RESOURCE_EXHAUSTED");
+  });
+
+  it("2.8.2: Quota exhausted packet captures friendly error message for UI display", () => {
+    const quotaMsg = "Daily token limit reached for Gemini Live.";
+    mockRoom.simulateIncomingDataPacket({
+      type: "quota_exhausted",
+      error: "RESOURCE_EXHAUSTED",
+      message: quotaMsg,
+    });
+
+    assert.equal(stateMachine.error.message, quotaMsg);
+  });
+
+  it("2.8.3: Malformed quota packet falls back to default RESOURCE_EXHAUSTED message", () => {
+    mockRoom.simulateIncomingDataPacket({
+      type: "quota_exhausted",
+    });
+
+    assert.equal(stateMachine.connectionStatus, "error");
+    assert.equal(stateMachine.error.code, "RESOURCE_EXHAUSTED");
+    assert.ok(stateMachine.error.message.includes("quota"));
   });
 });
