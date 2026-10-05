@@ -44,6 +44,13 @@ Neon verification do not substitute for these production checks.
   traffic as `neondb_owner` or another role with `rolbypassrls=true`.
 - [ ] Configure the same high-entropy
   `LIVEKIT_SESSION_CONTEXT_SECRET` in Next.js, FastAPI, and the LiveKit worker.
+- [ ] For the temporary SIP proof-of-life only, enable `SIP_PILOT_MODE=true`
+  only on an isolated worker for the approved SIP ingress. Set
+  `SIP_PILOT_AGENT_NAME`, `SIP_PILOT_ROOM_PREFIX`, `SIP_PILOT_COMPANY_ID`,
+  `SIP_PILOT_AUTH_SUBJECT`, `SIP_PILOT_PROFILE_VERSION`, and
+  `SIP_PILOT_TIMEZONE` from the confirmed tenant/profile record. Do not enable
+  this on a shared worker or use caller ANI as tenant identity. Disable it after
+  the pilot and replace it with the production SIP admission design.
 - [ ] Configure `GOOGLE_OAUTH_STATE_SECRET`, Neon Auth server settings, and
   trusted production origins.
 - [ ] Rotate/revoke credentials previously exposed in local development files

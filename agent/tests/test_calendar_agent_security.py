@@ -102,6 +102,36 @@ def test_invalid_dispatch_context_fails_closed(metadata: str | None, secret: str
     assert agent.load_verified_session_context(metadata, signing_secret=secret) is None
 
 
+def test_sip_pilot_context_requires_explicit_gates_and_signs_fixed_tenant(monkeypatch) -> None:
+    monkeypatch.setenv("LIVEKIT_SESSION_CONTEXT_SECRET", "pilot-secret")
+    monkeypatch.setenv("SIP_PILOT_MODE", "true")
+    monkeypatch.setenv("SIP_PILOT_AGENT_NAME", "calendar-assistant")
+    monkeypatch.setenv("SIP_PILOT_ROOM_PREFIX", "call-")
+    monkeypatch.setenv("SIP_PILOT_COMPANY_ID", "company-pilot")
+    monkeypatch.setenv("SIP_PILOT_AUTH_SUBJECT", "sip-pilot-service")
+    monkeypatch.setenv("SIP_PILOT_PROFILE_VERSION", "14")
+    monkeypatch.setenv("SIP_PILOT_TIMEZONE", "Indian/Mauritius")
+
+    context = agent.load_sip_pilot_context(
+        "", room_name="call-opaque-room", agent_name="calendar-assistant", now=1_700_000_000
+    )
+
+    assert context is not None
+    assert context.company_id == "company-pilot"
+    assert context.auth_subject == "sip-pilot-service"
+    assert context.profile_version == 14
+    assert agent.load_verified_session_context(
+        context.signed_metadata(), signing_secret="pilot-secret", now=1_700_000_001
+    ) is not None
+
+    assert agent.load_sip_pilot_context(
+        "", room_name="sandbox-opaque-room", agent_name="calendar-assistant"
+    ) is None
+    assert agent.load_sip_pilot_context(
+        "not-json", room_name="call-opaque-room", agent_name="calendar-assistant"
+    ) is None
+
+
 @pytest.mark.asyncio
 async def test_backend_dispatch_requires_verified_context() -> None:
     client = AsyncMock()

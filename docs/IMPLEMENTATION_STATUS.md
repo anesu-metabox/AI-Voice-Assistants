@@ -26,6 +26,12 @@ This file is the handoff status for collaborators implementing the platform road
 - LiveKit is the only active voice path; browser-direct Gemini is disabled.
 - LiveKit sessions use client session IDs, deterministic room names, idempotent dispatch records, single-flight connection guards, cleanup, and transcript deduplication.
 - The worker validates signed LiveKit metadata and exposes only the four calendar tools.
+- A gated SIP pilot path now supports the current LiveKit SIP room shape when
+  `SIP_PILOT_MODE` and all fixed tenant/profile gates are explicitly configured.
+  It issues a short-lived HMAC context for the fixed pilot service identity only;
+  missing or invalid non-empty dispatch metadata still fails closed. This is a
+  temporary proof-of-life mechanism, not the production multi-tenant SIP
+  admission design.
 - The worker now applies the shared deterministic scope decision in LiveKit's `on_user_turn_completed` hook; rejected turns speak only the standard redirect and stop before Gemini/tool execution.
 - Active LiveKit conversations now run a low-overhead event-loop wake-interval monitor (50 ms sampling, 100 ms stall threshold); it logs only session ID and observed interval and stops on session close. Focused standard-library tests detect a deliberate 160 ms blocking positive control and verify prompt monitor shutdown. This does not yet replace a production-like multi-session latency acceptance run.
 - Browser and backend tool routes fail closed without a verified tenant context.

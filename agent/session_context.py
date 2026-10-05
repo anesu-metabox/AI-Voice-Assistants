@@ -13,6 +13,7 @@ import logging
 import os
 from pathlib import Path
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -39,6 +40,86 @@ SESSION_CONTEXT_MAX_AGE_SECONDS = (
     if 0 < _configured_context_age <= 15 * 60
     else 0
 )
+
+
+def load_sip_pilot_context(
+    metadata: str | Mapping[str, Any] | None,
+    *,
+    room_name: str,
+    agent_name: str,
+    now: Optional[float] = None,
+) -> Optional[VerifiedSessionContext]:
+    """Issue a fixed, explicitly enabled context for the isolated SIP pilot.
+
+    This is deliberately not a general fallback for missing dispatch metadata.
+    It requires a deployment opt-in, an exact room prefix, an exact agent name,
+    and a configured tenant/profile. The caller identity is a service identity;
+    SIP ANI is never used for authorization. Invalid non-empty metadata is not
+    bypassed by this helper.
+    """
+    pilot_enabled = os.getenv("SIP_PILOT_MODE", "false").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+    if not pilot_enabled or metadata not in (None, ""):
+        return None
+
+    expected_agent = os.getenv("SIP_PILOT_AGENT_NAME", "").strip()
+    room_prefix = os.getenv("SIP_PILOT_ROOM_PREFIX", "").strip()
+    company_id = os.getenv("SIP_PILOT_COMPANY_ID", "").strip()
+    auth_subject = os.getenv("SIP_PILOT_AUTH_SUBJECT", "").strip()
+    timezone_name = os.getenv("SIP_PILOT_TIMEZONE", "").strip() or None
+    try:
+        profile_version = int(os.getenv("SIP_PILOT_PROFILE_VERSION", "0"))
+    except (TypeError, ValueError):
+        profile_version = 0
+
+    signing_secret = os.getenv("LIVEKIT_SESSION_CONTEXT_SECRET", SESSION_CONTEXT_SIGNING_SECRET)
+    if (
+        not expected_agent
+        or agent_name != expected_agent
+        or not room_prefix
+        or not room_name.startswith(room_prefix)
+        or not company_id
+        or not auth_subject
+        or profile_version <= 0
+        or not signing_secret
+    ):
+        return None
+
+    if timezone_name is not None:
+        try:
+            ZoneInfo(timezone_name)
+        except (ZoneInfoNotFoundError, ValueError):
+            return None
+
+    issued_at = int(time.time() if now is None else now)
+    session_id = f"sip-pilot-{uuid.uuid5(uuid.NAMESPACE_URL, room_name).hex}"
+    signature = hmac.new(
+        signing_secret.encode("utf-8"),
+        _signed_context_message(
+            session_id,
+            company_id,
+            auth_subject,
+            issued_at,
+            profile_version,
+            timezone_name,
+        ),
+        hashlib.sha256,
+    ).hexdigest()
+    logger.warning(
+        "SIP pilot context issued for gated room prefix (company_id=%s, profile_version=%s)",
+        company_id,
+        profile_version,
+    )
+    return VerifiedSessionContext(
+        session_id=session_id,
+        company_id=company_id,
+        auth_subject=auth_subject,
+        issued_at=issued_at,
+        signature=signature,
+        profile_version=profile_version,
+        timezone=timezone_name,
+    )
 
 
 @dataclass(frozen=True)

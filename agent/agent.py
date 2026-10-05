@@ -260,6 +260,7 @@ try:
         VerifiedSessionContext,
         _signed_context_message,
         load_verified_session_context,
+        load_sip_pilot_context,
         require_bound_profile_snapshot,
     )
 except (ImportError, ValueError):
@@ -268,6 +269,7 @@ except (ImportError, ValueError):
             VerifiedSessionContext,
             _signed_context_message,
             load_verified_session_context,
+            load_sip_pilot_context,
             require_bound_profile_snapshot,
         )
     except ImportError:
@@ -275,6 +277,7 @@ except (ImportError, ValueError):
             VerifiedSessionContext,
             _signed_context_message,
             load_verified_session_context,
+            load_sip_pilot_context,
             require_bound_profile_snapshot,
         )
 
@@ -991,9 +994,15 @@ async def entrypoint(ctx: JobContext) -> None:
     import numpy.fft
 
     logger.info("Connecting to room: %s", ctx.room.name)
-    session_context = load_verified_session_context(
-        getattr(getattr(ctx, "job", None), "metadata", None)
-    )
+    job = getattr(ctx, "job", None)
+    job_metadata = getattr(job, "metadata", None)
+    session_context = load_verified_session_context(job_metadata)
+    if session_context is None and job_metadata in (None, ""):
+        session_context = load_sip_pilot_context(
+            job_metadata,
+            room_name=ctx.room.name,
+            agent_name=str(getattr(job, "agent_name", None) or AGENT_NAME),
+        )
     if session_context is None:
         logger.error("LiveKit job rejected: verified session/company context is missing or invalid")
         raise PermissionError("Verified session/company context is required")
