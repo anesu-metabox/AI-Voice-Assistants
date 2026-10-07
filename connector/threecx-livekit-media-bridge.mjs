@@ -29,6 +29,7 @@ export class ThreeCxLiveKitMediaBridge {
     isAuthorizedAgent,
     onSignal = () => {},
     onFailure,
+    onHangup,
     maxBufferedMs = MAX_BUFFERED_MS,
     dependencies = {},
   }) {
@@ -54,6 +55,7 @@ export class ThreeCxLiveKitMediaBridge {
     this.isAuthorizedAgent = isAuthorizedAgent;
     this.onSignal = onSignal;
     this.onFailure = onFailure;
+    this.onHangup = onHangup;
     this.maxBufferedMs = maxBufferedMs;
     this.dependencies = {
       AudioSource,
@@ -74,6 +76,7 @@ export class ThreeCxLiveKitMediaBridge {
     this.readerTasks = new Set();
     this.closed = false;
     this.failed = false;
+    this.hangingUp = false;
     this.started = false;
     this.onTrackPublished = (publication, remoteParticipant) => {
       void this.#onTrackPublished(publication, remoteParticipant);
@@ -85,14 +88,27 @@ export class ThreeCxLiveKitMediaBridge {
       void task.finally(() => this.readerTasks.delete(task));
     };
     this.onTrackUnsubscribed = (track, _publication, remoteParticipant) => {
-      if (this.#isAuthorized(remoteParticipant)) this.#fail("agent_audio_unsubscribed");
+      if (this.#isAuthorized(remoteParticipant) && !this.hangingUp) this.#fail("agent_audio_unsubscribed");
       void this.#stopReaderForTrack(track);
     };
     this.onParticipantDisconnected = (remoteParticipant) => {
-      if (this.#isAuthorized(remoteParticipant)) this.#fail("verified_agent_disconnected");
+      if (this.#isAuthorized(remoteParticipant) && !this.hangingUp) this.#fail("verified_agent_disconnected");
+    };
+    this.onDataReceived = (payload) => {
+      try {
+        const text = new TextDecoder().decode(payload);
+        const data = JSON.parse(text);
+        if (data?.type === "call_hangup") {
+          this.hangingUp = true;
+          this.#signal("agent_hangup_signaled");
+          if (typeof this.onHangup === "function") {
+            void this.onHangup({ reason: data.reason || "agent_completed" });
+          }
+        }
+      } catch { /* ignore non-JSON or other packets */ }
     };
     this.onRoomDisconnected = () => {
-      if (!this.closed) this.#fail("livekit_room_disconnected");
+      if (!this.closed && !this.hangingUp) this.#fail("livekit_room_disconnected");
     };
   }
 
@@ -104,6 +120,7 @@ export class ThreeCxLiveKitMediaBridge {
     this.room.on("trackSubscribed", this.onTrackSubscribed);
     this.room.on("trackUnsubscribed", this.onTrackUnsubscribed);
     this.room.on("participantDisconnected", this.onParticipantDisconnected);
+    this.room.on("dataReceived", this.onDataReceived);
     this.room.on("disconnected", this.onRoomDisconnected);
 
     try {
@@ -166,6 +183,7 @@ export class ThreeCxLiveKitMediaBridge {
     this.room.off("trackSubscribed", this.onTrackSubscribed);
     this.room.off("trackUnsubscribed", this.onTrackUnsubscribed);
     this.room.off("participantDisconnected", this.onParticipantDisconnected);
+    this.room.off?.("dataReceived", this.onDataReceived);
     this.room.off("disconnected", this.onRoomDisconnected);
     this.inboundReadable?.destroy?.();
     for (const reader of this.activeReaders.values()) {

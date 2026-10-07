@@ -51,6 +51,11 @@
       "^(bonjour|salut|bonsoir|bonne journée|bonne journee)[!. ]*$",
       "^(thanks|thank you|okay|ok|got it|cool|great)[!. ]*$",
       "^(merci|d'accord|compris|très bien|tres bien|parfait)[!. ]*$",
+      "^(bye|goodbye|bye bye|see you|have a (good|great|nice) day|talk to you later)[!. ]*$",
+      "^(au revoir|bonne journ[eé]e|bonne soir[eé]e|à bient[oô]t|a bientot)[!. ]*$",
+      "^(that(?:'s| is) all|that(?:'s| is) everything|nothing else|no that(?:'s| is) all|no thanks|no thank you|i(?:'m| am) all set|all done|that will be all|hang up|end (the )?call)(?:,?\\s*(?:thanks|thank you))?[!. ]*$",
+      "^(?:thanks|thank you)[, ]+(that(?:'s| is) all|that(?:'s| is) everything)[!. ]*$",
+      "^(c'est tout|ce sera tout|rien d'autre|merci c'est tout|raccrocher)[!. ]*$",
       "\\b(what can you do|how can you help|are you there|who are you)\\b",
       "\\b(que pouvez-vous faire|comment pouvez-vous m'aider|vous êtes là|vous etes la|qui êtes-vous|qui etes-vous)\\b"
     ],

@@ -288,3 +288,20 @@ async def delete_threecx_integration(company_id: str) -> bool:
             await conn.execute("SELECT set_config('app.company_id', $1, true)", company_id)
             result = await conn.execute("DELETE FROM threecx_integrations WHERE company_id=$1", uuid.UUID(company_id))
         return result.endswith("1")
+
+
+async def list_active_threecx_integrations() -> list[dict[str, Any]]:
+    """Query all active 3CX integrations across companies for connector supervision."""
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT company_id, connection_name, pbx_hostname, app_id,
+                      route_point_dn, dids, transfer_destinations,
+                      failure_action, failure_destination, state,
+                      credential_updated_at, last_checked_at
+               FROM threecx_integrations
+               WHERE state = 'active'
+               ORDER BY company_id"""
+        )
+        return [dict(row) for row in rows]
+

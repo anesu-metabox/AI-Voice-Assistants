@@ -129,6 +129,7 @@ except ImportError:
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voice_bot.agent")
+SILENCE_WATCHDOG_DEFAULT_TIMEOUT_SECONDS: float = 15.0
 _PREWARMED_SSL_CONTEXT: Optional[ssl.SSLContext] = None
 
 
@@ -501,8 +502,8 @@ class VoiceBotAgent(Agent):
         self._allowed_languages = frozenset(allowed)
         self._clarification_count = 0
         self._scripted_tts = scripted_tts
-        super().__init__(instructions=self._instructions_for_language(default_language))
         permitted_tools = set(CALENDAR_TOOL_NAMES) if allowed_tools is None else set(allowed_tools)
+        permitted_tools.update({"hang_up_call", "end_call"})
         self._tools = [
             tool for tool in self._tools
             if getattr(getattr(tool, "info", None), "name", None) in permitted_tools
@@ -914,6 +915,55 @@ class VoiceBotAgent(Agent):
             )
             return json.dumps({"error": "Calendar action failed. Please try again.", "status": "failed"})
 
+    # --- Tool 5: hang_up_call (Call Lifecycle Control) ---
+    @llm.function_tool(
+        description="Politely conclude and hang up the phone call when the conversation is finished, when the caller says goodbye/bye, indicates they are done or need nothing else, or asks to end the call."
+    )
+    async def hang_up_call(
+        self,
+        ctx: RunContext = None,
+        farewell_message: Annotated[Optional[str], "A short, polite goodbye phrase to say before hanging up, e.g. 'Thank you for calling. Have a great day! Goodbye.'"] = None,
+    ) -> str:
+        task_id = f"task_{uuid.uuid4().hex[:8]}"
+        title = "Ending call"
+        await broadcast_task_update(self.room, task_id, title, "hang_up_call", "completed")
+
+        try:
+            packet = json.dumps({
+                "type": "call_hangup",
+                "reason": "agent_completed",
+                "farewell": farewell_message or "Goodbye",
+            }).encode("utf-8")
+            if hasattr(self.room, "local_participant") and self.room.local_participant:
+                await self.room.local_participant.publish_data(packet, reliable=True)
+        except Exception as exc:
+            logger.warning("Failed to publish call_hangup data packet (error_type=%s)", type(exc).__name__)
+
+        async def _graceful_room_disconnect() -> None:
+            try:
+                await asyncio.sleep(2.0)
+                if hasattr(self.room, "disconnect"):
+                    await self.room.disconnect()
+            except Exception as exc:
+                logger.debug("Room disconnect completed: %s", exc)
+
+        asyncio.create_task(_graceful_room_disconnect())
+        return json.dumps({
+            "status": "call_ending",
+            "message": farewell_message or "Thank you for calling. Have a great day, goodbye!",
+        })
+
+    # --- Tool 6: end_call (Alias for hang_up_call) ---
+    @llm.function_tool(
+        description="Alias for hang_up_call. End the phone call when interaction is complete."
+    )
+    async def end_call(
+        self,
+        ctx: RunContext = None,
+        farewell_message: Annotated[Optional[str], "Optional polite farewell message."] = None,
+    ) -> str:
+        return await self.hang_up_call(ctx=ctx, farewell_message=farewell_message)
+
 # ------------------------------------------------------------------------------
 # Worker Prewarm Routine (R3)
 # ------------------------------------------------------------------------------
@@ -1324,6 +1374,9 @@ async def entrypoint(ctx: JobContext) -> None:
         except Exception as exc:
             logger.warning("conversation_item_added listener failed (error_type=%s)", type(exc).__name__)
 
+    silence_watchdog_stop = asyncio.Event()
+    last_user_activity = [time.monotonic()]
+
     @session.on("user_input_transcribed")
     def on_user_input(event: UserInputTranscribedEvent):
         try:
@@ -1331,6 +1384,7 @@ async def entrypoint(ctx: JobContext) -> None:
             # Publish only the final segment; partials otherwise appear as
             # separate messages before the final event arrives.
             if event.transcript and event.is_final:
+                last_user_activity[0] = time.monotonic()
                 asyncio.create_task(
                     broadcast_transcript(
                         ctx.room,
@@ -1348,6 +1402,7 @@ async def entrypoint(ctx: JobContext) -> None:
         # AgentSession.start() returns after startup; the conversation continues
         # on LiveKit tasks. Close the backend client only when LiveKit actually
         # tears down the session.
+        silence_watchdog_stop.set()
         event_loop_monitor_stop.set()
         if event_loop_monitor_task is not None:
             async def _join_event_loop_monitor() -> None:
@@ -1380,6 +1435,28 @@ async def entrypoint(ctx: JobContext) -> None:
             monitor_active_conversation(session_context.session_id, event_loop_monitor_stop),
             name=f"voice-event-loop-monitor-{session_context.session_id}",
         )
+
+        async def _silence_watchdog() -> None:
+            silence_timeout = float(os.environ.get("SILENCE_WATCHDOG_TIMEOUT_SECONDS", str(SILENCE_WATCHDOG_DEFAULT_TIMEOUT_SECONDS)))
+            while not silence_watchdog_stop.is_set():
+                await asyncio.sleep(1.0)
+                if silence_watchdog_stop.is_set():
+                    break
+                idle_seconds = time.monotonic() - last_user_activity[0]
+                if idle_seconds >= silence_timeout:
+                    logger.info("Call silence watchdog timeout triggered (idle=%.1fs, limit=%.1fs): room=%s", idle_seconds, silence_timeout, ctx.room.name)
+                    silence_watchdog_stop.set()
+                    try:
+                        packet = json.dumps({"type": "call_hangup", "reason": "inactivity_timeout"}).encode("utf-8")
+                        if ctx.room.local_participant:
+                            await ctx.room.local_participant.publish_data(packet, reliable=True)
+                        await asyncio.sleep(1.5)
+                        await ctx.room.disconnect()
+                    except Exception:
+                        pass
+                    break
+
+        asyncio.create_task(_silence_watchdog())
         if inbound_greeting:
             async def _speak_greeting_task() -> None:
                 try:

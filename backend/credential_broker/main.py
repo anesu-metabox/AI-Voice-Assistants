@@ -415,3 +415,27 @@ async def threecx_save(payload: dict = Depends(verify_broker_request)):
         "pbxHost": saved["pbx_hostname"],
         "state": saved["state"],
     }
+
+
+@app.get("/internal/v1/threecx/active-tenants")
+async def threecx_active_tenants(_authorized: bool = Depends(require_broker_secret)):
+    from db.threecx import list_active_threecx_integrations
+    integrations = await list_active_threecx_integrations()
+    return {
+        "tenants": [
+            {
+                "companyId": str(row["company_id"]),
+                "connectionName": row["connection_name"],
+                "pbxHostname": row["pbx_hostname"],
+                "appId": row["app_id"],
+                "routePointDn": row["route_point_dn"],
+                "dids": row["dids"],
+                "transferDestinations": row["transfer_destinations"],
+                "failureAction": row["failure_action"],
+                "failureDestination": row["failure_destination"],
+                "credentialUpdatedAt": row["credential_updated_at"].isoformat() if row.get("credential_updated_at") else None,
+            }
+            for row in integrations
+        ]
+    }
+

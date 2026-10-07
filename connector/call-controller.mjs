@@ -206,6 +206,42 @@ export class ThreeCxCallController {
   }
 
   /**
+   * Handle clean termination signaled by the AI agent (e.g. caller said goodbye
+   * or interaction completed) without triggering error fallback policies.
+   */
+  async handleCallHangup({ sessionId, reason = "agent_completed" } = {}) {
+    if (!boundedString(sessionId, 255)) return this.#decision("invalid_call_hangup");
+    const entry = [...this.calls.values()].find((call) => call.sessionId === sessionId);
+    if (!entry) return this.#decision("call_not_tracked");
+
+    return this.#serialize(entry, async () => {
+      this.#clearLeaseRenewal(entry);
+      if (["ended", "failed"].includes(entry.state)) return this.#decision("already_terminal");
+      if (entry.state !== "ending" && !(await this.#transition(entry, "ending"))) {
+        return this.#decision("end_transition_lost");
+      }
+      if (!(await this.#cleanup(entry))) return this.#decision("cleanup_incomplete");
+
+      // Drop PBX participant using the PBX fallback handler with disconnect action
+      let hangupComplete = false;
+      try {
+        hangupComplete = await this.handlePbxFallback({
+          companyId: this.binding.companyId,
+          integrationId: this.binding.integrationId,
+          pbxParticipantId: entry.participantId,
+          sessionId: entry.sessionId,
+          reason,
+          failureAction: "disconnect",
+        }) === true;
+      } catch { /* PBX errors caught */ }
+
+      if (!(await this.#transition(entry, "ended"))) return this.#decision("end_transition_lost");
+      this.calls.delete(entry.callId);
+      return this.#decision("call_ended_normally");
+    });
+  }
+
+  /**
    * Stop accepting new calls and drain active claims before process shutdown.
    * The configured PBX fallback must actually transfer/drop the caller; merely
    * stopping local media is not considered successful cleanup.

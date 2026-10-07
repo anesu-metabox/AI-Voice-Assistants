@@ -41,10 +41,16 @@ export async function startVerifiedThreeCxLiveKitMediaBridge({
       throw new Error("tenant_call_fallback_incomplete");
     }
   };
+  const onHangup = async ({ reason = "agent_completed" } = {}) => {
+    if (typeof controller.handleCallHangup === "function") {
+      await controller.handleCallHangup({ sessionId, reason });
+    }
+  };
   const bridge = new ThreeCxLiveKitMediaBridge({
     ...bridgeOptions,
     dispatchId,
     onFailure,
+    onHangup,
     isAuthorizedAgent: createDispatchAgentVerifier({ dispatchId, participantIdentity }),
   });
   await bridge.start();

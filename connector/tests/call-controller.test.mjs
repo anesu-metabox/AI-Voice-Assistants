@@ -354,6 +354,27 @@ test("shutdown waits for an in-flight call claim before draining it", async () =
   assert.equal(app.calls.get(`${companyId}:pbx-call-secret`).state, "ended");
 });
 
+test("handles call hangup cleanly without triggering error fallback policy", async () => {
+  const app = setup();
+  const join = await app.controller.handleEvent(joined());
+  assert.equal(join.reason, "call_active");
+  const callRecord = app.calls.get(`${companyId}:pbx-call-secret`);
+  assert.equal(callRecord.state, "active");
+
+  const hangup = await app.controller.handleCallHangup({
+    sessionId: app.mediaAttachments[0].sessionId,
+    reason: "agent_completed",
+  });
+
+  assert.equal(hangup.reason, "call_ended_normally");
+  assert.equal(app.mediaCloses, 1);
+  assert.equal(app.stops.length, 1);
+  assert.equal(app.fallbacks.length, 1);
+  assert.equal(app.fallbacks[0].failureAction, "disconnect");
+  assert.equal(callRecord.state, "ended");
+  assert.equal(app.controller.calls.has("pbx-call-secret"), false);
+});
+
 test("requires a verified tenant, user, and published profile binding", () => {
   const app = setup({ tenantBinding: { clientSecret: "must-not-be-retained", opaqueCredential: { value: "sensitive" } } });
   assert.throws(() => new ThreeCxCallController({
