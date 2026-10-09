@@ -129,7 +129,7 @@ except ImportError:
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voice_bot.agent")
-SILENCE_WATCHDOG_DEFAULT_TIMEOUT_SECONDS: float = 60.0
+SILENCE_WATCHDOG_DEFAULT_TIMEOUT_SECONDS: float = 15.0
 _PREWARMED_SSL_CONTEXT: Optional[ssl.SSLContext] = None
 
 
@@ -502,7 +502,6 @@ class VoiceBotAgent(Agent):
         self._allowed_languages = frozenset(allowed)
         self._clarification_count = 0
         self._scripted_tts = scripted_tts
-        super().__init__(instructions=self._instructions_for_language(default_language))
         permitted_tools = set(CALENDAR_TOOL_NAMES) if allowed_tools is None else set(allowed_tools)
         permitted_tools.update({"hang_up_call", "end_call"})
         self._tools = [
@@ -1496,7 +1495,7 @@ def build_worker_options() -> WorkerOptions:
         ws_url=LIVEKIT_URL,
         agent_name=AGENT_NAME,
         num_idle_processes=1,
-        port=int(os.getenv("PORT", "8081")),
+        port=8081,
     )
 
 
