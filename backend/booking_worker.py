@@ -200,6 +200,26 @@ class TemporaryProviderFailure(Exception):
     pass
 
 
+async def _start_health_server(port: int) -> asyncio.AbstractServer:
+    """Minimal HTTP 200 responder for container health checks (e.g. Cloud Run)."""
+    async def _handle_health(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            await reader.readline()
+            response = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK"
+            writer.write(response)
+            await writer.drain()
+        except Exception:
+            pass
+        finally:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    return await asyncio.start_server(_handle_health, "0.0.0.0", port)
+
+
 async def run_worker() -> None:
     from dotenv import load_dotenv
     load_dotenv()
@@ -245,6 +265,11 @@ async def run_worker() -> None:
         ):
             await pool.close()
             raise RuntimeError("Database identity is not the restricted booking worker role")
+    health_port_str = os.getenv("PORT")
+    health_server = None
+    if health_port_str and health_port_str.isdigit():
+        health_server = await _start_health_server(int(health_port_str))
+        logger.info("Booking worker health probe server listening on port %s", health_port_str)
     logger.info("Calendar booking worker started")
     try:
         while True:
@@ -254,6 +279,9 @@ async def run_worker() -> None:
                 continue
             await process_booking_request(pool, job)
     finally:
+        if health_server is not None:
+            health_server.close()
+            await health_server.wait_closed()
         await pool.close()
 
 
